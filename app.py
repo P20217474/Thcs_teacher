@@ -353,11 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_v6" not in st.session_state:
+if "app_started_v7" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v6"] = True
+    st.session_state["app_started_v7"] = True
 
 
 defaults = {
@@ -649,7 +649,7 @@ def build_exec_prompt(plan):
             src_text += "\n=== NGUỒN SGK ===\n" + st.session_state["sources"][f][:25000]
 
     prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n\n"
-    prompt += "NHIỆM VỤ: Soạn KẾ HOẠCH BÀI DẠY theo ĐÚNG mẫu CV 5512.\n\n"
+    prompt += "NHIỆM VỤ: Soạn KẾ HOẠCH BÀI DẠY theo ĐÚNG mẫu Công văn 5512.\n\n"
     prompt += "THÔNG TIN:\n"
     prompt += "- GV: " + mem.get("teacher_name", "") + " | Trường: " + mem.get("school", "") + "\n"
     prompt += "- Môn: " + plan.get("subject", "") + " | Khối: " + plan.get("grade", "") + "\n"
@@ -660,7 +660,11 @@ def build_exec_prompt(plan):
     if src_text: prompt += src_text + "\n"
 
     prompt += "=== CẤU TRÚC BẮT BUỘC ===\n\n"
-    prompt += "**I. MỤC TIÊU**\n"
+    prompt += "**TÊN BÀI DẠY: " + plan.get("topic", "") + "**\n"
+    prompt += "**Môn học: " + plan.get("subject", "") + "; lớp: " + plan.get("grade", "") + "**\n"
+    prompt += "**Thời gian thực hiện: " + (plan.get("period") or "1") + " tiết**\n\n"
+
+    prompt += "**I. Mục tiêu**\n"
     prompt += "1. Kiến thức:\n"
     prompt += "[2-4 đoạn văn mô tả kiến thức, KHÔNG dùng dấu gạch đầu dòng]\n"
     prompt += "2. Năng lực:\n"
@@ -669,16 +673,16 @@ def build_exec_prompt(plan):
     prompt += "3. Phẩm chất:\n"
     prompt += "Bồi dưỡng hứng thú học tập, ý thức làm việc nhóm, ý thức tìm tòi, khám phá và sáng tạo cho HS => độc lập, tự tin và tự chủ.\n\n"
 
-    prompt += "**II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU**\n"
-    prompt += "1. Đối với giáo viên: Kế hoạch bài dạy, SGK, SGV, phiếu học tập, thước kẻ, phấn màu, tivi (hoặc máy vi tính) nếu cần trình chiếu.\n"
-    prompt += "2. Đối với học sinh: SGK, vở ghi, đồ dùng học tập, ôn tập kiến thức đã học.\n\n"
+    prompt += "**II. Thiết bị dạy học và học liệu**\n"
+    prompt += "**1. Đối với giáo viên:** Kế hoạch bài dạy, SGK, SGV, phiếu học tập, thước kẻ, phấn màu, tivi (hoặc máy vi tính) nếu cần trình chiếu.\n"
+    prompt += "**2. Đối với học sinh:** SGK, vở ghi, đồ dùng học tập, ôn tập kiến thức đã học.\n\n"
 
-    prompt += "**III. TIẾN TRÌNH DẠY HỌC**\n\n"
+    prompt += "**III. Tiến trình dạy học**\n\n"
 
-    prompt += "**1. Hoạt động 1: Mở đầu (Khởi động)**\n"
-    prompt += "a) Mục tiêu: [2 câu]\n"
-    prompt += "b) Nội dung: [1-2 câu mô tả]\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+    prompt += "**1. Hoạt động 1: Mở đầu**\n"
+    prompt += "**a) Mục tiêu:** [2 câu: gây hứng thú + gợi mở nội dung]\n"
+    prompt += "**b) Nội dung:** [1-2 câu mô tả ngắn gọn]\n"
+    prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
     prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV đặt vấn đề...<br>GV đặt câu hỏi: ... | [Sản phẩm dự kiến] |\n"
@@ -686,10 +690,10 @@ def build_exec_prompt(plan):
     prompt += "| Bước 3: Báo cáo, thảo luận:<br>GV gọi đại diện HS trả lời... | |\n"
     prompt += "| Bước 4: Kết luận, nhận định:<br>GV đánh giá, dẫn dắt vào bài mới | |\n\n"
 
-    prompt += "**2. Hoạt động 2: Hình thành kiến thức mới**\n"
-    prompt += "a) Mục tiêu: [mô tả]\n"
-    prompt += "b) Nội dung: [mô tả]\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+    prompt += "**2. Hoạt động 2: Giải quyết vấn đề từ Hoạt động 1**\n"
+    prompt += "**a) Mục tiêu:** [mô tả mục tiêu giúp HS chiếm lĩnh kiến thức mới]\n"
+    prompt += "**b) Nội dung:** [nêu rõ nội dung yêu cầu/nhiệm vụ cụ thể của HS làm việc với SGK]\n"
+    prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
     prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV hướng dẫn và yêu cầu HS thực hiện... | [Kiến thức trọng tâm]<br>Ví dụ 1: ...<br>Ví dụ 2: ... |\n"
@@ -698,20 +702,25 @@ def build_exec_prompt(plan):
     prompt += "| Bước 4: Kết luận, nhận định:<br>GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính | |\n\n"
 
     prompt += "**3. Hoạt động 3: Luyện tập**\n"
-    prompt += "a) Mục tiêu: Học sinh củng cố lại kiến thức thông qua một số bài tập.\n"
-    prompt += "b) Nội dung: HS dựa vào kiến thức đã học vận dụng làm BT.\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+    prompt += "**a) Mục tiêu:** Học sinh củng cố lại kiến thức thông qua một số bài tập.\n"
+    prompt += "**b) Nội dung:** HS dựa vào kiến thức đã học vận dụng làm BT.\n"
+    prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
     prompt += "| GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK). | Bài [số]:<br>[Lời giải chi tiết] |\n\n"
 
-    prompt += "**4. Hoạt động 4: Vận dụng**\n"
-    prompt += "a) Mục tiêu: Học sinh thực hiện làm bài tập vận dụng để củng cố kiến thức và áp dụng kiến thức vào thực tế đời sống.\n"
-    prompt += "b) Nội dung: HS sử dụng SGK và vận dụng kiến thức đã học để hoàn thành bài tập.\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+    prompt += "**4. Hoạt động 4: Vận dụng (Chủ yếu liên hệ thực tiễn, trải nghiệm)**\n"
+    prompt += "**a) Mục tiêu:** Học sinh thực hiện làm bài tập vận dụng để củng cố kiến thức và áp dụng kiến thức vào thực tế đời sống.\n"
+    prompt += "**b) Nội dung:** HS sử dụng SGK và vận dụng kiến thức đã học để hoàn thành bài tập.\n"
+    prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
     prompt += "| GV cho HS đọc và tìm hiểu...<br>GV yêu cầu HS hoàn thành... | Bài [số]: [Lời giải chi tiết] |\n\n"
+
+    prompt += "**Kết thúc bài — thêm mục * HƯỚNG DẪN VỀ NHÀ với các gạch đầu dòng:**\n"
+    prompt += "- Đọc và ghi nhớ nội dung chính của bài.\n"
+    prompt += "- Vận dụng kiến thức làm bài tập [số] (SGK- tr[XX]).\n"
+    prompt += "- Chuẩn bị bài mới \"[tên bài tiếp theo]\".\n\n"
 
     prompt += "=== QUY TẮC BẮT BUỘC ===\n"
     prompt += "1. NỘI DUNG PHẢI LẤY TỪ NGUỒN SGK. KHÔNG bịa.\n"
@@ -724,9 +733,7 @@ def build_exec_prompt(plan):
     prompt += "8. KHÔNG dùng HTML tag <div>, <span>, <p>.\n"
     prompt += "9. KHÔNG viết dòng 'BẢNG 2 CỘT:' hay 'Bảng 2 cột:'.\n"
     prompt += "10. KHÔNG viết phần 'Người soạn', 'Ký tên', 'Sông Đốc' ở cuối.\n"
-    prompt += "11. Kết thúc bài bằng '4. Hoạt động 4'.\n"
-    prompt += "12. KHÔNG dùng dấu gạch đầu dòng (-, +, •) ở đầu các đoạn văn. "
-    prompt += "Các ý nhỏ trong mục 1, 2, 3 viết thành đoạn văn liền mạch.\n"
+    prompt += "11. KHÔNG dùng dấu gạch đầu dòng (-, +, •) ở đầu các đoạn văn.\n"
     return prompt
 
 
@@ -842,22 +849,31 @@ def _add_heading(doc, text):
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(6)
-    p.paragraph_format.first_line_indent = Inches(0)
-    p.paragraph_format.left_indent = Inches(0)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    is_title_ten_bai = bool(re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", text, re.IGNORECASE))
-    is_title_mon_hoc = bool(re.match(r"^\**\s*Môn\s*học", text, re.IGNORECASE))
-    is_title_thoi_gian = bool(re.match(r"^\**\s*Thời\s*gian\s*thực\s*hiện", text, re.IGNORECASE))
+    is_title_ten_bai = bool(re.match(r"^TÊN\s*BÀI\s*DẠY", text, re.IGNORECASE))
+    is_title_mon_hoc = bool(re.match(r"^Môn\s*học", text, re.IGNORECASE))
+    is_title_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện", text, re.IGNORECASE))
 
     if is_title_ten_bai or is_title_mon_hoc or is_title_thoi_gian:
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.first_line_indent = Inches(0)
+        p.paragraph_format.left_indent = Inches(0)
+        p.paragraph_format.right_indent = Inches(0)
         run = p.add_run(text)
         _set_run_font(run, 14, bold=True)
-        if is_title_ten_bai:
-            run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
         return p
 
-    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if re.match(r"^[a-z]\)\s", text):
+        p.paragraph_format.first_line_indent = Inches(0.39)
+        p.paragraph_format.left_indent = Inches(0)
+        run = p.add_run(text)
+        _set_run_font(run, 14, bold=True)
+        run.italic = True
+        return p
+
+    p.paragraph_format.first_line_indent = Inches(0.39)
+    p.paragraph_format.left_indent = Inches(0)
     run = p.add_run(text)
     _set_run_font(run, 14, bold=True)
     return p
@@ -878,10 +894,10 @@ def write_content_to_doc(d, content):
     start_idx = 0
     for idx, line in enumerate(lines):
         s = line.strip()
-        if re.match(r"^\**\s*I\.\s*(Mục|MỤC)\s*tiêu", s, re.IGNORECASE):
+        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", s, re.IGNORECASE):
             start_idx = idx
             break
-        if re.match(r"^\**\s*1\.\s*Kiến\s*thức", s, re.IGNORECASE):
+        if re.match(r"^\**\s*I\.\s*(Mục|MỤC)\s*tiêu", s, re.IGNORECASE):
             start_idx = idx
             break
     lines = lines[start_idx:]
@@ -927,11 +943,24 @@ def write_content_to_doc(d, content):
             i = j
             continue
 
+        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", stripped, re.IGNORECASE):
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            i += 1
+            continue
+        if re.match(r"^\**\s*Môn\s*học", stripped, re.IGNORECASE):
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            i += 1
+            continue
+        if re.match(r"^\**\s*Thời\s*gian\s*thực\s*hiện", stripped, re.IGNORECASE):
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            i += 1
+            continue
+
         if re.match(r"^\**\s*(I|II|III|IV|V)\.\s+\S", stripped):
             _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
             i += 1
             continue
-        if re.match(r"^\**\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and len(stripped) < 100:
+        if re.match(r"^\**\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and len(stripped) < 120:
             _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
             i += 1
             continue
@@ -1261,12 +1290,12 @@ with sub_t1:
     with col1_d:
         start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
                                     value=datetime.now().date(),
-                                    key="ngay_bd_z")
+                                    key="ngay_bd_w")
     with col2_d:
-        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_z")
+        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_w")
     with col3_d:
         tuan_number = st.number_input("📅 Số tuần", min_value=1, max_value=52,
-                                       value=1, step=1, key="tuan_z")
+                                       value=1, step=1, key="tuan_w")
         tuan_number_str = str(int(tuan_number))
 
     def ai_extract_tkb(raw):
@@ -1727,9 +1756,9 @@ if st.session_state.get("weekly_results"):
         pf.space_before = Pt(0); pf.space_after = Pt(0)
 
         if lich:
-            buoi = st.session_state.get("buoi_z", "BUỔI CHIỀU")
-            tuan_num = str(st.session_state.get("tuan_z", 1))
-            ngay_bd = st.session_state.get("ngay_bd_z", datetime.now().date())
+            buoi = st.session_state.get("buoi_w", "BUỔI CHIỀU")
+            tuan_num = str(st.session_state.get("tuan_w", 1))
+            ngay_bd = st.session_state.get("ngay_bd_w", datetime.now().date())
             add_phieu_bao_giang(d, lich, ngay_bd, buoi, tuan_num)
 
         for idx, r in enumerate(results):
@@ -1742,7 +1771,7 @@ if st.session_state.get("weekly_results"):
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
-            file_name="tuan_" + st.session_state.get("ngay_bd_z", datetime.now().date()).strftime("%Y%m%d") + ".docx",
+            file_name="tuan_" + st.session_state.get("ngay_bd_w", datetime.now().date()).strftime("%Y%m%d") + ".docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary", use_container_width=True,
         )
