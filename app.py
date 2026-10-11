@@ -21,12 +21,19 @@ from docx.shared import Pt, Inches
 from datetime import datetime
 import io
 import re
+import csv
 
 try:
     from pypdf import PdfReader
     HAS_PYPDF = True
 except Exception:
     HAS_PYPDF = False
+
+try:
+    from PIL import Image
+    HAS_PIL = True
+except Exception:
+    HAS_PIL = False
 
 st.set_page_config(
     page_title="Agent Tro ly Giao vien THCS AI",
@@ -35,7 +42,7 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Trợ lý Giáo viên THCS AI")
-st.caption("Bản 3.3 • 4 nhà cung cấp AI • Nội dung chi tiết • Xuất Word")
+st.caption("Bản 4.0 • Quét đa định dạng • Bảng Word • 4 nhà cung cấp AI")
 
 
 # ============ ĐỌC CẤU HÌNH TỪ SECRETS ============
@@ -54,7 +61,6 @@ PROVIDER_KEYS = {
     "NVIDIA_API_KEY": cfg("NVIDIA_API_KEY", ""),
 }
 
-# Đặt vào os.environ để freelm đọc
 for _k, _v in PROVIDER_KEYS.items():
     if _v:
         os.environ[_k] = _v
@@ -68,7 +74,6 @@ NAME_MAP = {
     "NVIDIA_API_KEY": "NVIDIA",
 }
 
-# Model ưu tiên cho từng nhà cung cấp (mạnh nhất trước)
 PREFERRED_MODELS = {
     "GEMINI_API_KEY": [
         "gemini-2.5-flash",
@@ -114,23 +119,99 @@ for _k, _v in {
         st.session_state[_k] = _v
 
 
-# ============ ĐỌC FILE ============
+# ============ HÀM ĐỌC FILE ĐA ĐỊNH DẠNG ============
 def read_docx(data: bytes) -> str:
     try:
         d = Document(io.BytesIO(data))
-        return "\n".join(p.text for p in d.paragraphs if p.text.strip())
+        out = []
+        for p in d.paragraphs:
+            if p.text.strip():
+                out.append(p.text)
+        # Đọc cả bảng trong docx
+        for table in d.tables:
+            out.append("")
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells]
+                out.append("| " + " | ".join(cells) + " |")
+            out.append("")
+        return "\n".join(out)
     except Exception as e:
-        return "[Loi docx: " + str(e) + "]"
+        return "[Lỗi docx: " + str(e) + "]"
 
 
 def read_pdf(data: bytes) -> str:
     if not HAS_PYPDF:
-        return "[Chua cai pypdf]"
+        return "[Chưa cài pypdf]"
     try:
         reader = PdfReader(io.BytesIO(data))
-        return "\n".join((pg.extract_text() or "") for pg in reader.pages)
+        texts = []
+        for page in reader.pages:
+            t = page.extract_text() or ""
+            if t.strip():
+                texts.append(t)
+        full = "\n".join(texts)
+        if len(full.strip()) < 100:
+            return (
+                "[PDF này có vẻ là ảnh scan, không có text. "
+                "Hãy dùng Google Drive OCR hoặc dán trực tiếp nội dung.]\n"
+                + full
+            )
+        return full
     except Exception as e:
-        return "[Loi pdf: " + str(e) + "]"
+        return "[Lỗi pdf: " + str(e) + "]"
+
+
+def read_csv_text(data: bytes) -> str:
+    try:
+        text = data.decode("utf-8", errors="ignore")
+        reader = csv.reader(io.StringIO(text))
+        rows = list(reader)
+        if not rows:
+            return "[File CSV rỗng]"
+        out = []
+        header = rows[0]
+        out.append("| " + " | ".join(header) + " |")
+        out.append("|" + "---|" * len(header))
+        for row in rows[1:]:
+            row = (row + [""] * len(header))[:len(header)]
+            out.append("| " + " | ".join(row) + " |")
+        return "\n".join(out)
+    except Exception as e:
+        return "[Lỗi csv: " + str(e) + "]"
+
+
+def read_gif_info(data: bytes) -> str:
+    """Đọc metadata của GIF. Không trích xuất được text, chỉ báo info."""
+    if not HAS_PIL:
+        return "[GIF: chưa cài PIL để đọc. Hãy chuyển sang .txt/.docx]"
+    try:
+        img = Image.open(io.BytesIO(data))
+        info = "Ảnh GIF: " + str(img.size[0]) + "x" + str(img.size[1]) + " px"
+        try:
+            n_frames = getattr(img, "n_frames", 1)
+            info += ", " + str(n_frames) + " frame"
+        except Exception:
+            pass
+        info += ". GIF thường là ảnh động, không có text. "
+        info += "Nếu muốn AI đọc nội dung, hãy chuyển sang PDF có text hoặc dán text."
+        return "[" + info + "]"
+    except Exception as e:
+        return "[Lỗi gif: " + str(e) + "]"
+
+
+def read_image_info(data: bytes, fname: str) -> str:
+    """Ảnh thường: báo info, khuyến nghị OCR."""
+    if not HAS_PIL:
+        return "[" + fname + ": ảnh, cần OCR để lấy text]"
+    try:
+        img = Image.open(io.BytesIO(data))
+        return (
+            "[Ảnh " + fname + ": " + str(img.size[0]) + "x" + str(img.size[1])
+            + " px. Ảnh không chứa text trực tiếp. "
+            + "Hãy dùng Google Drive OCR hoặc dán text thủ công.]"
+        )
+    except Exception as e:
+        return "[Lỗi ảnh " + fname + ": " + str(e) + "]"
 
 
 def read_file(file):
@@ -138,16 +219,22 @@ def read_file(file):
         return ("", "", 0)
     data = file.read()
     if not data:
-        return (file.name, "[File rong]", 0)
+        return (file.name, "[File rỗng]", 0)
     name = file.name.lower()
     if name.endswith(".docx"):
         text = read_docx(data)
     elif name.endswith(".pdf"):
         text = read_pdf(data)
-    elif name.endswith((".txt", ".md")):
+    elif name.endswith(".csv"):
+        text = read_csv_text(data)
+    elif name.endswith((".txt", ".md", ".log")):
         text = data.decode("utf-8", errors="ignore")
+    elif name.endswith(".gif"):
+        text = read_gif_info(data)
+    elif name.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+        text = read_image_info(data, file.name)
     else:
-        text = "[Khong ho tro]"
+        text = "[Định dạng " + name + " chưa hỗ trợ. Dùng .docx/.pdf/.txt/.csv]"
     return (file.name, text, len(text))
 
 
@@ -235,8 +322,8 @@ with tab_mau:
         "AI sẽ bám sát cấu trúc này."
     )
     tpl_files = st.file_uploader(
-        "📎 Nạp 1 hoặc nhiều file MẪU (docx/pdf/txt)",
-        type=["docx", "pdf", "txt"],
+        "📎 Nạp file MẪU (docx / pdf / txt / csv / ảnh / gif)",
+        type=["docx", "pdf", "txt", "md", "csv", "png", "jpg", "jpeg", "gif", "webp"],
         accept_multiple_files=True,
         key="tpl_uploader",
     )
@@ -254,8 +341,8 @@ with tab_nguon:
         "AI chỉ lấy nội dung từ nguồn."
     )
     src_files = st.file_uploader(
-        "📎 Nạp 1 hoặc nhiều file NGUỒN (docx/pdf/txt)",
-        type=["docx", "pdf", "txt"],
+        "📎 Nạp file NGUỒN (docx / pdf / txt / csv / ảnh / gif)",
+        type=["docx", "pdf", "txt", "md", "csv", "png", "jpg", "jpeg", "gif", "webp"],
         accept_multiple_files=True,
         key="src_uploader",
     )
@@ -299,8 +386,8 @@ with tab_xem:
         for n in template_names:
             st.write("- " + n)
         st.caption("Tổng: " + str(len(template_text)) + " ký tự")
-        with st.expander("Xem nội dung mẫu"):
-            st.text(template_text[:3000])
+        with st.expander("Xem nội dung mẫu (2000 ký tự đầu)"):
+            st.text(template_text[:2000])
     else:
         st.info("Chưa nạp mẫu.")
     st.divider()
@@ -309,15 +396,14 @@ with tab_xem:
         for n in source_names:
             st.write("- " + n)
         st.caption("Tổng: " + str(len(source_text)) + " ký tự")
-        with st.expander("Xem nội dung nguồn"):
-            st.text(source_text[:3000])
+        with st.expander("Xem nội dung nguồn (2000 ký tự đầu)"):
+            st.text(source_text[:2000])
     else:
         st.info("Chưa nạp nguồn.")
 
 
 # ============ GỌI AI QUA FREELM ============
 def call_ai(prompt):
-    """Gọi AI qua freelm, ưu tiên model mạnh, tự chuyển đổi khi lỗi."""
     import freelm
 
     llm = freelm.FreeLLM.from_env()
@@ -338,7 +424,6 @@ def call_ai(prompt):
                 last_err = e
                 continue
 
-    # Fallback: dùng auto
     try:
         resp = llm.chat(
             [{"role": "user", "content": prompt}],
@@ -388,6 +473,7 @@ def build_prompt():
     prompt += "   - Giữ ĐÚNG thứ tự các mục (I, II, III... hoặc 1, 2, 3...)\n"
     prompt += "   - Giữ ĐÚNG tên mục, tiêu đề, cách đánh số\n"
     prompt += "   - Giữ ĐÚNG vị trí các mục con, không tự thêm/bớt\n"
+    prompt += "   - Nếu mẫu có bảng, PHẢI tạo bảng markdown tương tự\n"
     prompt += "   - CHỈ THAY nội dung bên trong, KHÔNG đổi cấu trúc\n"
     prompt += "2. NẾU KHÔNG CÓ MẪU: dùng cấu trúc chuẩn của loại tài liệu đó.\n"
 
@@ -405,8 +491,17 @@ def build_prompt():
     prompt += "7. NẾU CÓ NGUỒN: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.\n"
     prompt += "8. NẾU NGUỒN THIẾU: ghi rõ [Cần bổ sung: ...].\n"
 
-    prompt += "\n[C] VỀ KÝ HIỆU TOÁN HỌC:\n"
-    prompt += "9. Dùng Unicode đẹp, KHÔNG dùng LaTeX:\n"
+    prompt += "\n[C] VỀ BẢNG BIỂU (QUAN TRỌNG):\n"
+    prompt += "9. Nếu cần trình bày dạng bảng, dùng markdown table:\n"
+    prompt += "   | Cột 1 | Cột 2 |\n"
+    prompt += "   |---|---|\n"
+    prompt += "   | Ô 1 | Ô 2 |\n"
+    prompt += "   KHÔNG dùng HTML table.\n"
+    prompt += "10. Trong ô bảng, dùng <br> để xuống dòng.\n"
+    prompt += "11. Dùng **bold** để làm đậm tiêu đề trong ô bảng.\n"
+
+    prompt += "\n[D] VỀ KÝ HIỆU TOÁN HỌC:\n"
+    prompt += "12. Dùng Unicode đẹp, KHÔNG dùng LaTeX:\n"
     prompt += "   - Lũy thừa: x², x³, aⁿ (KHÔNG viết x^2)\n"
     prompt += "   - Chỉ số dưới: H₂O, CO₂, a₁, a₂ (KHÔNG viết H_2O)\n"
     prompt += "   - Căn bậc 2: √x (KHÔNG viết sqrt(x))\n"
@@ -414,10 +509,10 @@ def build_prompt():
     prompt += "   - Nhân chia: × ÷ ; So sánh: ≤ ≥ ≠ ≈ ; Tập hợp: ∈ ∉ ⊂ ∪ ∩ ∅\n"
     prompt += "   - Hy Lạp: α β γ π θ Δ Σ Ω ; Mũi tên: → ⇒ ↔ ; Độ: °\n"
 
-    prompt += "\n[D] VỀ ĐỊNH DẠNG:\n"
-    prompt += "10. Tiếng Việt có dấu đầy đủ, văn phong sư phạm trang trọng.\n"
-    prompt += "11. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
-    prompt += "12. Chỉ xuất nội dung tài liệu. KHÔNG lời chào, KHÔNG giải thích.\n"
+    prompt += "\n[E] VỀ ĐỊNH DẠNG:\n"
+    prompt += "13. Tiếng Việt có dấu đầy đủ, văn phong sư phạm trang trọng.\n"
+    prompt += "14. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
+    prompt += "15. Chỉ xuất nội dung tài liệu. KHÔNG lời chào, KHÔNG giải thích.\n"
 
     return prompt
 
@@ -489,7 +584,48 @@ def fix_math_symbols(text: str) -> str:
     return text
 
 
-# ============ TẠO FILE WORD ============
+# ============ TẠO FILE WORD (CÓ BẢNG) ============
+def add_formatted_paragraph(doc, text, style=None):
+    """Thêm đoạn văn có xử lý **bold** và <br>."""
+    text = text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    if style:
+        p = doc.add_paragraph(style=style)
+    else:
+        p = doc.add_paragraph()
+    parts = re.split(r"(\*\*[^*]+\*\*)", text)
+    for part in parts:
+        if part.startswith("**") and part.endswith("**") and len(part) > 4:
+            run = p.add_run(part[2:-2])
+            run.bold = True
+        else:
+            p.add_run(part)
+    return p
+
+
+def add_markdown_table(doc, rows):
+    """Chuyển list các dòng markdown thành bảng Word."""
+    if not rows:
+        return
+    n_cols = max(len(r) for r in rows)
+    table = doc.add_table(rows=len(rows), cols=n_cols)
+    table.style = "Table Grid"
+    for i, row in enumerate(rows):
+        for j in range(n_cols):
+            cell = table.cell(i, j)
+            cell.text = ""
+            p = cell.paragraphs[0]
+            val = row[j] if j < len(row) else ""
+            val = val.replace("<br>", "\n").replace("<br/>", "\n")
+            parts = re.split(r"(\*\*[^*]+\*\*)", val)
+            for part in parts:
+                if part.startswith("**") and part.endswith("**") and len(part) > 4:
+                    run = p.add_run(part[2:-2])
+                    run.bold = True
+                else:
+                    p.add_run(part)
+    return table
+
+
 def make_doc(title, body):
     body = fix_math_symbols(body)
     d = Document()
@@ -506,23 +642,49 @@ def make_doc(title, body):
     if teacher.strip():
         d.add_paragraph("Người thực hiện: " + teacher.strip())
     d.add_paragraph("Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
-    for line in body.splitlines():
-        if line.startswith("### "):
-            d.add_heading(line[4:], 3)
-        elif line.startswith("## "):
-            d.add_heading(line[3:], 2)
-        elif line.startswith("# "):
-            d.add_heading(line[2:], 1)
-        elif line.startswith("- "):
-            d.add_paragraph(line[2:], style="List Bullet")
-        elif re.match(r"^\d+[\.\)] ", line):
-            d.add_paragraph(
-                re.sub(r"^\d+[\.\)] ", "", line), style="List Number"
-            )
-        elif line.strip() == "":
+
+    lines = body.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Bảng markdown
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines = []
+            j = i
+            while j < len(lines) and lines[j].strip().startswith("|") and lines[j].strip().endswith("|"):
+                table_lines.append(lines[j].strip())
+                j += 1
+            rows = []
+            for tl in table_lines:
+                if re.match(r"^\|[\s\-:]+\|", tl):
+                    continue
+                cells = [c.strip() for c in tl.strip("|").split("|")]
+                rows.append(cells)
+            if rows:
+                add_markdown_table(d, rows)
+            i = j
             continue
+
+        if stripped.startswith("### "):
+            d.add_heading(stripped[4:], 3)
+        elif stripped.startswith("## "):
+            d.add_heading(stripped[3:], 2)
+        elif stripped.startswith("# "):
+            d.add_heading(stripped[2:], 1)
+        elif stripped.startswith("- "):
+            add_formatted_paragraph(d, stripped[2:], style="List Bullet")
+        elif re.match(r"^\d+[\.\)] ", stripped):
+            add_formatted_paragraph(
+                d, re.sub(r"^\d+[\.\)] ", "", stripped), style="List Number"
+            )
+        elif stripped == "":
+            pass
         else:
-            d.add_paragraph(line)
+            add_formatted_paragraph(d, stripped)
+        i += 1
+
     b = io.BytesIO()
     d.save(b)
     return b.getvalue()
@@ -589,24 +751,30 @@ if st.session_state["draft"]:
             st.session_state["draft_title"] = ""
             st.rerun()
 
-with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
-    st.write("**Bước 1:** Lấy API key (đã có sẵn 4 key):")
-    st.write("- Gemini: aistudio.google.com/app/apikey")
-    st.write("- Groq: console.groq.com/keys")
-    st.write("- OpenRouter: openrouter.ai/keys")
-    st.write("- NVIDIA: build.nvidia.com")
-    st.write("**Bước 2:** Mở app Streamlit → **Manage app** → **Settings** → tab **Secrets**")
-    st.write("**Bước 3:** Dán nội dung sau (thay giá trị thật):")
-    st.code(
-        'GEMINI_API_KEY = "AIzaSy..."\n'
-        'GROQ_API_KEY = "gsk_..."\n'
-        'OPENROUTER_API_KEY = "sk-or-..."\n'
-        'NVIDIA_API_KEY = "nvapi-..."\n'
-        'SCHOOL = "Truong THCS ..."\n'
-        'TEACHER = "Nguyen Van A"\n'
-        'SUBJECT = "Toan"\n'
-        'GRADE = "6"',
-        language="toml",
-    )
-    st.write("**Bước 4:** Bấm **Save** → **Reboot**")
-    st.write("**Cách dùng:** freelm tự thử từng model mạnh nhất, không cần chọn thủ công.")
+with st.expander("📖 Hướng dẫn sử dụng"):
+    st.markdown("""
+### 📐 File MẪU
+- Quy định **cấu trúc, thứ tự mục, cách trình bày**
+- Hỗ trợ: `.docx`, `.pdf`, `.txt`, `.csv`, ảnh, `.gif`
+- AI sẽ bám sát cấu trúc này
+
+### 📚 File NGUỒN
+- Chứa **kiến thức, số liệu, dữ kiện**
+- Hỗ trợ: `.docx`, `.pdf`, `.txt`, `.csv`, ảnh, `.gif`
+- AI chỉ lấy nội dung từ nguồn
+
+### ⚠️ Lưu ý về PDF scan
+- PDF scan (ảnh) chỉ đọc được vài ký tự metadata
+- Cần PDF có text thật (xuất từ Word) hoặc dán trực tiếp
+- Có thể dùng Google Drive OCR để chuyển scan thành text
+
+### 🖼️ Ảnh và GIF
+- Ảnh/GIF không chứa text trực tiếp
+- App sẽ báo info (kích thước, số frame)
+- Cần OCR hoặc dán text thủ công
+
+### 📊 Bảng biểu
+- AI dùng markdown table: `| Cột 1 | Cột 2 |`
+- Word sẽ render thành bảng có viền thật
+- Trong ô có thể dùng `<br>` để xuống dòng
+""")
