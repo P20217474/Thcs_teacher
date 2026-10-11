@@ -16,6 +16,7 @@ import streamlit as st
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
 import io, re, csv
 
@@ -349,18 +350,17 @@ def read_file(file, use_ocr=True):
     else:
         text = _read_txt_safe(data)
     return (name, text, len(text))
-    # ============ RESET KEY CŨ (chống kẹt widget) ============
-if "app_started_v4" not in st.session_state:
+
+
+# Reset key cũ
+if "app_started_x" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k in ("date_widget_v2", "buoi_widget_v2", "tuan_widget_v2",
-                 "date_input_widget", "buoi_input_widget", "tuan_input",
-                 "sd_key_v3", "bd_key_v3", "tn_key_v3",
-                 "ngay_bd_final", "buoi_final", "tuan_final"):
+                 "sd_key_v3", "bd_key_v3", "tn_key_v3"):
             del st.session_state[k]
-    st.session_state["app_started_v4"] = True
+    st.session_state["app_started_x"] = True
 
 
-# ============ SESSION STATE ============
 defaults = {
     "memory": load_memory(),
     "templates": load_templates(),
@@ -376,7 +376,6 @@ defaults = {
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
-
 
 # ============ SIDEBAR ============
 with st.sidebar:
@@ -445,7 +444,7 @@ def call_ai(prompt, system=""):
         raise e
 
 
-# ============ UPLOAD TAB ============
+# ============ TAB UPLOAD / KHO ============
 tab_up, tab_kho = st.tabs(["📤 Upload", "📂 Kho tri thức"])
 
 with tab_up:
@@ -566,16 +565,24 @@ def build_exec_prompt(plan):
     if src_text: prompt += src_text + "\n"
 
     prompt += "=== CẤU TRÚC BẮT BUỘC ===\n\n"
-    prompt += "**I. Mục tiêu**\n"
-    prompt += "1. Về kiến thức:\n+ [2-4 gạch đầu dòng]\n"
-    prompt += "2. Về năng lực:\n+ Năng lực chung: ...\n+ Năng lực đặc thù: ...\n"
-    prompt += "3. Về phẩm chất:\n+ Chăm chỉ, trung thực, trách nhiệm.\n\n"
+    prompt += "**TÊN BÀI DẠY: " + plan.get("topic", "") + "**\n"
+    prompt += "**Môn học: " + plan.get("subject", "") + "; lớp: " + plan.get("grade", "") + "**\n"
+    prompt += "**Thời gian thực hiện: " + (plan.get("period") or "1") + "**\n\n"
 
-    prompt += "**II. Thiết bị dạy học và học liệu**\n"
+    prompt += "**I. MỤC TIÊU**\n"
+    prompt += "1. Kiến thức: [mô tả]\n"
+    prompt += "- [2-4 gạch đầu dòng kiến thức trọng tâm]\n"
+    prompt += "2. Năng lực:\n"
+    prompt += "- Năng lực riêng: [2-3 năng lực đặc thù]\n"
+    prompt += "- Năng lực chung: Năng lực tư duy và lập luận toán học; năng lực giao tiếp toán học tự học; năng lực giải quyết vấn đề toán học, năng lực tư duy sáng tạo, năng lực hợp tác.\n"
+    prompt += "3. Phẩm chất:\n"
+    prompt += "- Bồi dưỡng hứng thú học tập, ý thức làm việc nhóm, ý thức tìm tòi, khám phá và sáng tạo cho HS => độc lập, tự tin và tự chủ.\n\n"
+
+    prompt += "**II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU**\n"
     prompt += "1. Đối với giáo viên: Kế hoạch bài dạy, SGK, SGV, phiếu học tập, thước kẻ, phấn màu, tivi (hoặc máy vi tính) nếu cần trình chiếu.\n"
     prompt += "2. Đối với học sinh: SGK, vở ghi, đồ dùng học tập, ôn tập kiến thức đã học.\n\n"
 
-    prompt += "**III. Tiến trình dạy học**\n\n"
+    prompt += "**III. TIẾN TRÌNH DẠY HỌC**\n\n"
 
     prompt += "**1. Hoạt động 1: Mở đầu (Khởi động)**\n"
     prompt += "a) Mục tiêu: [2 gạch đầu dòng]\n"
@@ -588,8 +595,8 @@ def build_exec_prompt(plan):
     prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS trả lời... | |\n"
     prompt += "| - Bước 4: Kết luận, nhận định:<br>+ GV đánh giá, dẫn dắt vào bài mới | |\n\n"
 
-    prompt += "**2. Hoạt động 2: Hình thành kiến thức mới**\n"
-    prompt += "a) Mục tiêu: [mục tiêu]\n"
+    prompt += "**2. Hoạt động 2: Giải quyết vấn đề từ Hoạt động 1**\n"
+    prompt += "a) Mục tiêu: [mục tiêu hoạt động]\n"
     prompt += "b) Nội dung: [nội dung kiến thức]\n"
     prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
@@ -628,7 +635,9 @@ def build_exec_prompt(plan):
     prompt += "10. KHÔNG viết phần 'Người soạn', 'Ký tên', 'Sông Đốc' ở cuối.\n"
     prompt += "11. Kết thúc bài bằng '4. Hoạt động 4'.\n"
     return prompt
-    # ============ WORD HELPERS ============
+
+
+# ============ WORD HELPERS ============
 def fix_math(text):
     text = re.sub(r"\^2\b", "²", text)
     text = re.sub(r"\^3\b", "³", text)
@@ -658,13 +667,21 @@ def _set_run_font(run, size=14, bold=False):
 
 def add_para(doc, text, style=None):
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
+    text = re.sub(r"^[*#\-\+]+\s*", "", text)
+    text = re.sub(r"^\*+\s*", "", text)
+    text = re.sub(r"^#+\s*", "", text)
+    text = re.sub(r"^\\?\*+\s*", "", text)
+
     p = doc.add_paragraph(style=style) if style else doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     if style is None:
         p.paragraph_format.first_line_indent = Inches(0.39)
+    else:
+        p.paragraph_format.first_line_indent = Inches(0)
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
+
     for part in re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*)", text):
         if part.startswith("**") and part.endswith("**") and len(part) > 4:
             run = p.add_run(part[2:-2])
@@ -690,25 +707,48 @@ def add_table(doc, rows):
             c = t.cell(i, j)
             c.text = ""
             p = c.paragraphs[0]
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.first_line_indent = Inches(0)
+            is_header = (i == 0)
+            if is_header:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            else:
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             val = (row[j] if j < len(row) else "").replace("<br>", "\n")
             for part in re.split(r"(\*\*[^*]+\*\*)", val):
                 if part.startswith("**") and part.endswith("**") and len(part) > 4:
                     run = p.add_run(part[2:-2])
-                    _set_run_font(run, 14, bold=True)
+                    _set_run_font(run, 13, bold=True)
                 else:
                     run = p.add_run(part)
-                    _set_run_font(run, 14, bold=False)
+                    _set_run_font(run, 13, bold=is_header)
 
 
 def _add_heading(doc, text):
+    text = re.sub(r"^[*#\-\+\\]+\s*", "", text)
+    text = text.rstrip("*").strip()
+
     p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(6)
     p.paragraph_format.first_line_indent = Inches(0)
+
+    is_title_ten_bai = bool(re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", text, re.IGNORECASE))
+    is_title_mon_hoc = bool(re.match(r"^\**\s*Môn\s*học", text, re.IGNORECASE))
+    is_title_thoi_gian = bool(re.match(r"^\**\s*Thời\s*gian\s*thực\s*hiện", text, re.IGNORECASE))
+
+    if is_title_ten_bai or is_title_mon_hoc or is_title_thoi_gian:
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(text)
+        _set_run_font(run, 14, bold=True)
+        if is_title_ten_bai:
+            run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        return p
+
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     run = p.add_run(text)
     _set_run_font(run, 14, bold=True)
     return p
@@ -716,7 +756,6 @@ def _add_heading(doc, text):
 
 def write_content_to_doc(d, content):
     content = fix_math(content)
-
     content = re.sub(r"^\s*BẢNG\s*2\s*CỘT\s*:?\s*$", "", content, flags=re.MULTILINE)
     content = re.sub(r"^\s*Bảng\s*2\s*cột\s*:?\s*$", "", content, flags=re.MULTILINE)
 
@@ -724,10 +763,15 @@ def write_content_to_doc(d, content):
         content = re.sub(r"<" + tag + r"[^>]*>", "", content)
         content = re.sub(r"</" + tag + r">", "", content)
 
+    content = re.sub(r"^\s*[-=]{3,}\s*$", "", content, flags=re.MULTILINE)
+
     lines = content.splitlines()
     start_idx = 0
     for idx, line in enumerate(lines):
         s = line.strip()
+        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", s, re.IGNORECASE):
+            start_idx = idx
+            break
         if re.match(r"^\**\s*I\.\s*(Mục|MỤC)\s*tiêu", s, re.IGNORECASE):
             start_idx = idx
             break
@@ -743,7 +787,6 @@ def write_content_to_doc(d, content):
         if re.search(r"NGƯỜI\s*SOẠN", s, re.IGNORECASE): break
         if re.search(r"KÝ\s*DUYỆT", s, re.IGNORECASE): break
         if re.match(r"^\(?Ký\s*tên\)?\s*$", s, re.IGNORECASE): break
-        if re.match(r"^-{3,}\s*$", s): continue
         cleaned.append(line)
     content = "\n".join(cleaned)
 
@@ -778,45 +821,53 @@ def write_content_to_doc(d, content):
             i = j
             continue
 
+        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", stripped, re.IGNORECASE):
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            i += 1
+            continue
+        if re.match(r"^\**\s*Môn\s*học", stripped, re.IGNORECASE):
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            i += 1
+            continue
+        if re.match(r"^\**\s*Thời\s*gian\s*thực\s*hiện", stripped, re.IGNORECASE):
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            i += 1
+            continue
+
         if re.match(r"^\**\s*(I|II|III|IV|V)\.\s+\S", stripped):
-            text = re.sub(r"^\**\s*", "", stripped).rstrip("*")
-            _add_heading(d, text)
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
             i += 1
             continue
         if re.match(r"^\**\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and len(stripped) < 100:
-            text = re.sub(r"^\**\s*", "", stripped).rstrip("*")
-            _add_heading(d, text)
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
             i += 1
             continue
         if re.match(r"^\**\s*[a-z]\)\s+\S", stripped):
-            text = re.sub(r"^\**\s*", "", stripped).rstrip("*")
-            _add_heading(d, text)
+            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
             i += 1
             continue
 
         if stripped.startswith("#### "):
-            _add_heading(d, re.sub(r"[*\\]", "", stripped[5:].strip()))
+            _add_heading(d, re.sub(r"[*#\\]", "", stripped[5:].strip()))
         elif stripped.startswith("### "):
-            _add_heading(d, re.sub(r"[*\\]", "", stripped[4:].strip()))
+            _add_heading(d, re.sub(r"[*#\\]", "", stripped[4:].strip()))
         elif stripped.startswith("## "):
-            _add_heading(d, re.sub(r"[*\\]", "", stripped[3:].strip()))
+            _add_heading(d, re.sub(r"[*#\\]", "", stripped[3:].strip()))
         elif stripped.startswith("# "):
-            _add_heading(d, re.sub(r"[*\\]", "", stripped[2:].strip()))
+            _add_heading(d, re.sub(r"[*#\\]", "", stripped[2:].strip()))
         elif re.match(r"^[-*+]\s+", stripped):
             text = re.sub(r"^[-*+]\s+", "", stripped)
-            text = re.sub(r"^[*\\]+\s*", "", text)
             add_para(d, text, style="List Bullet")
         elif re.match(r"^\d+[\.\)]\s+", stripped):
             text = re.sub(r"^\d+[\.\)]\s+", "", stripped)
             add_para(d, text, style="List Number")
         else:
-            text = stripped
+            text = re.sub(r"^[*#\-\+\\]+\s*", "", stripped)
             text = re.sub(r"^\*\*\\?\*?\s*", "", text)
             text = re.sub(r"\s*\*\*\\?\*?$", "", text)
             if text:
                 add_para(d, text)
         i += 1
-
 
 def make_doc(title, body):
     d = Document()
@@ -856,11 +907,13 @@ def make_doc(title, body):
     return b.getvalue()
 
 
+# ============ PHIẾU BÁO GIẢNG ============
 def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     mem = st.session_state.get("memory", {})
     now = datetime.now()
     end_date = tuan_start + timedelta(days=6)
 
+    # Header 2 cột
     table_head = doc.add_table(rows=1, cols=2)
     table_head.autofit = True
 
@@ -868,10 +921,14 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     cell.text = ""
     p = cell.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
     run = p.add_run("UBND XÃ SÔNG ĐỐC")
     _set_run_font(run, 13, bold=False)
     p2 = cell.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p2.paragraph_format.space_before = Pt(0)
+    p2.paragraph_format.space_after = Pt(0)
     run = p2.add_run("TRƯỜNG THCS SÔNG ĐỐC")
     _set_run_font(run, 13, bold=True)
 
@@ -879,10 +936,14 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     cell_r.text = ""
     p = cell_r.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
     run = p.add_run("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM")
     _set_run_font(run, 13, bold=True)
     p2 = cell_r.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p2.paragraph_format.space_before = Pt(0)
+    p2.paragraph_format.space_after = Pt(0)
     run = p2.add_run("Độc lập – Tự do – Hạnh phúc")
     _set_run_font(run, 13, bold=True)
 
@@ -913,6 +974,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
 
     doc.add_paragraph("")
 
+    # Bảng 7 cột
     table = doc.add_table(rows=1, cols=7)
     table.style = "Table Grid"
     hdr = table.rows[0].cells
@@ -935,48 +997,86 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
             else:
                 p = hdr[i].add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
             run = p.add_run(line)
             _set_run_font(run, 13, bold=True)
+        hdr[i].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     for p in hdr[6].paragraphs:
         for r in p.runs:
             r.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
 
-    prev_ngay_key = ""
+    # Nhóm theo ngày
+    nhom_ngay = []
     for r in lich:
-        row = table.add_row().cells
-        ngay_key = r["thu"] + "|" + r["ngay"]
-        if ngay_key != prev_ngay_key:
-            row[0].text = ""
-            p = row[0].paragraphs[0]
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run(r["thu"])
-            _set_run_font(run, 13, bold=False)
-            p2 = row[0].add_paragraph()
-            p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p2.add_run(r["ngay"])
-            _set_run_font(run, 13, bold=False)
-            prev_ngay_key = ngay_key
+        key = r["thu"] + "|" + r["ngay"]
+        if not nhom_ngay or nhom_ngay[-1]["key"] != key:
+            nhom_ngay.append({
+                "key": key,
+                "thu": r["thu"],
+                "ngay": r["ngay"],
+                "items": [r],
+            })
         else:
-            row[0].text = ""
+            nhom_ngay[-1]["items"].append(r)
 
-        for c_idx, key, align in [
-            (1, "tiet", WD_ALIGN_PARAGRAPH.CENTER),
-            (2, "mon", WD_ALIGN_PARAGRAPH.CENTER),
-            (3, "lop", WD_ALIGN_PARAGRAPH.CENTER),
-            (4, "stt_ppct", WD_ALIGN_PARAGRAPH.CENTER),
-            (5, "ten_bai", WD_ALIGN_PARAGRAPH.LEFT),
-        ]:
-            row[c_idx].text = ""
-            p = row[c_idx].paragraphs[0]
-            p.alignment = align
-            val = r.get(key, "")
-            if key == "tiet":
-                val = val.replace("Tiết ", "")
-            run = p.add_run(str(val))
-            _set_run_font(run, 13, bold=False)
+    # Thêm dữ liệu
+    for nhom in nhom_ngay:
+        for idx, r in enumerate(nhom["items"]):
+            row = table.add_row().cells
+            if idx == 0:
+                row[0].text = ""
+                p = row[0].paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(0)
+                run = p.add_run(nhom["thu"])
+                _set_run_font(run, 13, bold=False)
+                p2 = row[0].add_paragraph()
+                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p2.paragraph_format.space_before = Pt(0)
+                p2.paragraph_format.space_after = Pt(0)
+                run = p2.add_run(nhom["ngay"])
+                _set_run_font(run, 13, bold=False)
+            else:
+                row[0].text = ""
 
-        row[6].text = ""
+            for c_idx, key, align in [
+                (1, "tiet", WD_ALIGN_PARAGRAPH.CENTER),
+                (2, "mon", WD_ALIGN_PARAGRAPH.CENTER),
+                (3, "lop", WD_ALIGN_PARAGRAPH.CENTER),
+                (4, "stt_ppct", WD_ALIGN_PARAGRAPH.CENTER),
+                (5, "ten_bai", WD_ALIGN_PARAGRAPH.LEFT),
+            ]:
+                row[c_idx].text = ""
+                p = row[c_idx].paragraphs[0]
+                p.alignment = align
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(0)
+                val = r.get(key, "")
+                if key == "tiet":
+                    val = val.replace("Tiết ", "")
+                run = p.add_run(str(val))
+                _set_run_font(run, 13, bold=False)
+
+            row[6].text = ""
+
+    # Merge cột 1 theo nhóm ngày
+    start_row_idx = 1
+    for nhom in nhom_ngay:
+        so_dong = len(nhom["items"])
+        if so_dong > 1:
+            try:
+                cell_start = table.cell(start_row_idx, 0)
+                cell_end = table.cell(start_row_idx + so_dong - 1, 0)
+                merged = cell_start.merge(cell_end)
+                merged.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                for p in merged.paragraphs:
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            except Exception:
+                pass
+        start_row_idx += so_dong
 
     doc.add_paragraph("")
 
@@ -1065,22 +1165,49 @@ with sub_t1:
     with col1_d:
         start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
                                     value=datetime.now().date(),
-                                    key="ngay_bd_w")
+                                    key="ngay_bd_final_x")
     with col2_d:
-        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_w")
+        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_final_x")
     with col3_d:
-        tuan_number = st.text_input("📅 Số tuần (VD: 6)", key="tuan_w", placeholder="VD: 6")
+        tuan_number = st.text_input("📅 Số tuần (VD: 6)", key="tuan_final_x", placeholder="VD: 6")
 
     def ai_extract_tkb(raw):
-        system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
-        prompt = ("Doc TKB sau, chuyen thanh moi dong: Thu | Tiet TKB | Lop | Mon | Tiet PPCT\n\n"
-                  "Vi du:\nThứ 2 | 1 | 6A10 | Toán | 19\nThứ 2 | 2 | 6A10 | Toán | 20\n\n"
-                  "Neu khong co cot Tiet PPCT thi de trong.\n\n"
-                  "NOI DUNG:\n" + raw[:12000] + "\n\nCHI tra ve cac dong.")
+        system = "Bạn là trợ lý đọc bảng. CHỈ trả về text theo format, KHÔNG giải thích."
+        prompt = """Đọc bảng THỜI KHÓA BIỂU sau. Bảng có 5 cột theo thứ tự:
+Thứ | Tiết | Lớp | Môn | Tiết PPCT
+
+YÊU CẦU: Chuyển thành mỗi dòng 1 tiết dạy, ĐÚNG 5 CỘT format:
+Thứ | Tiết | Lớp | Môn | Tiết PPCT
+
+Ví dụ ĐÚNG:
+Thứ 2 | 1 | 6A10 | Toán | 25
+Thứ 2 | 2 | 6A10 | Toán | 26
+
+QUY TẮC:
+- Cột "Thứ": giữ nguyên "Thứ 2", "Thứ 4", "Thứ 5", "Thứ 6"
+- Cột "Tiết": số 1-4
+- Cột "Lớp": "6A10", "6A9", "6A8", "6A7"...
+- Cột "Môn": "Toán"
+- Cột "Tiết PPCT": SỐ NGUYÊN — PHẢI lấy đúng từ cột cuối bảng gốc
+
+CHỈ trả về các dòng dữ liệu, KHÔNG header, KHÔNG giải thích.
+
+NỘI DUNG TKB GỐC:
+""" + raw[:15000]
         try:
             result = call_ai(prompt, system)
-            return "\n".join([l.strip() for l in result.splitlines()
-                              if "|" in l and len(l.split("|")) >= 4])
+            lines = []
+            for l in result.splitlines():
+                l = l.strip()
+                if not l or "|" not in l:
+                    continue
+                parts = [p.strip() for p in l.split("|")]
+                if len(parts) < 4:
+                    continue
+                if parts[0].lower().startswith("thứ") and "tiết" in parts[1].lower():
+                    continue
+                lines.append(l)
+            return "\n".join(lines)
         except Exception:
             return ""
 
@@ -1131,6 +1258,8 @@ NỘI DUNG PPCT:
             if not line or "|" not in line: continue
             parts = [p.strip() for p in line.split("|")]
             if len(parts) < 4: continue
+            if parts[0].lower() in ("thứ", "thu") and "tiết" in parts[1].lower():
+                continue
             thu = parts[0]
             if not thu.lower().startswith("thứ"):
                 thu = "Thứ " + thu
@@ -1138,6 +1267,8 @@ NỘI DUNG PPCT:
             if not tiet.lower().startswith("tiết"):
                 num = re.search(r"\d+", tiet)
                 tiet = "Tiết " + (num.group(0) if num else tiet)
+            lop = parts[2]
+            mon = parts[3]
             tiet_ppct = ""
             if len(parts) >= 5:
                 m = re.search(r"\d+", parts[4])
@@ -1145,7 +1276,7 @@ NỘI DUNG PPCT:
             if thu not in result:
                 result[thu] = []
             result[thu].append({
-                "tiet": tiet, "lop": parts[2], "mon": parts[3],
+                "tiet": tiet, "lop": lop, "mon": mon,
                 "tiet_ppct": tiet_ppct,
             })
         for thu in result:
@@ -1220,7 +1351,7 @@ NỘI DUNG PPCT:
                     "ten_bai": bai["ten_bai"],
                     "tiet_trong_bai": target - stt + 1,
                     "tong_tiet": so_tiet,
-                    "stt_ppct": stt,
+                    "stt_ppct": target,
                 }
         return None
 
@@ -1297,15 +1428,14 @@ NỘI DUNG PPCT:
                             })
 
                     days_map = {
-                        "thứ 2": 0, "thu 2": 0, "thứ hai": 0, "2": 0,
-                        "thứ 3": 1, "thu 3": 1, "thứ ba": 1, "3": 1,
-                        "thứ 4": 2, "thu 4": 2, "thứ tư": 2, "4": 2,
-                        "thứ 5": 3, "thu 5": 3, "thứ năm": 3, "5": 3,
-                        "thứ 6": 4, "thu 6": 4, "thứ sáu": 4, "6": 4,
-                        "thứ 7": 5, "thu 7": 5, "thứ bảy": 5, "7": 5,
+                        "thứ 2": 0, "thu 2": 0, "2": 0,
+                        "thứ 3": 1, "thu 3": 1, "3": 1,
+                        "thứ 4": 2, "thu 4": 2, "4": 2,
+                        "thứ 5": 3, "thu 5": 3, "5": 3,
+                        "thứ 6": 4, "thu 6": 4, "6": 4,
                     }
                     all_slots = []
-                    for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]:
+                    for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"]:
                         for k in tkb:
                             if k.lower().startswith(thu.lower()[:5]):
                                 for item in tkb[k]:
@@ -1316,6 +1446,8 @@ NỘI DUNG PPCT:
                                     })
 
                     lich = []
+                    canh_bao = []
+
                     for idx, slot in enumerate(all_slots):
                         thu_lower = slot["thu"].lower()
                         offset = 0
@@ -1325,13 +1457,13 @@ NỘI DUNG PPCT:
                                 break
                         ngay = start_date + timedelta(days=offset)
 
+                        tkb_ppct = str(slot.get("tiet_ppct", "")).strip()
                         ten_bai = ""
                         tiet_trong_bai = 1
                         tong_tiet = 1
-                        stt_ppct = ""
+                        stt_ppct = tkb_ppct
 
-                        tkb_ppct = slot.get("tiet_ppct", "")
-                        if tkb_ppct:
+                        if tkb_ppct and tkb_ppct.isdigit():
                             found = find_ppct_by_tiet(ppct, tkb_ppct)
                             if found:
                                 ten_bai = found["ten_bai"]
@@ -1339,14 +1471,17 @@ NỘI DUNG PPCT:
                                 tong_tiet = found["tong_tiet"]
                                 stt_ppct = str(found["stt_ppct"])
                             else:
-                                stt_ppct = tkb_ppct
+                                ten_bai = "[Tiết " + tkb_ppct + " chưa có trong PPCT tuần này]"
+                                canh_bao.append(
+                                    "Tiết " + tkb_ppct + " (" + slot["thu"]
+                                    + " lớp " + slot["lop"] + ") không có trong PPCT tuần này"
+                                )
                         else:
-                            if idx < len(ppct_tiets):
-                                ti = ppct_tiets[idx]
-                                ten_bai = ti["ten_bai"]
-                                tiet_trong_bai = ti["tiet_trong_bai"]
-                                tong_tiet = ti["tong_tiet"]
-                                stt_ppct = str(ti.get("stt_ppct", ""))
+                            ten_bai = "[TKB thiếu mã Tiết PPCT]"
+                            canh_bao.append(
+                                slot["thu"] + " lớp " + slot["lop"]
+                                + ": TKB thiếu mã Tiết PPCT"
+                            )
 
                         lich.append({
                             "thu": slot["thu"],
@@ -1359,6 +1494,11 @@ NỘI DUNG PPCT:
                             "tong_tiet": tong_tiet,
                             "stt_ppct": stt_ppct,
                         })
+
+                    if canh_bao:
+                        with st.expander("⚠️ Cảnh báo (" + str(len(canh_bao)) + " vấn đề)"):
+                            for msg in sorted(set(canh_bao)):
+                                st.warning(msg)
 
                     st.session_state["lich_bao_giang"] = lich
                     st.success("✅ Đã tạo lịch: " + str(len(lich)) + " tiết")
@@ -1400,7 +1540,7 @@ with sub_t3:
     manual_file = st.file_uploader("Upload file Excel/Word/CSV/PDF",
         type=["xlsx", "xls", "docx", "csv", "pdf", "txt"], key="manual_sched_file")
     manual_paste = st.text_area("Hoặc dán lịch", height=150,
-        placeholder="Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 19 | Luyện tập chung",
+        placeholder="Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 25 | Luyện tập chung",
         key="manual_sched_paste")
     manual_name = st.text_input("Tên lịch (nếu muốn lưu)",
                                  placeholder="lich_tuan_06", key="manual_sched_name")
@@ -1451,7 +1591,7 @@ with sub_t3:
 
 # ============ HIỂN THỊ LỊCH ============
 def hien_thi_lich_theo_ngay(lich):
-    for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]:
+    for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"]:
         bai_trong_ngay = [r for r in lich if r["thu"].lower().startswith(thu.lower()[:5])]
         if not bai_trong_ngay: continue
         ngay = bai_trong_ngay[0]["ngay"]
@@ -1576,9 +1716,9 @@ if st.session_state.get("weekly_results"):
         pf.space_after = Pt(0)
 
         if lich:
-            buoi = st.session_state.get("buoi_w", "BUỔI CHIỀU")
-            tuan_num = st.session_state.get("tuan_w", "").strip() or "........"
-            ngay_bd = st.session_state.get("ngay_bd_w", datetime.now().date())
+            buoi = st.session_state.get("buoi_final_x", "BUỔI CHIỀU")
+            tuan_num = st.session_state.get("tuan_final_x", "").strip() or "........"
+            ngay_bd = st.session_state.get("ngay_bd_final_x", datetime.now().date())
             add_phieu_bao_giang(d, lich, ngay_bd, buoi, tuan_num)
 
         for idx, r in enumerate(results):
@@ -1598,7 +1738,7 @@ if st.session_state.get("weekly_results"):
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
-            file_name="tuan_" + st.session_state.get("ngay_bd_w", datetime.now().date()).strftime("%Y%m%d") + ".docx",
+            file_name="tuan_" + st.session_state.get("ngay_bd_final_x", datetime.now().date()).strftime("%Y%m%d") + ".docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary", use_container_width=True,
         )
