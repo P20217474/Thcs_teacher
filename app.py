@@ -36,19 +36,27 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Tro ly Giao vien THCS AI")
-st.caption("Ban 2.1 • MAU + NGUON • AI tu dong • Xuat Word")
+st.caption("Ban 2.2 • MAU + NGUON • AI tu dong • Xuat Word")
 
 
-def get_default_api_key() -> str:
+# ============ ĐỌC CẤU HÌNH TỪ SECRETS ============
+def cfg(key, default=""):
+    """Đọc giá trị từ Secrets, nếu không có thì trả về default."""
     try:
-        key = st.secrets.get("GEMINI_API_KEY", "")
-        if key:
-            return key
+        val = st.secrets.get(key, default)
+        return val if val else default
     except Exception:
-        pass
-    return os.environ.get("GEMINI_API_KEY", "")
+        return default
 
 
+DEFAULT_API_KEY = cfg("GEMINI_API_KEY", "")
+DEFAULT_SCHOOL = cfg("SCHOOL", "")
+DEFAULT_TEACHER = cfg("TEACHER", "")
+DEFAULT_SUBJECT = cfg("SUBJECT", "Toan")
+DEFAULT_GRADE = cfg("GRADE", "6")
+
+
+# ============ SESSION STATE ============
 for k, v in {
     "draft": "",
     "draft_title": "",
@@ -61,6 +69,7 @@ for k, v in {
         st.session_state[k] = v
 
 
+# ============ ĐỌC FILE ============
 def read_docx(data: bytes) -> str:
     try:
         d = Document(io.BytesIO(data))
@@ -97,37 +106,56 @@ def read_file(file):
     return (file.name, text, len(text))
 
 
+# ============ SIDEBAR ============
+SUBJECTS = [
+    "Toan", "Ngu van", "Tieng Anh", "Khoa hoc tu nhien",
+    "Vat li", "Hoa hoc", "Sinh hoc", "Lich su va Dia li",
+    "Tin hoc", "Cong nghe", "GDCD", "Nghe thuat",
+    "Giao duc the chat", "Hoat dong trai nghiem", "Khac",
+]
+GRADES = ["6", "7", "8", "9", "Nhieu khoi"]
+
+if DEFAULT_SUBJECT not in SUBJECTS:
+    DEFAULT_SUBJECT = "Toan"
+if DEFAULT_GRADE not in GRADES:
+    DEFAULT_GRADE = "6"
+
+
 with st.sidebar:
-    st.header("Cau hinh AI")
-    default_key = get_default_api_key()
-    if default_key:
-        st.success("Da co API Key tu Secrets")
-        api_key = default_key
-        use_ai = st.checkbox("Dung AI de sinh noi dung", value=True)
-        with st.expander("Doi API Key khac"):
-            override = st.text_input("Nhap key moi", type="password", key="override_key")
+    st.header("⚙️ Cấu hình AI")
+    if DEFAULT_API_KEY:
+        st.success("✅ Đã có API Key từ Secrets")
+        api_key = DEFAULT_API_KEY
+        use_ai = st.checkbox("Dùng AI để sinh nội dung", value=True)
+        with st.expander("🔄 Đổi API Key khác"):
+            override = st.text_input(
+                "Nhập key mới (bỏ trống để dùng key mặc định)",
+                type="password",
+                key="override_key",
+            )
             if override.strip():
                 api_key = override.strip()
     else:
-        api_key = st.text_input("Google Gemini API Key", type="password", key="manual_key")
-        use_ai = st.checkbox("Dung AI de sinh noi dung", value=bool(api_key))
-        st.caption("Co the cai dat key vinh vien trong Settings > Secrets.")
+        api_key = st.text_input(
+            "Google Gemini API Key", type="password", key="manual_key"
+        )
+        use_ai = st.checkbox("Dùng AI để sinh nội dung", value=bool(api_key))
+        st.caption("💡 Có thể cài key vĩnh viễn trong Settings > Secrets.")
 
     st.divider()
-    st.header("Thong tin")
-    school = st.text_input("Truong/don vi")
-    teacher = st.text_input("Giao vien")
-    subject = st.selectbox("Mon hoc", [
-        "Toan", "Ngu van", "Tieng Anh", "Khoa hoc tu nhien",
-        "Vat li", "Hoa hoc", "Sinh hoc", "Lich su va Dia li",
-        "Tin hoc", "Cong nghe", "GDCD", "Nghe thuat",
-        "Giao duc the chat", "Hoat dong trai nghiem", "Khac",
-    ])
-    grade = st.selectbox("Khoi lop", ["6", "7", "8", "9", "Nhieu khoi"])
+    st.header("📋 Thông tin")
+    school = st.text_input("Trường/đơn vị", value=DEFAULT_SCHOOL)
+    teacher = st.text_input("Giáo viên", value=DEFAULT_TEACHER)
+    subject = st.selectbox(
+        "Môn học", SUBJECTS, index=SUBJECTS.index(DEFAULT_SUBJECT)
+    )
+    grade = st.selectbox(
+        "Khối lớp", GRADES, index=GRADES.index(DEFAULT_GRADE)
+    )
 
     st.divider()
-    st.subheader("Cong viec")
-    task = st.selectbox("Chon cong viec", [
+    st.subheader("📝 Công việc")
+    task = st.selectbox("Chọn công việc", [
         "Soan ke hoach bai day",
         "Tao de kiem tra va khung dap an",
         "Tao phieu hoc tap",
@@ -135,41 +163,52 @@ with st.sidebar:
         "Lap kich ban video bai giang",
         "Soan noi dung theo yeu cau rieng",
     ])
-    topic = st.text_input("Ten bai/chu de")
-    details = st.text_area("Yeu cau cu the", height=100)
-    period = st.text_input("Thoi luong")
+    topic = st.text_input("Tên bài/chủ đề")
+    details = st.text_area("Yêu cầu cụ thể", height=100)
+    period = st.text_input("Thời lượng", placeholder="Vi du: 1 tiet / 2 tiet")
 
 
+# ============ 3 TAB ============
 tab_mau, tab_nguon, tab_xem = st.tabs([
-    "TUY CHON MAU (dinh dang)",
-    "TUY CHON NGUON (noi dung)",
-    "XEM TRUOC DA NAP",
+    "📐 TÙY CHỌN MẪU (định dạng)",
+    "📚 TÙY CHỌN NGUỒN (nội dung)",
+    "👁️ XEM TRƯỚC ĐÃ NẠP",
 ])
 
 with tab_mau:
-    st.markdown("**MAU** quy dinh cau truc, thu tu muc, cach trinh bay. AI se bam sat cau truc nay.")
+    st.markdown(
+        "**MẪU** quy định cấu trúc, thứ tự mục, cách trình bày. "
+        "AI sẽ bám sát cấu trúc này."
+    )
     tpl_files = st.file_uploader(
-        "Nap 1 hoac nhieu file MAU (docx/pdf/txt)",
+        "📎 Nạp 1 hoặc nhiều file MẪU (docx/pdf/txt)",
         type=["docx", "pdf", "txt"],
         accept_multiple_files=True,
         key="tpl_uploader",
     )
-    tpl_paste = st.text_area("Hoac dan mau truc tiep", height=140, key="tpl_paste")
-    if st.button("Xoa mau da nap", key="clear_tpl"):
+    tpl_paste = st.text_area(
+        "📝 Hoặc dán mẫu trực tiếp", height=140, key="tpl_paste"
+    )
+    if st.button("🗑️ Xóa mẫu đã nạp", key="clear_tpl"):
         st.session_state["template_text"] = ""
         st.session_state["template_names"] = []
         st.rerun()
 
 with tab_nguon:
-    st.markdown("**NGUON** chua kien thuc, so lieu, du kien. AI chi lay noi dung tu nguon.")
+    st.markdown(
+        "**NGUỒN** chứa kiến thức, số liệu, dữ kiện. "
+        "AI chỉ lấy nội dung từ nguồn."
+    )
     src_files = st.file_uploader(
-        "Nap 1 hoac nhieu file NGUON (docx/pdf/txt)",
+        "📎 Nạp 1 hoặc nhiều file NGUỒN (docx/pdf/txt)",
         type=["docx", "pdf", "txt"],
         accept_multiple_files=True,
         key="src_uploader",
     )
-    src_paste = st.text_area("Hoac dan noi dung nguon truc tiep", height=140, key="src_paste")
-    if st.button("Xoa nguon da nap", key="clear_src"):
+    src_paste = st.text_area(
+        "📝 Hoặc dán nội dung nguồn trực tiếp", height=140, key="src_paste"
+    )
+    if st.button("🗑️ Xóa nguồn đã nạp", key="clear_src"):
         st.session_state["source_text"] = ""
         st.session_state["source_names"] = []
         st.rerun()
@@ -193,27 +232,32 @@ def collect_text(files, paste, store_key, names_key):
     return st.session_state[store_key], st.session_state[names_key]
 
 
-template_text, template_names = collect_text(tpl_files, tpl_paste, "template_text", "template_names")
-source_text, source_names = collect_text(src_files, src_paste, "source_text", "source_names")
+template_text, template_names = collect_text(
+    tpl_files, tpl_paste, "template_text", "template_names"
+)
+source_text, source_names = collect_text(
+    src_files, src_paste, "source_text", "source_names"
+)
 
 with tab_xem:
-    st.subheader("MAU da nap")
+    st.subheader("📐 MẪU đã nạp")
     if template_names:
         for n in template_names:
             st.write("- " + n)
-        st.caption("Tong: " + str(len(template_text)) + " ky tu")
+        st.caption("Tổng: " + str(len(template_text)) + " ký tự")
     else:
-        st.info("Chua nap mau.")
+        st.info("Chưa nạp mẫu.")
     st.divider()
-    st.subheader("NGUON da nap")
+    st.subheader("📚 NGUỒN đã nạp")
     if source_names:
         for n in source_names:
             st.write("- " + n)
-        st.caption("Tong: " + str(len(source_text)) + " ky tu")
+        st.caption("Tổng: " + str(len(source_text)) + " ký tự")
     else:
-        st.info("Chua nap nguon.")
+        st.info("Chưa nạp nguồn.")
 
 
+# ============ GỌI AI ============
 def call_gemini(prompt, key):
     import google.generativeai as genai
     genai.configure(api_key=key)
@@ -239,11 +283,19 @@ def call_gemini(prompt, key):
 def build_prompt():
     t = topic.strip() or "[Chua co ten]"
     if template_text:
-        tpl_block = "=== FILE MAU (BAT BUOC bam theo) ===\n" + template_text[:12000] + "\n=== HET MAU ==="
+        tpl_block = (
+            "=== FILE MAU (BAT BUOC bam theo) ===\n"
+            + template_text[:12000]
+            + "\n=== HET MAU ==="
+        )
     else:
         tpl_block = "(Khong co mau - dung cau truc chuan GDPT 2018.)"
     if source_text:
-        src_block = "=== NGUON TAI LIEU (chi lay noi dung tu day) ===\n" + source_text[:20000] + "\n=== HET NGUON ==="
+        src_block = (
+            "=== NGUON TAI LIEU (chi lay noi dung tu day) ===\n"
+            + source_text[:20000]
+            + "\n=== HET NGUON ==="
+        )
     else:
         src_block = "(Khong co nguon - dung kien thuc chuan mon hoc.)"
 
@@ -266,8 +318,19 @@ def build_prompt():
 
 def generate_local():
     t = topic.strip() or "[Dien ten bai]"
-    common = "- Mon hoc: " + subject + "\n- Lop: " + grade + "\n- Chu de: " + t + "\n- Thoi gian: " + (period or "Chua xac dinh")
-    return "# " + task.upper() + "\n" + common + "\n\n## I. Thong tin chung\n" + common + "\n\n## II. Noi dung chinh\n" + (details or "[Bo sung yeu cau cu the]") + "\n\n## III. Ghi chu\n- Ban mau cuc bo."
+    common = (
+        "- Mon hoc: " + subject
+        + "\n- Lop: " + grade
+        + "\n- Chu de: " + t
+        + "\n- Thoi gian: " + (period or "Chua xac dinh")
+    )
+    return (
+        "# " + task.upper() + "\n" + common
+        + "\n\n## I. Thong tin chung\n" + common
+        + "\n\n## II. Noi dung chinh\n"
+        + (details or "[Bo sung yeu cau cu the]")
+        + "\n\n## III. Ghi chu\n- Ban mau cuc bo."
+    )
 
 
 def generate():
@@ -276,7 +339,7 @@ def generate():
             st.error("Chua co API Key.")
             return ""
         try:
-            with st.spinner("AI dang sinh noi dung..."):
+            with st.spinner("🤖 AI đang sinh nội dung..."):
                 return call_gemini(build_prompt(), api_key.strip())
         except Exception as e:
             st.error("Loi AI: " + str(e))
@@ -285,6 +348,7 @@ def generate():
     return generate_local()
 
 
+# ============ TẠO FILE WORD ============
 def make_doc(title, body):
     d = Document()
     s = d.sections[0]
@@ -310,7 +374,9 @@ def make_doc(title, body):
         elif line.startswith("- "):
             d.add_paragraph(line[2:], style="List Bullet")
         elif re.match(r"^\d+[\.\)] ", line):
-            d.add_paragraph(re.sub(r"^\d+[\.\)] ", "", line), style="List Number")
+            d.add_paragraph(
+                re.sub(r"^\d+[\.\)] ", "", line), style="List Number"
+            )
         elif line.strip() == "":
             continue
         else:
@@ -320,13 +386,15 @@ def make_doc(title, body):
     return b.getvalue()
 
 
+# ============ KHU VỰC CHÍNH ============
 st.divider()
-st.subheader("Tao tai lieu")
+st.subheader("🚀 Tạo tài liệu")
+
 col1, col2 = st.columns([1, 2])
 with col1:
-    if st.button("Tao ban nhap", type="primary", use_container_width=True):
+    if st.button("✨ Tạo bản nháp", type="primary", use_container_width=True):
         if not topic.strip():
-            st.warning("Nen nhap 'Ten bai/chu de'.")
+            st.warning("⚠️ Nên nhập 'Tên bài/chủ đề'.")
         result = generate()
         if result:
             st.session_state["draft"] = result
@@ -334,45 +402,62 @@ with col1:
 with col2:
     status = []
     if template_text:
-        status.append(str(len(template_names)) + " mau")
+        status.append(str(len(template_names)) + " mẫu")
     if source_text:
-        status.append(str(len(source_names)) + " nguon")
+        status.append(str(len(source_names)) + " nguồn")
     if use_ai and api_key:
-        status.append("AI bat")
+        status.append("AI bật")
     if status:
         st.caption(" | ".join(status))
 
 if st.session_state["draft"]:
     st.divider()
-    st.subheader("Ban nhap - co the chinh sua")
-    st.session_state["draft"] = st.text_area("Noi dung", st.session_state["draft"], height=420)
-    name = re.sub(r"[^A-Za-z0-9_\-]", "_", topic.strip())[:45] or "tai_lieu_giao_vien"
+    st.subheader("Bản nháp — có thể chỉnh sửa")
+    st.session_state["draft"] = st.text_area(
+        "Nội dung", st.session_state["draft"], height=420
+    )
+    name = (
+        re.sub(r"[^A-Za-z0-9_\-]", "_", topic.strip())[:45]
+        or "tai_lieu_giao_vien"
+    )
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         st.download_button(
-            "Tai Word (.docx)",
-            make_doc(st.session_state["draft_title"], st.session_state["draft"]),
+            "⬇️ Tải Word (.docx)",
+            make_doc(
+                st.session_state["draft_title"], st.session_state["draft"]
+            ),
             file_name=name + ".docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
             type="primary",
         )
     with c2:
         st.download_button(
-            "Tai van ban (.txt)",
+            "⬇️ Tải văn bản (.txt)",
             st.session_state["draft"].encode("utf-8"),
             file_name=name + ".txt",
             mime="text/plain",
         )
     with c3:
-        if st.button("Xoa ban nhap"):
+        if st.button("🗑️ Xóa bản nháp"):
             st.session_state["draft"] = ""
             st.session_state["draft_title"] = ""
             st.rerun()
 
-with st.expander("Huong dan cai API Key vinh vien"):
-    st.write("Buoc 1: Lay API Key mien phi tai aistudio.google.com/app/apikey")
-    st.write("Buoc 2: Mo app Streamlit > bam ... goc duoi phai > Settings > tab Secrets")
-    st.write("Buoc 3: Dan dong sau (thay bang key cua ban):")
-    st.code('GEMINI_API_KEY = "AIzaSy...key_cua_ban..."', language="toml")
-    st.write("Buoc 4: Bam Save > Reboot")
-    st.write("Tu do AI se tu dong bat, khong can dan key nua.")
+with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
+    st.write("**Bước 1:** Lấy API Key miễn phí tại aistudio.google.com/app/apikey")
+    st.write("**Bước 2:** Mở app Streamlit → **Manage app** → **Settings** → tab **Secrets**")
+    st.write("**Bước 3:** Dán nội dung sau vào ô Secrets (thay giá trị thật):")
+    st.code(
+        'GEMINI_API_KEY = "AIzaSy...key_cua_ban..."\n'
+        'SCHOOL = "Truong THCS ..."\n'
+        'TEACHER = "Nguyen Van A"\n'
+        'SUBJECT = "Toan"\n'
+        'GRADE = "6"',
+        language="toml",
+    )
+    st.write("**Bước 4:** Bấm **Save** → **Reboot**")
+    st.write("Từ đó mở app là có sẵn tất cả thông tin, không cần nhập lại.")
