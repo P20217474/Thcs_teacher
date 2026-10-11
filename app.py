@@ -14,7 +14,7 @@ _ensure("pypdf", "pypdf")
 
 import streamlit as st
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Inches, RGBColor, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
@@ -353,12 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_x" not in st.session_state:
+if "app_started_v5" not in st.session_state:
     for k in list(st.session_state.keys()):
-        if k in ("date_widget_v2", "buoi_widget_v2", "tuan_widget_v2",
-                 "sd_key_v3", "bd_key_v3", "tn_key_v3"):
+        if k in ("tuan_final_x", "tuan_widget_v2", "tuan_num_input"):
             del st.session_state[k]
-    st.session_state["app_started_x"] = True
+    st.session_state["app_started_v5"] = True
 
 
 defaults = {
@@ -405,6 +404,7 @@ with st.sidebar:
         st.success("✅ " + msg) if ok else st.error("❌ " + msg)
 
     st.divider()
+    st.subheader("📊 Thống kê")
     for label, key in [("Mẫu", "templates"), ("Nguồn", "sources"), ("PPCT", "ppct"),
                        ("TKB", "tkb"), ("Lịch BG", "schedule")]:
         st.write(label + ": " + str(len(st.session_state[key])) + " file")
@@ -416,7 +416,112 @@ with st.sidebar:
         st.session_state["tkb"] = load_tkb()
         st.session_state["schedule"] = load_schedule()
         st.rerun()
+
     st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
+
+    # ============ DỌN DẸP RÁC VÀ CACHE ============
+    st.divider()
+    st.subheader("🧹 Dọn dẹp")
+
+    with st.expander("🗑️ Dọn rác và cache", expanded=False):
+        st.caption("Chọn mục cần dọn:")
+
+        # 1. Xóa session_state tạm
+        if st.button("🧼 Xóa phiên làm việc tạm (draft, kết quả)", use_container_width=True):
+            for k in ["draft", "last_topic", "weekly_results", "lich_bao_giang"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.success("✅ Đã xóa phiên làm việc tạm")
+            st.rerun()
+
+        # 2. Xóa cache Streamlit
+        if st.button("♻️ Xóa cache Streamlit", use_container_width=True):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.success("✅ Đã xóa cache Streamlit")
+            st.rerun()
+
+        # 3. Xóa lịch sử soạn bài trên GitHub
+        if GITHUB_TOKEN:
+            if st.button("📜 Xóa lịch sử soạn bài (trên GitHub)", use_container_width=True):
+                files = gh_list("data/history")
+                deleted = 0
+                for f in files:
+                    ok, _ = gh_delete(f"data/history/{f}")
+                    if ok:
+                        deleted += 1
+                st.success("✅ Đã xóa " + str(deleted) + " file lịch sử")
+
+        # 4. Xóa file rác .md không dùng
+        if GITHUB_TOKEN:
+            if st.button("🗑️ Xóa file rác (file_*.md, .gitkeep)", use_container_width=True):
+                deleted = 0
+                for folder in ["templates", "sources", "ppct", "tkb", "schedule"]:
+                    files = gh_list(f"data/{folder}")
+                    for f in files:
+                        if f.startswith("file_") or f == ".gitkeep":
+                            ok, _ = gh_delete(f"data/{folder}/{f}")
+                            if ok:
+                                deleted += 1
+                st.success("✅ Đã xóa " + str(deleted) + " file rác")
+                st.session_state["templates"] = load_templates()
+                st.session_state["sources"] = load_sources()
+                st.session_state["ppct"] = load_ppct()
+                st.session_state["tkb"] = load_tkb()
+                st.session_state["schedule"] = load_schedule()
+                st.rerun()
+
+        # 5. Xóa TẤT CẢ lịch báo giảng đã lưu
+        if GITHUB_TOKEN:
+            if st.button("📅 Xóa tất cả lịch báo giảng đã lưu", use_container_width=True):
+                files = gh_list("data/schedule")
+                deleted = 0
+                for f in files:
+                    ok, _ = gh_delete(f"data/schedule/{f}")
+                    if ok:
+                        deleted += 1
+                st.success("✅ Đã xóa " + str(deleted) + " file lịch")
+                st.session_state["schedule"] = load_schedule()
+
+        st.divider()
+        st.caption("⚠️ **Cảnh báo**: các nút dưới đây xóa dữ liệu VĨNH VIỄN")
+
+        # 6. Reset toàn bộ session_state (khôi phục về mặc định)
+        if st.button("🔴 Reset toàn bộ app (xóa session)", use_container_width=True):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.success("✅ Đã reset toàn bộ. Đang tải lại...")
+            st.rerun()
+
+        # 7. XÓA TẤT CẢ dữ liệu trên GitHub (nguy hiểm)
+        if GITHUB_TOKEN:
+            if st.button("🔴🔴 XÓA TẤT CẢ dữ liệu GitHub", use_container_width=True):
+                st.session_state["confirm_delete_all"] = True
+
+            if st.session_state.get("confirm_delete_all"):
+                st.warning("⚠️ Bạn có chắc muốn xóa TẤT CẢ mẫu, nguồn, PPCT, TKB, lịch?")
+                c_yes, c_no = st.columns(2)
+                with c_yes:
+                    if st.button("✅ XÓA", key="confirm_yes"):
+                        deleted = 0
+                        for folder in ["templates", "sources", "ppct", "tkb", "schedule", "history"]:
+                            files = gh_list(f"data/{folder}")
+                            for f in files:
+                                ok, _ = gh_delete(f"data/{folder}/{f}")
+                                if ok:
+                                    deleted += 1
+                        st.session_state["templates"] = {}
+                        st.session_state["sources"] = {}
+                        st.session_state["ppct"] = {}
+                        st.session_state["tkb"] = {}
+                        st.session_state["schedule"] = {}
+                        del st.session_state["confirm_delete_all"]
+                        st.success("✅ Đã xóa " + str(deleted) + " file")
+                        st.rerun()
+                with c_no:
+                    if st.button("❌ Hủy", key="confirm_no"):
+                        del st.session_state["confirm_delete_all"]
+                        st.rerun()
 
 
 def call_ai(prompt, system=""):
@@ -540,7 +645,6 @@ with tab_kho:
             st.info("Chưa có " + label.lower() + ".")
         st.divider()
 
-
 # ============ PROMPT CV 5512 ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
@@ -570,13 +674,13 @@ def build_exec_prompt(plan):
     prompt += "**Thời gian thực hiện: " + (plan.get("period") or "1") + "**\n\n"
 
     prompt += "**I. MỤC TIÊU**\n"
-    prompt += "1. Kiến thức: [mô tả]\n"
-    prompt += "- [2-4 gạch đầu dòng kiến thức trọng tâm]\n"
+    prompt += "1. Kiến thức:\n"
+    prompt += "[2-4 đoạn văn mô tả kiến thức, KHÔNG dùng dấu gạch đầu dòng]\n"
     prompt += "2. Năng lực:\n"
-    prompt += "- Năng lực riêng: [2-3 năng lực đặc thù]\n"
-    prompt += "- Năng lực chung: Năng lực tư duy và lập luận toán học; năng lực giao tiếp toán học tự học; năng lực giải quyết vấn đề toán học, năng lực tư duy sáng tạo, năng lực hợp tác.\n"
+    prompt += "Năng lực riêng: [mô tả 1-2 đoạn]\n"
+    prompt += "Năng lực chung: Năng lực tư duy và lập luận toán học; năng lực giao tiếp toán học tự học; năng lực giải quyết vấn đề toán học, năng lực tư duy sáng tạo, năng lực hợp tác.\n"
     prompt += "3. Phẩm chất:\n"
-    prompt += "- Bồi dưỡng hứng thú học tập, ý thức làm việc nhóm, ý thức tìm tòi, khám phá và sáng tạo cho HS => độc lập, tự tin và tự chủ.\n\n"
+    prompt += "Bồi dưỡng hứng thú học tập, ý thức làm việc nhóm, ý thức tìm tòi, khám phá và sáng tạo cho HS => độc lập, tự tin và tự chủ.\n\n"
 
     prompt += "**II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU**\n"
     prompt += "1. Đối với giáo viên: Kế hoạch bài dạy, SGK, SGV, phiếu học tập, thước kẻ, phấn màu, tivi (hoặc máy vi tính) nếu cần trình chiếu.\n"
@@ -585,26 +689,26 @@ def build_exec_prompt(plan):
     prompt += "**III. TIẾN TRÌNH DẠY HỌC**\n\n"
 
     prompt += "**1. Hoạt động 1: Mở đầu (Khởi động)**\n"
-    prompt += "a) Mục tiêu: [2 gạch đầu dòng]\n"
-    prompt += "b) Nội dung: [Mô tả ngắn gọn]\n"
+    prompt += "a) Mục tiêu: [2 câu]\n"
+    prompt += "b) Nội dung: [1-2 câu mô tả]\n"
     prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| - Bước 1: Chuyển giao nhiệm vụ:<br>+ GV đặt vấn đề... | [Sản phẩm dự kiến] |\n"
-    prompt += "| - Bước 2: Thực hiện nhiệm vụ:<br>+ HS suy nghĩ, thảo luận... | |\n"
-    prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS trả lời... | |\n"
-    prompt += "| - Bước 4: Kết luận, nhận định:<br>+ GV đánh giá, dẫn dắt vào bài mới | |\n\n"
+    prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV đặt vấn đề...<br>GV đặt câu hỏi: ... | [Sản phẩm dự kiến] |\n"
+    prompt += "| Bước 2: Thực hiện nhiệm vụ:<br>HS suy nghĩ, thảo luận... | |\n"
+    prompt += "| Bước 3: Báo cáo, thảo luận:<br>GV gọi đại diện HS trả lời... | |\n"
+    prompt += "| Bước 4: Kết luận, nhận định:<br>GV đánh giá, dẫn dắt vào bài mới | |\n\n"
 
-    prompt += "**2. Hoạt động 2: Giải quyết vấn đề từ Hoạt động 1**\n"
-    prompt += "a) Mục tiêu: [mục tiêu hoạt động]\n"
-    prompt += "b) Nội dung: [nội dung kiến thức]\n"
+    prompt += "**2. Hoạt động 2: Hình thành kiến thức mới**\n"
+    prompt += "a) Mục tiêu: [mô tả]\n"
+    prompt += "b) Nội dung: [mô tả]\n"
     prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| - Bước 1: Chuyển giao nhiệm vụ:<br>+ GV hướng dẫn và yêu cầu HS thực hiện... | **1. [Tên kiến thức]**<br>[Nội dung chi tiết từ SGK]<br>+ Ví dụ 1: ...<br>+ Ví dụ 2: ... |\n"
-    prompt += "| - Bước 2: Thực hiện nhiệm vụ:<br>+ HS chú ý lắng nghe, thực hiện yêu cầu của GV.<br>+ GV quan sát và trợ giúp HS | |\n"
-    prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS thảo luận và phát biểu, nhận xét và bổ sung cho nhau | |\n"
-    prompt += "| - Bước 4: Kết luận, nhận định:<br>+ GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính | |\n\n"
+    prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV hướng dẫn và yêu cầu HS thực hiện... | [Kiến thức trọng tâm]<br>Ví dụ 1: ...<br>Ví dụ 2: ... |\n"
+    prompt += "| Bước 2: Thực hiện nhiệm vụ:<br>HS chú ý lắng nghe, thực hiện yêu cầu của GV. | |\n"
+    prompt += "| Bước 3: Báo cáo, thảo luận:<br>HS thảo luận và phát biểu, nhận xét và bổ sung cho nhau | |\n"
+    prompt += "| Bước 4: Kết luận, nhận định:<br>GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính | |\n\n"
 
     prompt += "**3. Hoạt động 3: Luyện tập**\n"
     prompt += "a) Mục tiêu: Học sinh củng cố lại kiến thức thông qua một số bài tập.\n"
@@ -612,7 +716,7 @@ def build_exec_prompt(plan):
     prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| - GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK).<br>- HS tiếp nhận nhiệm vụ... | **Bài [số]:**<br>[Lời giải chi tiết] |\n\n"
+    prompt += "| GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK). | Bài [số]:<br>[Lời giải chi tiết] |\n\n"
 
     prompt += "**4. Hoạt động 4: Vận dụng**\n"
     prompt += "a) Mục tiêu: Học sinh thực hiện làm bài tập vận dụng để củng cố kiến thức và áp dụng kiến thức vào thực tế đời sống.\n"
@@ -620,7 +724,7 @@ def build_exec_prompt(plan):
     prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| - GV cho HS đọc và tìm hiểu...<br>- GV yêu cầu HS hoàn thành... | **Bài [số]:** [Lời giải chi tiết] |\n\n"
+    prompt += "| GV cho HS đọc và tìm hiểu...<br>GV yêu cầu HS hoàn thành... | Bài [số]: [Lời giải chi tiết] |\n\n"
 
     prompt += "=== QUY TẮC BẮT BUỘC ===\n"
     prompt += "1. NỘI DUNG PHẢI LẤY TỪ NGUỒN SGK. KHÔNG bịa.\n"
@@ -634,6 +738,8 @@ def build_exec_prompt(plan):
     prompt += "9. KHÔNG viết dòng 'BẢNG 2 CỘT:' hay 'Bảng 2 cột:'.\n"
     prompt += "10. KHÔNG viết phần 'Người soạn', 'Ký tên', 'Sông Đốc' ở cuối.\n"
     prompt += "11. Kết thúc bài bằng '4. Hoạt động 4'.\n"
+    prompt += "12. KHÔNG dùng dấu gạch đầu dòng (-, +, •) ở đầu các đoạn văn. "
+    prompt += "Các ý nhỏ trong mục 1, 2, 3 viết thành đoạn văn liền mạch, mỗi ý 1 đoạn.\n"
     return prompt
 
 
@@ -667,17 +773,16 @@ def _set_run_font(run, size=14, bold=False):
 
 def add_para(doc, text, style=None):
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
-    text = re.sub(r"^[*#\-\+]+\s*", "", text)
-    text = re.sub(r"^\*+\s*", "", text)
-    text = re.sub(r"^#+\s*", "", text)
-    text = re.sub(r"^\\?\*+\s*", "", text)
+    text = re.sub(r"^[\-\+\*\•\#]+\s*", "", text)
+    text = re.sub(r"^\d+[\.\)]\s+", "", text)
+    text = re.sub(r"^[a-z]\)\s+", "", text)
+    text = text.strip()
 
-    p = doc.add_paragraph(style=style) if style else doc.add_paragraph()
+    p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    if style is None:
-        p.paragraph_format.first_line_indent = Inches(0.39)
-    else:
-        p.paragraph_format.first_line_indent = Inches(0)
+    p.paragraph_format.first_line_indent = Inches(0.39)
+    p.paragraph_format.left_indent = Inches(0)
+    p.paragraph_format.right_indent = Inches(0)
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
@@ -710,13 +815,29 @@ def add_table(doc, rows):
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(0)
-            p.paragraph_format.first_line_indent = Inches(0)
             is_header = (i == 0)
             if is_header:
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.paragraph_format.first_line_indent = Inches(0)
+                p.paragraph_format.left_indent = Inches(0)
+                p.paragraph_format.right_indent = Inches(0)
             else:
-                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                p.paragraph_format.first_line_indent = Inches(0.39)
+                p.paragraph_format.left_indent = Inches(0)
+                p.paragraph_format.right_indent = Inches(0)
+
             val = (row[j] if j < len(row) else "").replace("<br>", "\n")
+            if not is_header:
+                lines = val.split("\n")
+                cleaned_lines = []
+                for ln in lines:
+                    ln_clean = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
+                    ln_clean = re.sub(r"^\d+[\.\)]\s+", "", ln_clean)
+                    ln_clean = re.sub(r"^[a-z]\)\s+", "", ln_clean)
+                    cleaned_lines.append(ln_clean.strip())
+                val = "\n".join(cleaned_lines)
+
             for part in re.split(r"(\*\*[^*]+\*\*)", val):
                 if part.startswith("**") and part.endswith("**") and len(part) > 4:
                     run = p.add_run(part[2:-2])
@@ -735,6 +856,7 @@ def _add_heading(doc, text):
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(6)
     p.paragraph_format.first_line_indent = Inches(0)
+    p.paragraph_format.left_indent = Inches(0)
 
     is_title_ten_bai = bool(re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", text, re.IGNORECASE))
     is_title_mon_hoc = bool(re.match(r"^\**\s*Môn\s*học", text, re.IGNORECASE))
@@ -773,9 +895,6 @@ def write_content_to_doc(d, content):
             start_idx = idx
             break
         if re.match(r"^\**\s*I\.\s*(Mục|MỤC)\s*tiêu", s, re.IGNORECASE):
-            start_idx = idx
-            break
-        if re.match(r"^\**\s*1\.\s*Về\s*kiến\s*thức", s, re.IGNORECASE):
             start_idx = idx
             break
     lines = lines[start_idx:]
@@ -855,12 +974,10 @@ def write_content_to_doc(d, content):
             _add_heading(d, re.sub(r"[*#\\]", "", stripped[3:].strip()))
         elif stripped.startswith("# "):
             _add_heading(d, re.sub(r"[*#\\]", "", stripped[2:].strip()))
-        elif re.match(r"^[-*+]\s+", stripped):
-            text = re.sub(r"^[-*+]\s+", "", stripped)
-            add_para(d, text, style="List Bullet")
+        elif re.match(r"^[-*+\•]\s+", stripped):
+            add_para(d, stripped)
         elif re.match(r"^\d+[\.\)]\s+", stripped):
-            text = re.sub(r"^\d+[\.\)]\s+", "", stripped)
-            add_para(d, text, style="List Number")
+            add_para(d, stripped)
         else:
             text = re.sub(r"^[*#\-\+\\]+\s*", "", stripped)
             text = re.sub(r"^\*\*\\?\*?\s*", "", text)
@@ -868,6 +985,7 @@ def write_content_to_doc(d, content):
             if text:
                 add_para(d, text)
         i += 1
+
 
 def make_doc(title, body):
     d = Document()
@@ -913,7 +1031,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     now = datetime.now()
     end_date = tuan_start + timedelta(days=6)
 
-    # Header 2 cột
     table_head = doc.add_table(rows=1, cols=2)
     table_head.autofit = True
 
@@ -974,9 +1091,12 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
 
     doc.add_paragraph("")
 
-    # Bảng 7 cột
     table = doc.add_table(rows=1, cols=7)
     table.style = "Table Grid"
+    table.autofit = False
+
+    widths = [Cm(2.5), Cm(1.2), Cm(1.5), Cm(1.5), Cm(1.3), Cm(9.0), Cm(1.5)]
+
     hdr = table.rows[0].cells
     headers_lines = [
         ["Thứ", "ngày, tháng"],
@@ -1007,21 +1127,20 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
         for r in p.runs:
             r.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
 
-    # Nhóm theo ngày
+    for i, w in enumerate(widths):
+        table.rows[0].cells[i].width = w
+
     nhom_ngay = []
     for r in lich:
         key = r["thu"] + "|" + r["ngay"]
         if not nhom_ngay or nhom_ngay[-1]["key"] != key:
             nhom_ngay.append({
-                "key": key,
-                "thu": r["thu"],
-                "ngay": r["ngay"],
+                "key": key, "thu": r["thu"], "ngay": r["ngay"],
                 "items": [r],
             })
         else:
             nhom_ngay[-1]["items"].append(r)
 
-    # Thêm dữ liệu
     for nhom in nhom_ngay:
         for idx, r in enumerate(nhom["items"]):
             row = table.add_row().cells
@@ -1054,6 +1173,8 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 p.alignment = align
                 p.paragraph_format.space_before = Pt(0)
                 p.paragraph_format.space_after = Pt(0)
+                p.paragraph_format.first_line_indent = Inches(0)
+                p.paragraph_format.left_indent = Inches(0)
                 val = r.get(key, "")
                 if key == "tiet":
                     val = val.replace("Tiết ", "")
@@ -1062,7 +1183,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
 
             row[6].text = ""
 
-    # Merge cột 1 theo nhóm ngày
     start_row_idx = 1
     for nhom in nhom_ngay:
         so_dong = len(nhom["items"])
@@ -1077,6 +1197,11 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
             except Exception:
                 pass
         start_row_idx += so_dong
+
+    for row in table.rows:
+        for i, w in enumerate(widths):
+            if i < len(row.cells):
+                row.cells[i].width = w
 
     doc.add_paragraph("")
 
@@ -1165,19 +1290,26 @@ with sub_t1:
     with col1_d:
         start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
                                     value=datetime.now().date(),
-                                    key="ngay_bd_final_x")
+                                    key="ngay_bd_x")
     with col2_d:
-        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_final_x")
+        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_x")
     with col3_d:
-        tuan_number = st.text_input("📅 Số tuần (VD: 6)", key="tuan_final_x", placeholder="VD: 6")
+        tuan_number = st.number_input(
+            "📅 Số tuần",
+            min_value=1,
+            max_value=52,
+            value=1,
+            step=1,
+            key="tuan_num_x",
+        )
+        tuan_number_str = str(int(tuan_number))
 
     def ai_extract_tkb(raw):
         system = "Bạn là trợ lý đọc bảng. CHỈ trả về text theo format, KHÔNG giải thích."
-        prompt = """Đọc bảng THỜI KHÓA BIỂU sau. Bảng có 5 cột theo thứ tự:
+        prompt = """Đọc bảng THỜI KHÓA BIỂU sau. Bảng có 5 cột:
 Thứ | Tiết | Lớp | Môn | Tiết PPCT
 
-YÊU CẦU: Chuyển thành mỗi dòng 1 tiết dạy, ĐÚNG 5 CỘT format:
-Thứ | Tiết | Lớp | Môn | Tiết PPCT
+Trả về mỗi dòng 1 tiết dạy: Thứ | Tiết | Lớp | Môn | Tiết PPCT
 
 Ví dụ ĐÚNG:
 Thứ 2 | 1 | 6A10 | Toán | 25
@@ -1185,12 +1317,9 @@ Thứ 2 | 2 | 6A10 | Toán | 26
 
 QUY TẮC:
 - Cột "Thứ": giữ nguyên "Thứ 2", "Thứ 4", "Thứ 5", "Thứ 6"
-- Cột "Tiết": số 1-4
-- Cột "Lớp": "6A10", "6A9", "6A8", "6A7"...
-- Cột "Môn": "Toán"
 - Cột "Tiết PPCT": SỐ NGUYÊN — PHẢI lấy đúng từ cột cuối bảng gốc
 
-CHỈ trả về các dòng dữ liệu, KHÔNG header, KHÔNG giải thích.
+CHỈ trả về các dòng dữ liệu.
 
 NỘI DUNG TKB GỐC:
 """ + raw[:15000]
@@ -1417,16 +1546,6 @@ NỘI DUNG PPCT:
                         st.warning("⚠️ Không tìm thấy tuần khớp. Dùng toàn bộ PPCT.")
                         ppct_week = ppct
 
-                    ppct_tiets = []
-                    for bai in ppct_week:
-                        for k in range(bai["so_tiet"]):
-                            ppct_tiets.append({
-                                "ten_bai": bai["ten_bai"],
-                                "tiet_trong_bai": k + 1,
-                                "tong_tiet": bai["so_tiet"],
-                                "stt_ppct": bai.get("stt", ""),
-                            })
-
                     days_map = {
                         "thứ 2": 0, "thu 2": 0, "2": 0,
                         "thứ 3": 1, "thu 3": 1, "3": 1,
@@ -1573,7 +1692,7 @@ with sub_t3:
                 })
 
             if not lich:
-                st.error("Không đọc được. Kiểm tra định dạng.")
+                st.error("Không đọc được.")
             else:
                 st.session_state["lich_bao_giang"] = lich
                 st.success("✅ Đã nạp: " + str(len(lich)) + " tiết")
@@ -1716,20 +1835,13 @@ if st.session_state.get("weekly_results"):
         pf.space_after = Pt(0)
 
         if lich:
-            buoi = st.session_state.get("buoi_final_x", "BUỔI CHIỀU")
-            tuan_num = st.session_state.get("tuan_final_x", "").strip() or "........"
-            ngay_bd = st.session_state.get("ngay_bd_final_x", datetime.now().date())
+            buoi = st.session_state.get("buoi_x", "BUỔI CHIỀU")
+            tuan_num = str(st.session_state.get("tuan_num_x", 1))
+            ngay_bd = st.session_state.get("ngay_bd_x", datetime.now().date())
             add_phieu_bao_giang(d, lich, ngay_bd, buoi, tuan_num)
 
         for idx, r in enumerate(results):
             d.add_page_break()
-            lop_str = ", ".join(r.get("cac_lop", []))
-            h = d.add_heading(r.get("ten_bai", ""), 1)
-            h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p_info = d.add_paragraph()
-            p_info.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p_info.add_run("Lớp: " + lop_str + " | Số tiết: " + str(r.get("tong_tiet", 1)))
-            _set_run_font(run, 14, bold=False)
             write_content_to_doc(d, r.get("content", ""))
 
         bio = io.BytesIO()
@@ -1738,7 +1850,7 @@ if st.session_state.get("weekly_results"):
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
-            file_name="tuan_" + st.session_state.get("ngay_bd_final_x", datetime.now().date()).strftime("%Y%m%d") + ".docx",
+            file_name="tuan_" + st.session_state.get("ngay_bd_x", datetime.now().date()).strftime("%Y%m%d") + ".docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary", use_container_width=True,
         )
