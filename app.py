@@ -13,8 +13,8 @@ def _ensure(pkg, mod=None):
 
 _ensure("streamlit")
 _ensure("python-docx", "docx")
-_ensure("google-generativeai", "google.generativeai")
 _ensure("pypdf", "pypdf")
+_ensure("freelm")
 
 import streamlit as st
 from docx import Document
@@ -36,7 +36,7 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Tro ly Giao vien THCS AI")
-st.caption("Ban 2.3 • MAU + NGUON • Ky hieu toan Unicode • Xuat Word")
+st.caption("Ban 3.1 • freelm • 6 nha cung cap AI • Tu dong chuyen doi • Xuat Word")
 
 
 # ============ ĐỌC CẤU HÌNH TỪ SECRETS ============
@@ -48,7 +48,27 @@ def cfg(key, default=""):
         return default
 
 
-DEFAULT_API_KEY = cfg("GEMINI_API_KEY", "")
+# Đọc tất cả API key có thể có
+GEMINI_KEY = cfg("GEMINI_API_KEY", "")
+GROQ_KEY = cfg("GROQ_API_KEY", "")
+OPENROUTER_KEY = cfg("OPENROUTER_API_KEY", "")
+MISTRAL_KEY = cfg("MISTRAL_API_KEY", "")
+CEREBRAS_KEY = cfg("CEREBRAS_API_KEY", "")
+NVIDIA_KEY = cfg("NVIDIA_API_KEY", "")
+
+# Copy tất cả key vào os.environ để freelm đọc
+# (freelm đọc từ biến môi trường)
+for k, v in {
+    "GEMINI_API_KEY": GEMINI_KEY,
+    "GROQ_API_KEY": GROQ_KEY,
+    "OPENROUTER_API_KEY": OPENROUTER_KEY,
+    "MISTRAL_API_KEY": MISTRAL_KEY,
+    "CEREBRAS_API_KEY": CEREBRAS_KEY,
+    "NVIDIA_API_KEY": NVIDIA_KEY,
+}.items():
+    if v:
+        os.environ[k] = v
+
 DEFAULT_SCHOOL = cfg("SCHOOL", "")
 DEFAULT_TEACHER = cfg("TEACHER", "")
 DEFAULT_SUBJECT = cfg("SUBJECT", "Toan")
@@ -122,24 +142,46 @@ if DEFAULT_GRADE not in GRADES:
 
 with st.sidebar:
     st.header("⚙️ Cấu hình AI")
-    if DEFAULT_API_KEY:
-        st.success("✅ Đã có API Key từ Secrets")
-        api_key = DEFAULT_API_KEY
+
+    # Đếm số nhà cung cấp có key
+    available = []
+    if GEMINI_KEY:
+        available.append("Gemini")
+    if GROQ_KEY:
+        available.append("Groq")
+    if OPENROUTER_KEY:
+        available.append("OpenRouter")
+    if MISTRAL_KEY:
+        available.append("Mistral")
+    if CEREBRAS_KEY:
+        available.append("Cerebras")
+    if NVIDIA_KEY:
+        available.append("NVIDIA")
+
+    if available:
+        st.success("✅ " + ", ".join(available))
         use_ai = st.checkbox("Dùng AI để sinh nội dung", value=True)
-        with st.expander("🔄 Đổi API Key khác"):
-            override = st.text_input(
-                "Nhập key mới (bỏ trống để dùng key mặc định)",
-                type="password",
-                key="override_key",
-            )
-            if override.strip():
-                api_key = override.strip()
+        st.caption("freelm tự chuyển đổi khi 1 nhà cung cấp lỗi.")
     else:
-        api_key = st.text_input(
-            "Google Gemini API Key", type="password", key="manual_key"
-        )
-        use_ai = st.checkbox("Dùng AI để sinh nội dung", value=bool(api_key))
-        st.caption("💡 Có thể cài key vĩnh viễn trong Settings > Secrets.")
+        st.warning("Chưa có API key nào.")
+        st.caption("Nhập ít nhất 1 key để dùng AI.")
+        use_ai = st.checkbox("Dùng AI để sinh nội dung", value=False)
+
+    # Cho phép nhập key tạm thời nếu chưa có
+    if not available:
+        with st.expander("🔑 Nhập API key tạm thời"):
+            temp_gemini = st.text_input("Gemini API Key", type="password")
+            temp_groq = st.text_input("Groq API Key", type="password")
+            temp_openrouter = st.text_input("OpenRouter API Key", type="password")
+            if temp_gemini.strip():
+                os.environ["GEMINI_API_KEY"] = temp_gemini.strip()
+                GEMINI_KEY = temp_gemini.strip()
+            if temp_groq.strip():
+                os.environ["GROQ_API_KEY"] = temp_groq.strip()
+                GROQ_KEY = temp_groq.strip()
+            if temp_openrouter.strip():
+                os.environ["OPENROUTER_API_KEY"] = temp_openrouter.strip()
+                OPENROUTER_KEY = temp_openrouter.strip()
 
     st.divider()
     st.header("📋 Thông tin")
@@ -260,27 +302,17 @@ with tab_xem:
         st.info("Chưa nạp nguồn.")
 
 
-# ============ GỌI AI ============
-def call_gemini(prompt, key):
-    import google.generativeai as genai
-    genai.configure(api_key=key)
-    last_err = None
-    for model_name in [
-        "gemini-3.8-flash",
-        "gemini-flash-latest",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash",
-    ]:
-        try:
-            model = genai.GenerativeModel(model_name)
-            resp = model.generate_content(prompt)
-            return resp.text
-        except Exception as e:
-            last_err = e
-            continue
-    raise last_err
+# ============ GỌI AI QUA FREELM ============
+def call_ai(prompt):
+    """Gọi AI qua freelm với tự động chuyển đổi nhà cung cấp."""
+    import freelm
+
+    llm = freelm.FreeLLM.from_env()
+    resp = llm.chat(
+        [{"role": "user", "content": prompt}],
+        model="auto",
+    )
+    return resp.text, resp.provider
 
 
 def build_prompt():
@@ -336,7 +368,6 @@ def build_prompt():
     prompt += "5. Viet tieng Viet CO DAU day du, van phong su pham, cu the, dung ngay.\n"
     prompt += "6. Markdown: '# ' cap 1, '## ' cap 2, '### ' cap 3, '- ' bullet, '1. ' so.\n"
     prompt += "7. Chi xuat noi dung tai lieu, KHONG them loi chao, KHONG giai thich.\n"
-    prompt += "8. KHONG dung bang markdown (|...|) tru khi mau goc co bang.\n"
     return prompt
 
 
@@ -359,23 +390,23 @@ def generate_local():
 
 def generate():
     if use_ai:
-        if not api_key or not api_key.strip():
-            st.error("Chua co API Key.")
+        if not (GEMINI_KEY or GROQ_KEY or OPENROUTER_KEY or MISTRAL_KEY or CEREBRAS_KEY or NVIDIA_KEY):
+            st.error("Chưa có API key nào.")
             return ""
         try:
-            with st.spinner("🤖 AI đang sinh nội dung..."):
-                return call_gemini(build_prompt(), api_key.strip())
+            with st.spinner("🤖 freelm đang dò tìm nhà cung cấp..."):
+                text, provider = call_ai(build_prompt())
+            st.success(f"✅ Đã sinh bằng: {provider}")
+            return text
         except Exception as e:
-            st.error("Loi AI: " + str(e))
-            st.info("Chuyen sang mau cuc bo.")
+            st.error(f"Lỗi freelm: {e}")
+            st.info("Chuyển sang mẫu cục bộ.")
             return generate_local()
     return generate_local()
 
 
 # ============ CHUYỂN KÝ HIỆU TOÁN ============
 def fix_math_symbols(text: str) -> str:
-    """Chuyển các ký hiệu toán học thô thành Unicode đẹp."""
-    # Luy thua
     text = re.sub(r"\^2\b", "²", text)
     text = re.sub(r"\^3\b", "³", text)
     text = re.sub(r"\^4\b", "⁴", text)
@@ -383,15 +414,12 @@ def fix_math_symbols(text: str) -> str:
     text = re.sub(r"\^0\b", "⁰", text)
     text = re.sub(r"\^1\b", "¹", text)
     text = re.sub(r"\^n\b", "ⁿ", text)
-    # Chi so duoi
     text = re.sub(r"_2\b", "₂", text)
     text = re.sub(r"_3\b", "₃", text)
     text = re.sub(r"_1\b", "₁", text)
     text = re.sub(r"_0\b", "₀", text)
-    # Can bac 2
     text = text.replace("sqrt(", "√(")
     text = text.replace("\\sqrt{", "√")
-    # Ky hieu toan hoc
     text = text.replace("\\times", "×").replace("\\div", "÷")
     text = text.replace("\\leq", "≤").replace("\\geq", "≥")
     text = text.replace("\\neq", "≠").replace("\\approx", "≈")
@@ -403,11 +431,9 @@ def fix_math_symbols(text: str) -> str:
     text = text.replace("\\Delta", "Δ").replace("\\theta", "θ")
     text = text.replace("\\rightarrow", "→").replace("\\to", "→")
     text = text.replace("\\Rightarrow", "⇒")
-    # Phan so thong dung
     text = text.replace("\\frac{1}{2}", "½").replace("\\frac{1}{3}", "⅓")
     text = text.replace("\\frac{1}{4}", "¼").replace("\\frac{3}{4}", "¾")
     text = re.sub(r"\\frac\{([^}]+)\}\{([^}]+)\}", r"(\1)/(\2)", text)
-    # Bo dau $ bao quanh cong thuc
     text = re.sub(r"\$([^$]+)\$", r"\1", text)
     return text
 
@@ -470,8 +496,8 @@ with col2:
         status.append(str(len(template_names)) + " mẫu")
     if source_text:
         status.append(str(len(source_names)) + " nguồn")
-    if use_ai and api_key:
-        status.append("AI bật")
+    if use_ai and available:
+        status.append("AI: " + ", ".join(available))
     if status:
         st.caption(" | ".join(status))
 
@@ -513,11 +539,22 @@ if st.session_state["draft"]:
             st.rerun()
 
 with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
-    st.write("**Bước 1:** Lấy API Key miễn phí tại aistudio.google.com/app/apikey")
+    st.write("**Bước 1:** Lấy API key miễn phí (chỉ cần 1, càng nhiều càng tốt):")
+    st.write("- Gemini: aistudio.google.com/app/apikey")
+    st.write("- Groq: console.groq.com/keys")
+    st.write("- OpenRouter: openrouter.ai/keys")
+    st.write("- Mistral: console.mistral.ai/api-keys")
+    st.write("- Cerebras: cloud.cerebras.ai")
+    st.write("- NVIDIA: build.nvidia.com")
     st.write("**Bước 2:** Mở app Streamlit → **Manage app** → **Settings** → tab **Secrets**")
-    st.write("**Bước 3:** Dán nội dung sau vào ô Secrets (thay giá trị thật):")
+    st.write("**Bước 3:** Dán nội dung sau (bỏ dòng nào không có key):")
     st.code(
-        'GEMINI_API_KEY = "AIzaSy...key_cua_ban..."\n'
+        'GEMINI_API_KEY = "AIzaSy..."\n'
+        'GROQ_API_KEY = "gsk_..."\n'
+        'OPENROUTER_API_KEY = "sk-or-..."\n'
+        'MISTRAL_API_KEY = "..."\n'
+        'CEREBRAS_API_KEY = "..."\n'
+        'NVIDIA_API_KEY = "nvapi-..."\n'
         'SCHOOL = "Truong THCS ..."\n'
         'TEACHER = "Nguyen Van A"\n'
         'SUBJECT = "Toan"\n'
@@ -525,9 +562,4 @@ with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
         language="toml",
     )
     st.write("**Bước 4:** Bấm **Save** → **Reboot**")
-    st.write("Từ đó mở app là có sẵn tất cả thông tin, không cần nhập lại.")
-    st.divider()
-    st.write("**MẸO:** Nếu AI trình bày chưa đúng mẫu, hãy:")
-    st.write("- Nạp file mẫu NGẮN, RÕ RÀNG (dưới 10.000 ký tự)")
-    st.write("- Xem tab 'XEM TRƯỚC ĐÃ NẠP' để kiểm tra file đã đọc đúng chưa")
-    st.write("- Nếu file mẫu có bảng biểu phức tạp, AI có thể không xử lý tốt")
+    st.write("**Cách dùng:** freelm tự thử từng nhà cung cấp, không cần chọn thủ công.")
