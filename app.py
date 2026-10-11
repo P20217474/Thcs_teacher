@@ -371,11 +371,11 @@ def read_file(file, use_ocr=True):
 
 
 # ---------- Khởi tạo session state ----------
-if "app_started_v15" not in st.session_state:
+if "app_started_v16" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v15"] = True
+    st.session_state["app_started_v16"] = True
 
 
 defaults = {
@@ -398,7 +398,6 @@ for k, v in defaults.items():
 # PHẦN 2/4: SIDEBAR + UPLOAD/KHO + CALL_AI
 # ============================================================
 
-# ============ SIDEBAR ============
 with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
@@ -676,7 +675,7 @@ with tab_kho:
         st.divider()
 
 # ============================================================
-# PHẦN 3/4: PROMPT 5512 + WORD HELPERS + TẠO LỊCH BÁO GIẢNG
+# PHẦN 3/4: PROMPT 5512 + WORD HELPERS + SOẠN 1 BÀI
 # ============================================================
 
 # ============ PROMPT CV 5512 ============
@@ -831,9 +830,56 @@ def add_para(doc, text, style=None):
     return p
 
 
+def _tach_dong_trong_o(val):
+    """Tách nội dung 1 ô bảng thành nhiều dòng hợp lý để justify không bị dãn xấu.
+    - Giữ <br> và \\n có sẵn
+    - Tách trước 'Bước N:'
+    - Tách sau . ! ? : khi theo sau là chữ HOA (tiếng Việt)
+    - Tách trước từ khóa 5512
+    - Gộp các dòng quá ngắn (<12 ký tự) vào dòng trước
+    """
+    # 1. Chuẩn hóa <br>
+    val = val.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+
+    # 2. Tách trước "Bước N:" (không tách nếu đã ở đầu dòng)
+    val = re.sub(r"(?<!^)(?<!\n)(?=Bước\s*\d+\s*:)", "\n", val)
+
+    # 3. Tách sau dấu câu . ! ? : khi theo sau là chữ HOA tiếng Việt
+    #    Dùng character class bao gồm cả chữ có dấu
+    chu_hoa = (r"[A-ZĐÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊ"
+               r"ÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ]")
+    val = re.sub(r"([\.\!\?\:])\s+(?=" + chu_hoa + r")", r"\1\n", val)
+
+    # 4. Tách trước từ khóa mở đầu câu phổ biến trong 5512
+    keywords = ["Em hãy", "Vậy ", "Do đó", "Tuy nhiên", "Vì vậy",
+                "GV yêu cầu", "GV gọi", "GV đánh giá", "GV chính xác",
+                "GV hướng dẫn", "GV đặt", "GV chiếu",
+                "HS suy nghĩ", "HS thảo luận", "HS thực hiện",
+                "HS báo cáo", "HS nhận xét", "HS trả lời",
+                "HS chú ý", "HS hoàn thành"]
+    for kw in keywords:
+        # Chỉ tách nếu phía trước là dấu câu, hoặc khoảng trắng sau dấu câu
+        val = re.sub(r"(?<=[\.\!\?])\s+" + re.escape(kw), "\n" + kw, val)
+
+    # 5. Split, bỏ dòng rỗng, gộp dòng quá ngắn
+    raw_lines = [ln.strip() for ln in val.split("\n")]
+    raw_lines = [ln for ln in raw_lines if ln]
+
+    merged = []
+    for ln in raw_lines:
+        if merged and len(ln) < 12 and not ln.startswith("Bước"):
+            merged[-1] = merged[-1] + " " + ln
+        else:
+            merged.append(ln)
+    return "\n".join(merged)
+
+
 def add_table(doc, rows):
+    """Thêm bảng vào doc. Ô nội dung được JUSTIFY, mỗi cụm ý là 1 paragraph."""
     if not rows:
         return
+
+    # Dọn cột rác
     cleaned_rows = []
     for row in rows:
         while len(row) > 2 and len(row[-1].strip()) <= 2 and row[-1].strip() in (
@@ -842,6 +888,7 @@ def add_table(doc, rows):
         ):
             row = row[:-1]
         cleaned_rows.append(row)
+
     max_n = max(len(r) for r in cleaned_rows)
     if max_n > 2:
         for i, r in enumerate(cleaned_rows):
@@ -856,6 +903,7 @@ def add_table(doc, rows):
 
     t = doc.add_table(rows=len(rows), cols=n)
     t.style = "Table Grid"
+
     for i, row in enumerate(rows):
         for j in range(n):
             c = t.cell(i, j)
@@ -863,36 +911,59 @@ def add_table(doc, rows):
             p = c.paragraphs[0]
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.space_after = Pt(2)
             p.paragraph_format.first_line_indent = Inches(0)
             p.paragraph_format.left_indent = Inches(0)
             p.paragraph_format.right_indent = Inches(0)
+
             is_header = (i == 0)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER if is_header \
+                else WD_ALIGN_PARAGRAPH.JUSTIFY
+
+            val = row[j] if j < len(row) else ""
+
             if is_header:
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
+                val = re.sub(r"^\d+[\.\)]\s+", "", val)
+                val = re.sub(r"^[a-z]\)\s+", "", val)
+                val = val.replace("**", "").strip()
+                run = p.add_run(val)
+                _set_run_font(run, 13, bold=True)
             else:
-                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            val = (row[j] if j < len(row) else "").replace("<br>", "\n")
-            if not is_header:
-                val = re.sub(r"(?<!^)(?=[Bb]ước\s*\d+)", "\n", val)
-                val = re.sub(r"(?<=[\.\:\;])\s+(?=[A-ZĐ])", "\n", val)
-            lines = val.split("\n")
-            cleaned_lines = []
-            for ln in lines:
-                ln_clean = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
-                ln_clean = re.sub(r"^\d+[\.\)]\s+", "", ln_clean)
-                ln_clean = re.sub(r"^[a-z]\)\s+", "", ln_clean)
-                ln_clean = re.sub(r"\s{2,}", " ", ln_clean).strip()
-                if ln_clean:
-                    cleaned_lines.append(ln_clean)
-            val = "\n".join(cleaned_lines)
-            for part in re.split(r"(\*\*[^\*]+\*\*)", val):
-                if part.startswith("**") and part.endswith("**") and len(part) > 4:
-                    run = p.add_run(part[2:-2])
-                    _set_run_font(run, 13, bold=True)
-                else:
-                    run = p.add_run(part.replace("**", ""))
-                    _set_run_font(run, 13, bold=is_header)
+                val = _tach_dong_trong_o(val)
+                # Làm sạch từng dòng
+                lines_clean = []
+                for ln in val.split("\n"):
+                    ln = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
+                    ln = re.sub(r"^\d+[\.\)]\s+", "", ln)
+                    ln = re.sub(r"^[a-z]\)\s+", "", ln)
+                    ln = re.sub(r"\s{2,}", " ", ln).strip()
+                    if ln:
+                        lines_clean.append(ln)
+
+                first = True
+                for line_content in lines_clean:
+                    if first:
+                        target_p = p
+                        first = False
+                    else:
+                        target_p = c.add_paragraph()
+                        target_p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                        target_p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                        target_p.paragraph_format.space_before = Pt(0)
+                        target_p.paragraph_format.space_after = Pt(2)
+                        target_p.paragraph_format.first_line_indent = Inches(0)
+                        target_p.paragraph_format.left_indent = Inches(0)
+                        target_p.paragraph_format.right_indent = Inches(0)
+
+                    # Xử lý bold **...**
+                    for part in re.split(r"(\*\*[^\*]+\*\*)", line_content):
+                        if part.startswith("**") and part.endswith("**") and len(part) > 4:
+                            run = target_p.add_run(part[2:-2])
+                            _set_run_font(run, 13, bold=True)
+                        else:
+                            run = target_p.add_run(part.replace("**", ""))
+                            _set_run_font(run, 13, bold=False)
 
 
 def _add_heading(doc, text):
@@ -1040,38 +1111,32 @@ def write_content_to_doc(d, content):
             continue
 
         if re.match(r"^\*\*\s*TÊN\s*BÀI\s*DẠY", stripped, re.IGNORECASE):
-            clean = stripped.replace("**", "").replace("*", "")
-            _add_heading(d, clean.strip())
+            _add_heading(d, stripped.replace("**", "").replace("*", "").strip())
             i += 1
             continue
 
         if re.match(r"^\*\*\s*Môn\s*học", stripped, re.IGNORECASE):
-            clean = stripped.replace("**", "").replace("*", "")
-            _add_heading(d, clean.strip())
+            _add_heading(d, stripped.replace("**", "").replace("*", "").strip())
             i += 1
             continue
 
         if re.match(r"^\*\*\s*Thời\s*gian\s*thực\s*hiện", stripped, re.IGNORECASE):
-            clean = stripped.replace("**", "").replace("*", "")
-            _add_heading(d, clean.strip())
+            _add_heading(d, stripped.replace("**", "").replace("*", "").strip())
             i += 1
             continue
 
         if re.match(r"^\*\*\s*(I|II|III|IV|V)\.\s+\S", stripped):
-            clean = stripped.replace("**", "").replace("*", "")
-            _add_heading(d, clean.strip())
+            _add_heading(d, stripped.replace("**", "").replace("*", "").strip())
             i += 1
             continue
 
         if re.match(r"^\*\*\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and len(stripped) < 120:
-            clean = stripped.replace("**", "").replace("*", "")
-            _add_heading(d, clean.strip())
+            _add_heading(d, stripped.replace("**", "").replace("*", "").strip())
             i += 1
             continue
 
         if re.match(r"^\*\*\s*[a-z]\)\s+\S", stripped):
-            clean = stripped.replace("**", "").replace("*", "")
-            _add_heading(d, clean.strip())
+            _add_heading(d, stripped.replace("**", "").replace("*", "").strip())
             i += 1
             continue
 
@@ -1234,7 +1299,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     for i, w in enumerate(widths):
         table.rows[0].cells[i].width = w
 
-    # Nhóm theo (thứ, ngày)
     nhom_ngay = []
     for r in lich:
         thu_clean = r["thu"].strip()
@@ -1294,7 +1358,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 _set_run_font(run, 13, bold=False)
             row[6].text = ""
 
-    # Gộp ô cột "Thứ" theo nhóm
     start_row_idx = 1
     for nhom in nhom_ngay:
         so_dong = len(nhom["items"])
@@ -1443,9 +1506,7 @@ with sub_t1:
             "📅 Số tuần", min_value=1, max_value=52, value=1, step=1, key="tuan_w"
         )
 
-    # ---------- AI đọc TKB (5 cột) ----------
     def ai_extract_tkb(raw):
-        """TKB: Thứ | Tiết | Lớp | Môn | Tiết PPCT."""
         system = "Bạn là trợ lý đọc bảng thời khóa biểu. CHỈ trả về text."
         prompt = """Đọc bảng TKB sau. Mỗi dòng dữ liệu có 5 cột:
 Thứ | Tiết | Lớp | Môn | Tiết PPCT
@@ -1488,9 +1549,7 @@ NỘI DUNG TKB:
         except Exception:
             return ""
 
-    # ---------- AI đọc PPCT ----------
     def ai_extract_ppct(raw):
-        """PPCT: STT | Tên bài | Số tiết | Thời điểm | Ghi chú. STT = Tiết PPCT."""
         system = "Bạn là trợ lý đọc bảng phân phối chương trình."
         prompt = """Đọc PPCT sau. Các cột: STT | Tên bài | Số tiết | Thời điểm | Ghi chú
 
@@ -1534,7 +1593,6 @@ NỘI DUNG PPCT:
             return ""
 
     def auto_fix_tkb(text):
-        """Chuẩn hóa dòng TKB dính liền: '216A10Toán25' → 5 cột."""
         fixed = []
         for line in text.strip().splitlines():
             line = line.strip()
@@ -1557,7 +1615,6 @@ NỘI DUNG PPCT:
         return "\n".join(fixed)
 
     def parse_tkb(text):
-        """Trả về dict: {thu: [{tiet, lop, mon, tiet_ppct}, ...]}"""
         result = {}
         for line in text.strip().splitlines():
             line = line.strip()
@@ -1596,7 +1653,6 @@ NỘI DUNG PPCT:
         return result
 
     def parse_ppct(text):
-        """PPCT: STT = Tiết PPCT."""
         raw_list = []
         for line in text.strip().splitlines():
             line = line.strip()
@@ -1660,7 +1716,6 @@ NỘI DUNG PPCT:
         return merged
 
     def find_ppct_by_tiet(ppct, tiet_ppct):
-        """Tìm bài PPCT chứa tiết PPCT cho trước."""
         if tiet_ppct is None or str(tiet_ppct).strip() == "":
             return None
         try:
@@ -1679,7 +1734,6 @@ NỘI DUNG PPCT:
                 }
         return None
 
-    # ---------- Nút tạo lịch ----------
     if st.button("📅 Tạo lịch báo giảng", type="primary",
                  use_container_width=True):
         if not available_providers:
