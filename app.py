@@ -353,11 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_v10" not in st.session_state:
+if "app_started_v11" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v10"] = True
+    st.session_state["app_started_v11"] = True
 
 
 defaults = {
@@ -767,7 +767,6 @@ def _set_run_font(run, size=14, bold=False):
 
 def add_para(doc, text, style=None):
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
-    # Bỏ markdown triệt để
     text = re.sub(r"^[\-\+\*\•\#]+\s*", "", text)
     text = re.sub(r"^\d+[\.\)]\s+", "", text)
     text = re.sub(r"^[a-z]\)\s+", "", text)
@@ -793,7 +792,6 @@ def add_table(doc, rows):
     if not rows:
         return
 
-    # Lọc bỏ cột rác
     cleaned_rows = []
     for row in rows:
         while len(row) > 2 and len(row[-1].strip()) <= 2 and row[-1].strip() in (
@@ -843,9 +841,7 @@ def add_table(doc, rows):
             val = (row[j] if j < len(row) else "").replace("<br>", "\n")
 
             if not is_header:
-                # Tự động chèn xuống dòng trước mỗi "Bước N:"
                 val = re.sub(r"\s*(?=[Bb]ước\s*\d+)", "\n", val)
-                # Chèn xuống dòng trước dấu "-" hoặc "+" (nhưng không ở đầu)
                 val = re.sub(r"\s+(?=[\-\+]\s+\S)", "\n", val)
 
                 lines = val.split("\n")
@@ -859,7 +855,6 @@ def add_table(doc, rows):
                         cleaned_lines.append(ln_clean)
                 val = "\n".join(cleaned_lines)
 
-            # Xử lý ** cho phần bold
             for part in re.split(r"(\*\*[^*]+\*\*)", val):
                 if part.startswith("**") and part.endswith("**") and len(part) > 4:
                     run = p.add_run(part[2:-2])
@@ -1192,7 +1187,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     for i, w in enumerate(widths):
         table.rows[0].cells[i].width = w
 
-    # Nhóm theo ngày
     nhom_ngay = []
     for r in lich:
         thu_clean = r["thu"].strip()
@@ -1245,7 +1239,10 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 p.paragraph_format.left_indent = Inches(0)
                 val = r.get(key, "")
                 if key == "tiet":
-                    val = val.replace("Tiết ", "")
+                    val = str(val).replace("Tiết ", "")
+                if key == "stt_ppct":
+                    m_num = re.search(r"\d+", str(val))
+                    val = m_num.group(0) if m_num else str(val).strip()
                 run = p.add_run(str(val))
                 _set_run_font(run, 13, bold=False)
 
@@ -1327,17 +1324,23 @@ if st.session_state.get("draft"):
                                               height=500, key="edit_draft")
 
 
-# ============ TẠO LỊCH BÁO GIẢNG ============
+# ============ TẠO / NẠP LỊCH BÁO GIẢNG ============
 st.divider()
-st.subheader("📅 Tạo / Nạp lịch báo giảng")
+st.subheader("📅 Lịch báo giảng")
+st.caption("Chọn 1 trong 3 cách: tự sinh từ TKB+PPCT, nạp phiếu có sẵn, hoặc nạp từ kho đã lưu")
 
 sub_t1, sub_t2, sub_t3 = st.tabs([
-    "🔧 Tạo từ TKB + PPCT",
-    "📂 Nạp từ kho đã lưu",
-    "✏️ Nạp thủ công",
+    "🔧 Tự sinh từ TKB + PPCT",
+    "✏️ Nạp phiếu báo giảng có sẵn",
+    "📂 Nạp lịch đã lưu",
 ])
 
+
+# ==================== TAB 1: TỰ SINH ====================
 with sub_t1:
+    st.markdown("### 🔧 Tự sinh lịch từ Thời khóa biểu + Phân phối chương trình")
+    st.info("App sẽ đọc TKB + PPCT, tra mã tiết PPCT, ghép ngày và sinh phiếu báo giảng.")
+
     st.markdown("**Chọn từ kho đã lưu:**")
     col_ppct, col_tkb = st.columns(2)
     with col_ppct:
@@ -1363,7 +1366,6 @@ with sub_t1:
     with col3_d:
         tuan_number = st.number_input("📅 Số tuần", min_value=1, max_value=52,
                                        value=1, step=1, key="tuan_w")
-        tuan_number_str = str(int(tuan_number))
 
     def ai_extract_tkb(raw):
         system = "Bạn là trợ lý đọc bảng. CHỈ trả về text theo format."
@@ -1652,8 +1654,208 @@ NỘI DUNG PPCT:
                             st.session_state["schedule"] = load_schedule()
 
 
+# ==================== TAB 2: NẠP PHIẾU CÓ SẴN ====================
 with sub_t2:
-    st.markdown("**Nạp lịch đã lưu**")
+    st.markdown("### ✏️ Nạp phiếu báo giảng có sẵn")
+    st.info("💡 Upload file phiếu báo giảng (Word/Excel/PDF/CSV). "
+            "App sẽ đọc trực tiếp, KHÔNG tra PPCT, KHÔNG ghép TKB.")
+
+    manual_file = st.file_uploader(
+        "Chọn file phiếu báo giảng",
+        type=["docx", "xlsx", "xls", "csv", "pdf", "txt"],
+        key="manual_sched_file_v2",
+    )
+
+    st.markdown("**Hoặc dán trực tiếp** (mỗi dòng 1 tiết, dấu `|` phân cách)")
+    st.caption("Mẫu: Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài")
+
+    manual_paste = st.text_area(
+        "Dán lịch",
+        height=150,
+        placeholder=(
+            "Thứ Hai | 19/10/2026 | 1 | 6A10 | Toán | 25 | Bài 19. Hình chữ nhật...\n"
+            "Thứ Hai | 19/10/2026 | 2 | 6A10 | Toán | 26 | Bài 20. Chu vi và diện tích..."
+        ),
+        key="manual_sched_paste_v2",
+    )
+
+    manual_name = st.text_input(
+        "Tên lịch (nếu muốn lưu)",
+        placeholder="lich_tuan_06",
+        key="manual_sched_name_v2",
+    )
+
+    if st.button("📥 Nạp phiếu báo giảng", type="primary", use_container_width=True):
+        lich = []
+        loi = []
+
+        # ===== ĐỌC TỪ FILE =====
+        if manual_file:
+            fname = manual_file.name.lower()
+            raw_bytes = manual_file.read()
+
+            # --- WORD (.docx) ---
+            if fname.endswith(".docx"):
+                try:
+                    from docx import Document as DocxDoc
+                    d = DocxDoc(io.BytesIO(raw_bytes))
+                    for tbl in d.tables:
+                        for row in tbl.rows:
+                            cells = [c.text.strip() for c in row.cells]
+                            if not any(cells):
+                                continue
+                            low_first = cells[0].lower() if cells else ""
+                            if low_first.startswith("thứ") and "ngày" in low_first:
+                                continue
+
+                            if len(cells) >= 6:
+                                thu = cells[0]
+                                tiet = cells[1].replace("Tiết ", "").strip()
+                                mon = cells[2]
+                                lop = cells[3]
+                                stt = cells[4].strip()
+                                ten = cells[5].strip()
+                                if not thu and lich:
+                                    thu = lich[-1]["thu"]
+                                if not thu:
+                                    continue
+                                lich.append({
+                                    "thu": thu, "ngay": "", "tiet": tiet,
+                                    "mon": mon, "lop": lop, "stt_ppct": stt,
+                                    "ten_bai": ten, "tiet_trong_bai": 1, "tong_tiet": 1,
+                                })
+                except Exception as e:
+                    loi.append("Lỗi đọc Word: " + str(e))
+
+            # --- EXCEL ---
+            elif fname.endswith((".xlsx", ".xls")):
+                try:
+                    import openpyxl
+                    wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True)
+                    for sn in wb.sheetnames:
+                        ws = wb[sn]
+                        for row in ws.iter_rows(values_only=True):
+                            cells = [str(c).strip() if c is not None else "" for c in row]
+                            if not any(cells):
+                                continue
+                            low_first = cells[0].lower()
+                            if low_first.startswith("thứ") and "ngày" in low_first:
+                                continue
+                            while cells and not cells[0]:
+                                cells.pop(0)
+                            if len(cells) < 5:
+                                continue
+                            thu = cells[0]
+                            tiet = cells[1].replace("Tiết ", "").strip() if len(cells) > 1 else ""
+                            mon = cells[2] if len(cells) > 2 else ""
+                            lop = cells[3] if len(cells) > 3 else ""
+                            stt = cells[4] if len(cells) > 4 else ""
+                            ten = cells[5] if len(cells) > 5 else ""
+                            if not thu and lich:
+                                thu = lich[-1]["thu"]
+                            if not thu:
+                                continue
+                            lich.append({
+                                "thu": thu, "ngay": "", "tiet": tiet,
+                                "mon": mon, "lop": lop, "stt_ppct": stt,
+                                "ten_bai": ten, "tiet_trong_bai": 1, "tong_tiet": 1,
+                            })
+                except Exception as e:
+                    loi.append("Lỗi đọc Excel: " + str(e))
+
+            # --- TEXT/CSV/PDF ---
+            else:
+                try:
+                    _, raw_text, _ = read_file(manual_file, use_ocr=False)
+                    for line in raw_text.splitlines():
+                        line = line.strip()
+                        if not line or "|" not in line:
+                            continue
+                        parts = [p.strip() for p in line.split("|")]
+                        if len(parts) < 5:
+                            continue
+                        if parts[0].lower() in ("thứ", "thu", "stt"):
+                            continue
+
+                        if len(parts) >= 7:
+                            lich.append({
+                                "thu": parts[0], "ngay": parts[1], "tiet": parts[2],
+                                "lop": parts[3], "mon": parts[4], "stt_ppct": parts[5],
+                                "ten_bai": parts[6], "tiet_trong_bai": 1, "tong_tiet": 1,
+                            })
+                        elif len(parts) == 6:
+                            lich.append({
+                                "thu": parts[0], "ngay": parts[1], "tiet": parts[2],
+                                "lop": parts[3], "mon": parts[4], "stt_ppct": "",
+                                "ten_bai": parts[5], "tiet_trong_bai": 1, "tong_tiet": 1,
+                            })
+                except Exception as e:
+                    loi.append("Lỗi đọc file: " + str(e))
+
+        # ===== ĐỌC TỪ PASTE =====
+        elif manual_paste.strip():
+            for line in manual_paste.strip().splitlines():
+                line = line.strip()
+                if not line or "|" not in line:
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) < 5:
+                    continue
+                if parts[0].lower() in ("thứ", "thu", "stt"):
+                    continue
+
+                if len(parts) >= 7:
+                    lich.append({
+                        "thu": parts[0], "ngay": parts[1], "tiet": parts[2],
+                        "lop": parts[3], "mon": parts[4], "stt_ppct": parts[5],
+                        "ten_bai": parts[6], "tiet_trong_bai": 1, "tong_tiet": 1,
+                    })
+                elif len(parts) == 6:
+                    lich.append({
+                        "thu": parts[0], "ngay": parts[1], "tiet": parts[2],
+                        "lop": parts[3], "mon": parts[4], "stt_ppct": "",
+                        "ten_bai": parts[5], "tiet_trong_bai": 1, "tong_tiet": 1,
+                    })
+                else:
+                    loi.append("Dòng thiếu cột: " + line[:80])
+
+        # ===== XỬ LÝ KẾT QUẢ =====
+        for msg in loi:
+            st.warning(msg)
+
+        if not lich:
+            st.error("❌ Không đọc được phiếu báo giảng.")
+        else:
+            st.session_state["lich_bao_giang"] = lich
+            st.success("✅ Đã nạp phiếu báo giảng: " + str(len(lich)) + " tiết")
+
+            with st.expander("👁️ Xem phiếu đã nạp", expanded=True):
+                st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài |")
+                st.markdown("|---|---|---|---|---|---|---|")
+                for r in lich[:30]:
+                    st.markdown(
+                        "| " + r["thu"] + " | " + r["ngay"] + " | " + r["tiet"]
+                        + " | " + r["lop"] + " | " + r["mon"]
+                        + " | " + str(r["stt_ppct"])
+                        + " | " + r["ten_bai"] + " |"
+                    )
+
+            if GITHUB_TOKEN and manual_name.strip():
+                safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", manual_name.strip())[:40]
+                with st.spinner("💾 Đang lưu..."):
+                    ok_s, msg_s = gh_save(
+                        f"data/schedule/{safe_name}.json",
+                        json.dumps(lich, ensure_ascii=False),
+                        "Manual schedule",
+                    )
+                if ok_s:
+                    st.success("✅ Đã lưu: " + safe_name)
+                    st.session_state["schedule"] = load_schedule()
+
+
+# ==================== TAB 3: NẠP TỪ KHO ====================
+with sub_t3:
+    st.markdown("### 📂 Nạp lịch đã lưu từ GitHub")
     if st.session_state["schedule"]:
         sched_options = [f for f in st.session_state["schedule"].keys() if f.endswith(".json")]
         if sched_options:
@@ -1671,89 +1873,19 @@ with sub_t2:
         st.info("Chưa có lịch.")
 
 
-with sub_t3:
-    st.markdown("**Nạp lịch thủ công**")
-    st.caption("Mẫu: Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài")
-    st.caption("Ví dụ: Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 25 | Luyện tập chung")
-
-    manual_file = st.file_uploader("Upload file", type=["xlsx", "xls", "docx", "csv", "pdf", "txt"], key="manual_sched_file")
-    manual_paste = st.text_area("Hoặc dán lịch", height=150,
-        placeholder="Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 25 | Luyện tập chung",
-        key="manual_sched_paste")
-    manual_name = st.text_input("Tên lịch (nếu lưu)", placeholder="lich_tuan_06", key="manual_sched_name")
-
-    if st.button("📥 Nạp lịch thủ công", type="primary", use_container_width=True):
-        raw_text = manual_paste.strip()
-        if manual_file:
-            _, raw_text, _ = read_file(manual_file, use_ocr=False)
-
-        if not raw_text:
-            st.warning("Chưa có nội dung.")
-        else:
-            lich = []
-            for line in raw_text.splitlines():
-                line = line.strip()
-                if not line or "|" not in line: continue
-                parts = [p.strip() for p in line.split("|")]
-                if len(parts) < 5: continue
-                if parts[0].lower() in ("thứ", "thu", "stt"): continue
-
-                ten_bai = parts[6].strip() if len(parts) > 6 else ""
-                if not ten_bai and len(parts) > 5:
-                    ten_bai = parts[5].strip()
-                if not ten_bai:
-                    ten_bai = "[Chưa có tên bài - tiết " + (parts[2] if len(parts) > 2 else "") + "]"
-
-                so_tiet = 1
-                m_so_tiet = re.search(r"\((\d+)\s*tiết\)", ten_bai)
-                if m_so_tiet:
-                    try:
-                        so_tiet = int(m_so_tiet.group(1))
-                        ten_bai = re.sub(r"\s*\(\d+\s*tiết\)", "", ten_bai).strip()
-                    except Exception:
-                        pass
-
-                lich.append({
-                    "thu": parts[0],
-                    "ngay": parts[1] if len(parts) > 1 else "",
-                    "tiet": parts[2] if len(parts) > 2 else "",
-                    "lop": parts[3] if len(parts) > 3 else "",
-                    "mon": parts[4] if len(parts) > 4 else "",
-                    "stt_ppct": parts[5] if len(parts) > 5 else "",
-                    "ten_bai": ten_bai,
-                    "tiet_trong_bai": 1,
-                    "tong_tiet": so_tiet,
-                })
-
-            if not lich:
-                st.error("Không đọc được.")
-            else:
-                st.session_state["lich_bao_giang"] = lich
-                st.success("✅ Đã nạp: " + str(len(lich)) + " tiết")
-
-                if GITHUB_TOKEN and manual_name.strip():
-                    safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", manual_name.strip())[:40]
-                    with st.spinner("💾 Đang lưu..."):
-                        ok_s, msg_s = gh_save(f"data/schedule/{safe_name}.json",
-                                              json.dumps(lich, ensure_ascii=False), "Manual schedule")
-                    if ok_s:
-                        st.success("✅ Đã lưu: " + safe_name)
-                        st.session_state["schedule"] = load_schedule()
-
-
-# ============ HIỂN THỊ LỊCH ============
+# ============ HIỂN THỊ LỊCH BÁO GIẢNG ============
 def hien_thi_lich_theo_ngay(lich):
-    for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"]:
+    for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]:
         bai_trong_ngay = [r for r in lich if r["thu"].lower().startswith(thu.lower()[:5])]
         if not bai_trong_ngay: continue
-        ngay = bai_trong_ngay[0]["ngay"]
-        st.markdown("### 📅 **" + thu + " — " + ngay + "**")
+        ngay = bai_trong_ngay[0].get("ngay", "")
+        st.markdown("### 📅 **" + thu + (" — " + ngay if ngay else "") + "**")
         st.markdown("| Tiết | Lớp | Môn | Tên bài | Tiết |")
         st.markdown("|---|---|---|---|---|")
         for r in bai_trong_ngay:
             st.markdown("| " + r["tiet"] + " | " + r["lop"] + " | " + r["mon"]
                         + " | " + r["ten_bai"] + " | "
-                        + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
+                        + str(r.get("tiet_trong_bai", 1)) + "/" + str(r.get("tong_tiet", 1)) + " |")
         st.markdown("")
 
 
@@ -1766,7 +1898,7 @@ if st.session_state.get("lich_bao_giang"):
     st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài |")
     st.markdown("|---|---|---|---|---|---|---|")
     for r in lich:
-        st.markdown("| " + r["thu"] + " | " + r["ngay"] + " | " + r["tiet"]
+        st.markdown("| " + r["thu"] + " | " + str(r.get("ngay", "")) + " | " + r["tiet"]
                     + " | " + r["lop"] + " | " + r["mon"]
                     + " | " + str(r.get("stt_ppct", ""))
                     + " | " + r["ten_bai"] + " |")
@@ -1781,10 +1913,6 @@ if st.session_state.get("lich_bao_giang"):
             bai_can_soan = {}
             for r in lich:
                 ten = r.get("ten_bai", "").strip()
-                if not ten:
-                    ten = r.get("ten_bai_day", "").strip()
-                if not ten:
-                    ten = r.get("bai", "").strip()
                 if not ten:
                     continue
 
@@ -1832,6 +1960,7 @@ if st.session_state.get("lich_bao_giang"):
                 st.session_state["weekly_results"] = results
 
 
+# ============ XUẤT WORD TUẦN ============
 if st.session_state.get("weekly_results"):
     results = st.session_state["weekly_results"]
     lich = st.session_state.get("lich_bao_giang", [])
@@ -1839,7 +1968,8 @@ if st.session_state.get("weekly_results"):
     st.subheader("📚 Kết quả tuần — " + str(len(results)) + " bài")
     for r in results:
         lop_str = ", ".join(r.get("cac_lop", []))
-        st.write("- **" + r.get("ten_bai", "") + "** — Lớp: " + lop_str + " (" + str(r.get("tong_tiet", 1)) + " tiết)")
+        st.write("- **" + r.get("ten_bai", "") + "** — Lớp: " + lop_str
+                 + " (" + str(r.get("tong_tiet", 1)) + " tiết)")
 
     if st.button("📄 Xuất file Word tuần", type="primary", use_container_width=True):
         d = Document()
