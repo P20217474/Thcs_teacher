@@ -48,7 +48,6 @@ st.title("🧠 Trợ lý Giáo viên THCS")
 st.caption("Bộ não tự động • Nhớ mọi thứ • Tự ra quyết định")
 
 
-# ============ ĐỌC CẤU HÌNH ============
 def cfg(key, default=""):
     try:
         val = st.secrets.get(key, default)
@@ -73,7 +72,7 @@ available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 PREFERRED_MODELS = {
     "GEMINI_API_KEY": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"],
     "GROQ_API_KEY": ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile"],
-    "OPENROUTER_API_KEY": ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"],
+    "OPENROUTER_API_KEY": ["google/gemini-2.0-flash-exp:free"],
     "NVIDIA_API_KEY": ["meta/llama-3.3-70b-instruct"],
 }
 
@@ -82,7 +81,6 @@ GITHUB_REPO = cfg("GITHUB_REPO", "P20217474/Thcs_teacher")
 GITHUB_BRANCH = cfg("GITHUB_BRANCH", "main")
 
 
-# ============ GITHUB API ============
 def gh_api(method, path, data=None):
     if not GITHUB_TOKEN:
         return None
@@ -124,25 +122,13 @@ def gh_save(path, content, message="Update"):
     return res and "error" not in res
 
 
-def gh_delete(path):
-    _, sha = gh_get(path)
-    if not sha:
-        return True
-    res = gh_api(
-        "DELETE",
-        f"/repos/{GITHUB_REPO}/contents/{path}",
-        {"message": "Delete", "sha": sha, "branch": GITHUB_BRANCH},
-    )
-    return res and "error" not in res
-
-
 def gh_list(folder):
     res = gh_api("GET", f"/repos/{GITHUB_REPO}/contents/{folder}?ref={GITHUB_BRANCH}")
     if not res or "error" in res or not isinstance(res, list):
         return []
     return [item["name"] for item in res if item["type"] == "file"]
 
-# ============ BỘ NHỚ DÀI HẠN ============
+
 def load_memory():
     content, _ = gh_get("data/memory.json")
     if content:
@@ -150,14 +136,7 @@ def load_memory():
             return json.loads(content)
         except Exception:
             pass
-    return {
-        "teacher_name": "",
-        "school": "",
-        "default_subject": "Toan",
-        "default_grade": "6",
-        "preferences": {},
-        "created_at": datetime.now().strftime("%Y-%m-%d"),
-    }
+    return {"teacher_name": "", "school": "", "default_subject": "Toan", "default_grade": "6"}
 
 
 def save_memory(memory):
@@ -166,49 +145,44 @@ def save_memory(memory):
 
 
 def load_templates():
-    """Đọc tất cả mẫu trong data/templates/."""
     files = gh_list("data/templates")
-    templates = {}
-    for fname in files:
-        content, _ = gh_get(f"data/templates/{fname}")
-        if content:
-            templates[fname] = content
-    return templates
+    out = {}
+    for f in files:
+        c, _ = gh_get(f"data/templates/{f}")
+        if c:
+            out[f] = c
+    return out
 
 
 def load_sources():
-    """Đọc tất cả nguồn trong data/sources/."""
     files = gh_list("data/sources")
-    sources = {}
-    for fname in files:
-        content, _ = gh_get(f"data/sources/{fname}")
-        if content:
-            sources[fname] = content
-    return sources
+    out = {}
+    for f in files:
+        c, _ = gh_get(f"data/sources/{f}")
+        if c:
+            out[f] = c
+    return out
 
 
 def save_history(task, topic, content):
-    """Lưu lịch sử soạn thảo."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = f"data/history/{ts}_{re.sub(r'[^a-zA-Z0-9]', '_', topic)[:30]}.md"
-    md = f"# {task}\n\n**Chủ đề:** {topic}\n**Thời gian:** {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n---\n\n{content}"
-    return gh_save(fname, md, f"History: {topic}")
+    safe = re.sub(r"[^a-zA-Z0-9]", "_", topic)[:30]
+    fname = f"data/history/{ts}_{safe}.md"
+    md = f"# {task}\n\n**Chủ đề:** {topic}\n\n---\n\n{content}"
+    return gh_save(fname, md, f"History {topic}")
 
 
 def load_skills():
-    """Đọc các kỹ năng đã học."""
-    content, _ = gh_get("data/skills/README.md")
-    return content or ""
+    c, _ = gh_get("data/skills/README.md")
+    return c or ""
 
 
-def append_skill(new_skill):
-    """Thêm kỹ năng mới vào file skills."""
+def append_skill(s):
     old = load_skills()
-    updated = old + "\n- [" + datetime.now().strftime("%Y-%m-%d") + "] " + new_skill
-    return gh_save("data/skills/README.md", updated, "Learn new skill")
+    new = old + "\n- [" + datetime.now().strftime("%Y-%m-%d") + "] " + s
+    return gh_save("data/skills/README.md", new, "Learn")
 
 
-# ============ ĐỌC FILE ============
 def read_docx(data):
     try:
         d = Document(io.BytesIO(data))
@@ -217,24 +191,23 @@ def read_docx(data):
             out.append("")
             for row in t.rows:
                 out.append("| " + " | ".join(c.text.strip() for c in row.cells) + " |")
-            out.append("")
         return "\n".join(out)
     except Exception as e:
-        return "[Lỗi docx: " + str(e) + "]"
+        return "[Loi docx: " + str(e) + "]"
 
 
 def read_pdf(data):
     if not HAS_PYPDF:
-        return "[Chưa cài pypdf]"
+        return "[Chua cai pypdf]"
     try:
         reader = PdfReader(io.BytesIO(data))
         texts = [(p.extract_text() or "") for p in reader.pages]
         full = "\n".join(t for t in texts if t.strip())
         if len(full) < 100:
-            return "[PDF scan, không có text]" + full
+            return "[PDF scan, khong co text]" + full
         return full
     except Exception as e:
-        return "[Lỗi pdf: " + str(e) + "]"
+        return "[Loi pdf: " + str(e) + "]"
 
 
 def read_csv_text(data):
@@ -242,14 +215,14 @@ def read_csv_text(data):
         text = data.decode("utf-8", errors="ignore")
         rows = list(csv.reader(io.StringIO(text)))
         if not rows:
-            return "[CSV rỗng]"
+            return "[CSV rong]"
         out = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * len(rows[0])]
         for row in rows[1:]:
             row = (row + [""] * len(rows[0]))[:len(rows[0])]
             out.append("| " + " | ".join(row) + " |")
         return "\n".join(out)
     except Exception as e:
-        return "[Lỗi csv: " + str(e) + "]"
+        return "[Loi csv: " + str(e) + "]"
 
 
 def read_file(file):
@@ -257,7 +230,7 @@ def read_file(file):
         return ("", "", 0)
     data = file.read()
     if not data:
-        return (file.name, "[File rỗng]", 0)
+        return (file.name, "[File rong]", 0)
     n = file.name.lower()
     if n.endswith(".docx"):
         text = read_docx(data)
@@ -268,13 +241,12 @@ def read_file(file):
     elif n.endswith((".txt", ".md", ".log")):
         text = data.decode("utf-8", errors="ignore")
     elif n.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-        text = "[" + file.name + ": ảnh, cần OCR]"
+        text = "[" + file.name + ": anh, can OCR]"
     else:
-        text = "[Định dạng chưa hỗ trợ]"
+        text = "[Dinh dang chua ho tro]"
     return (file.name, text, len(text))
 
 
-# ============ KHỞI TẠO BỘ NHỚ ============
 if "memory" not in st.session_state:
     st.session_state["memory"] = load_memory() if GITHUB_TOKEN else {}
 if "templates" not in st.session_state:
@@ -283,60 +255,100 @@ if "sources" not in st.session_state:
     st.session_state["sources"] = load_sources() if GITHUB_TOKEN else {}
 if "skills" not in st.session_state:
     st.session_state["skills"] = load_skills() if GITHUB_TOKEN else ""
-if "chat" not in st.session_state:
-    st.session_state["chat"] = []
 if "draft" not in st.session_state:
     st.session_state["draft"] = ""
+if "last_topic" not in st.session_state:
+    st.session_state["last_topic"] = ""
 
 
-# ============ SIDEBAR ============
 with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
-    
+
     if GITHUB_TOKEN:
         st.success("💾 Bộ nhớ vĩnh viễn đang bật")
     else:
-        st.warning("⚠️ Chưa có GITHUB_TOKEN. Bộ nhớ tạm thời.")
-    
-    st.divider()
-    st.subheader("📋 Thông tin cơ bản")
+        st.warning("⚠️ Chưa có GITHUB_TOKEN")
+
     mem["teacher_name"] = st.text_input("Giáo viên", value=mem.get("teacher_name", ""))
     mem["school"] = st.text_input("Trường", value=mem.get("school", ""))
-    mem["default_subject"] = st.selectbox(
-        "Môn mặc định",
-        ["Toan", "Ngu van", "Tieng Anh", "Vat li", "Hoa hoc", "Sinh hoc", "Tin hoc"],
-        index=["Toan", "Ngu van", "Tieng Anh", "Vat li", "Hoa hoc", "Sinh hoc", "Tin hoc"].index(mem.get("default_subject", "Toan")),
-    )
-    mem["default_grade"] = st.selectbox(
-        "Khối mặc định", ["6", "7", "8", "9"],
-        index=["6", "7", "8", "9"].index(mem.get("default_grade", "6")),
-    )
-    
+    mem["default_subject"] = st.text_input("Môn mặc định", value=mem.get("default_subject", "Toan"))
+    mem["default_grade"] = st.text_input("Khối mặc định", value=mem.get("default_grade", "6"))
+
     if st.button("💾 Lưu vào bộ nhớ", use_container_width=True):
-        if GITHUB_TOKEN:
-            if save_memory(mem):
-                st.success("✅ Đã lưu vào bộ nhớ vĩnh viễn")
-        else:
+        if GITHUB_TOKEN and save_memory(mem):
+            st.success("✅ Đã lưu")
+        elif not GITHUB_TOKEN:
             st.warning("Chưa có GITHUB_TOKEN")
-    
+
     st.divider()
     st.subheader("📚 Kho tri thức")
-    st.write("**Mẫu:** " + str(len(st.session_state["templates"])) + " file")
-    st.write("**Nguồn:** " + str(len(st.session_state["sources"])) + " file")
-    
-    if st.button("🔄 Tải lại từ GitHub", use_container_width=True):
+    st.write("Mẫu: " + str(len(st.session_state["templates"])) + " file")
+    st.write("Nguồn: " + str(len(st.session_state["sources"])) + " file")
+
+    if st.button("🔄 Tải lại", use_container_width=True):
         st.session_state["templates"] = load_templates()
         st.session_state["sources"] = load_sources()
-        st.session_state["memory"] = load_memory()
         st.rerun()
-    
-    st.divider()
-    st.write("**AI:** " + str(len(available_providers)) + " nhà cung cấp")
-    for k in available_providers:
-        st.caption("✅ " + k.replace("_API_KEY", ""))
 
-# ============ GỌI AI ============
+    st.divider()
+    st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
+
+
+tab_up, tab_kho = st.tabs(["📤 Upload mẫu/nguồn (tùy chọn)", "📂 Kho tri thức"])
+
+with tab_up:
+    st.markdown("**MẪU** (định dạng) và **NGUỒN** (nội dung) — đều tùy chọn.")
+    up_type = st.radio("Loại", ["Mẫu (định dạng)", "Nguồn (nội dung)"], horizontal=True)
+    up_name = st.text_input("Tên file (không cần đuôi)", placeholder="giao_an_toan6")
+    up_files = st.file_uploader(
+        "Chọn file",
+        type=["docx", "pdf", "txt", "md", "csv"],
+        accept_multiple_files=True,
+        key="up_files",
+    )
+    up_paste = st.text_area("Hoặc dán nội dung", height=120, key="up_paste")
+
+    if st.button("💾 Lưu lên GitHub", type="primary"):
+        if not GITHUB_TOKEN:
+            st.error("Cần GITHUB_TOKEN để lưu.")
+        else:
+            parts = []
+            if up_paste.strip():
+                parts.append(up_paste.strip())
+            for f in (up_files or []):
+                _, txt, _ = read_file(f)
+                parts.append("--- " + f.name + " ---\n" + txt)
+            if not parts:
+                st.warning("Không có nội dung.")
+            else:
+                full = "\n\n".join(parts)
+                safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", up_name.strip())[:40] or "file"
+                folder = "templates" if "Mẫu" in up_type else "sources"
+                path = f"data/{folder}/{safe}.md"
+                if gh_save(path, full, f"Upload {safe}"):
+                    st.success("✅ Đã lưu: " + path)
+                    st.session_state["templates"] = load_templates()
+                    st.session_state["sources"] = load_sources()
+                else:
+                    st.error("❌ Lỗi lưu GitHub.")
+
+with tab_kho:
+    st.subheader("📐 Mẫu")
+    if st.session_state["templates"]:
+        for name in st.session_state["templates"]:
+            st.write("- " + name)
+    else:
+        st.info("Chưa có mẫu.")
+    st.divider()
+    st.subheader("📚 Nguồn")
+    if st.session_state["sources"]:
+        for name in st.session_state["sources"]:
+            st.write("- " + name)
+    else:
+        st.info("Chưa có nguồn.")
+
+
 def call_ai(prompt, system=""):
     import freelm
     llm = freelm.FreeLLM.from_env()
@@ -344,7 +356,6 @@ def call_ai(prompt, system=""):
     if system:
         msgs.append({"role": "system", "content": system})
     msgs.append({"role": "user", "content": prompt})
-    
     last_err = None
     for pk in available_providers:
         for mn in PREFERRED_MODELS.get(pk, []):
@@ -365,249 +376,105 @@ def call_ai(prompt, system=""):
         raise e
 
 
-# ============ BỘ NÃO PLANNER ============
 def analyze_command(cmd):
-    """Bộ não phân tích lệnh → kế hoạch hành động."""
     mem = st.session_state["memory"]
-    templates_list = list(st.session_state["templates"].keys())
-    sources_list = list(st.session_state["sources"].keys())
-    
-    system = "Bạn là bộ não phân tích lệnh cho trợ lý giáo viên. Trả về JSON."
-    prompt = f"""Phân tích lệnh sau và trả về JSON với cấu trúc:
-{{
-  "task": "loại công việc",
-  "subject": "môn học",
-  "grade": "khối lớp",
-  "topic": "chủ đề",
-  "period": "thời lượng",
-  "template_files": ["tên file mẫu cần dùng"],
-  "source_files": ["tên file nguồn cần dùng"],
-  "needs_clarification": false,
-  "clarification_question": ""
-}}
-
-LỆNH: {cmd}
-
-THÔNG TIN CÓ SẴN:
-- Giáo viên: {mem.get('teacher_name', 'chưa rõ')}
-- Trường: {mem.get('school', 'chưa rõ')}
-- Môn mặc định: {mem.get('default_subject', 'Toan')}
-- Khối mặc định: {mem.get('default_grade', '6')}
-- Mẫu có sẵn: {templates_list}
-- Nguồn có sẵn: {sources_list}
-
-Trả về CHỈ JSON, không giải thích."""
-    
+    tpl_list = list(st.session_state["templates"].keys())
+    src_list = list(st.session_state["sources"].keys())
+    system = "Ban la bo nao phan tich lenh. Tra ve CHI JSON."
+    prompt = 'Phan tich lenh sau, tra ve JSON:\n{"task":"","subject":"","grade":"","topic":"","period":"","template_files":[],"source_files":[]}\n\n'
+    prompt += "LENH: " + cmd + "\n"
+    prompt += "GV: " + mem.get("teacher_name", "") + "\n"
+    prompt += "Mon mac dinh: " + mem.get("default_subject", "Toan") + "\n"
+    prompt += "Khoi mac dinh: " + mem.get("default_grade", "6") + "\n"
+    prompt += "Mau co: " + str(tpl_list) + "\n"
+    prompt += "Nguon co: " + str(src_list) + "\n"
     try:
         result = call_ai(prompt, system)
-        # Tìm JSON trong kết quả
         m = re.search(r"\{[\s\S]*\}", result)
         if m:
             return json.loads(m.group(0))
-    except Exception as e:
-        st.warning("Bộ não không phân tích được lệnh: " + str(e))
-    
-    # Fallback: phân tích thủ công
+    except Exception:
+        pass
     low = cmd.lower()
     return {
-        "task": "Soạn kế hoạch bài dạy" if "giáo án" in low else "Soạn nội dung theo yêu cầu riêng",
+        "task": "Soan ke hoach bai day" if "giao an" in low else "Soan noi dung theo yeu cau rieng",
         "subject": mem.get("default_subject", "Toan"),
         "grade": mem.get("default_grade", "6"),
         "topic": cmd,
         "period": "",
-        "template_files": templates_list[:1],
-        "source_files": sources_list[:1],
-        "needs_clarification": False,
-        "clarification_question": "",
+        "template_files": tpl_list[:1],
+        "source_files": src_list[:1],
     }
 
 
-def build_execution_prompt(plan):
-    """Bộ não xây dựng prompt thực thi từ kế hoạch."""
+def build_exec_prompt(plan):
     mem = st.session_state["memory"]
-    
-    # Lấy nội dung mẫu
     tpl_text = ""
-    for fname in plan.get("template_files", []):
-        if fname in st.session_state["templates"]:
-            tpl_text += "\n=== MẪU: " + fname + " ===\n"
-            tpl_text += st.session_state["templates"][fname][:15000]
-    
-    # Lấy nội dung nguồn
+    for f in plan.get("template_files", []):
+        if f in st.session_state["templates"]:
+            tpl_text += "\n=== MAU: " + f + " ===\n" + st.session_state["templates"][f][:15000]
     src_text = ""
-    for fname in plan.get("source_files", []):
-        if fname in st.session_state["sources"]:
-            src_text += "\n=== NGUỒN: " + fname + " ===\n"
-            src_text += st.session_state["sources"][fname][:25000]
-    
-    skills = st.session_state.get("skills", "")
-    
-    prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n\n"
-    prompt += "GIÁO VIÊN: " + mem.get("teacher_name", "chưa rõ") + "\n"
-    prompt += "TRƯỜNG: " + mem.get("school", "chưa rõ") + "\n\n"
-    prompt += "NHIỆM VỤ: " + plan.get("task", "") + "\n"
-    prompt += "MÔN: " + plan.get("subject", "") + " | KHỐI: " + plan.get("grade", "") + "\n"
-    prompt += "CHỦ ĐỀ: " + plan.get("topic", "") + "\n"
-    prompt += "THỜI LƯỢNG: " + (plan.get("period") or "Chưa xác định") + "\n\n"
-    
+    for f in plan.get("source_files", []):
+        if f in st.session_state["sources"]:
+            src_text += "\n=== NGUON: " + f + " ===\n" + st.session_state["sources"][f][:25000]
+    prompt = "Ban la tro ly chuyen mon cho giao vien THCS Viet Nam.\n\n"
+    prompt += "GV: " + mem.get("teacher_name", "") + " | Truong: " + mem.get("school", "") + "\n"
+    prompt += "NHIEM VU: " + plan.get("task", "") + "\n"
+    prompt += "MON: " + plan.get("subject", "") + " | KHOI: " + plan.get("grade", "") + "\n"
+    prompt += "CHU DE: " + plan.get("topic", "") + "\n"
+    prompt += "THOI LUONG: " + (plan.get("period") or "Chua xac dinh") + "\n\n"
     if tpl_text:
-        prompt += "=== FILE MẪU (BẮT BUỘC BÁM THEO) ===" + tpl_text + "\n=== HẾT MẪU ===\n\n"
+        prompt += tpl_text + "\n"
     if src_text:
-        prompt += "=== NGUỒN TÀI LIỆU ===" + src_text + "\n=== HẾT NGUỒN ===\n\n"
-    if skills:
-        prompt += "=== KỸ NĂNG ĐÃ HỌC ===\n" + skills[:2000] + "\n\n"
-    
-    prompt += "QUY TẮC:\n"
-    prompt += "1. NẾU CÓ MẪU: bám sát cấu trúc, thứ tự mục, cách đánh số.\n"
-    prompt += "2. NẾU CÓ NGUỒN: lấy nội dung từ nguồn, KHÔNG bịa.\n"
-    prompt += "3. Viết CHI TIẾT, cụ thể, tối thiểu 1500 từ cho kế hoạch bài dạy.\n"
-    prompt += "4. Với mỗi hoạt động: mục tiêu, cách tổ chức, sản phẩm.\n"
-    prompt += "5. Bảng markdown: | Cột 1 | Cột 2 |, dùng <br> và **bold** trong ô.\n"
-    prompt += "6. Ký hiệu toán: x², √x, H₂O, ≤, ∈, π, ° (KHÔNG dùng LaTeX).\n"
-    prompt += "7. Tiếng Việt có dấu, văn phong sư phạm.\n"
-    prompt += "8. Markdown: '# ', '## ', '### ', '- ', '1. '.\n"
-    prompt += "9. Chỉ xuất nội dung tài liệu, không lời chào.\n"
-    
+        prompt += src_text + "\n"
+    prompt += "QUY TAC:\n"
+    prompt += "1. Bam sat mau (neu co).\n"
+    prompt += "2. Lay noi dung tu nguon (neu co), khong bia.\n"
+    prompt += "3. Chi tiet, cu the, toi thieu 1500 tu.\n"
+    prompt += "4. Bang markdown: | Cot 1 | Cot 2 |, dung <br> va **bold** trong o.\n"
+    prompt += "5. Ky hieu toan: x², √x, H₂O, ≤, ∈, π, ° (khong dung LaTeX).\n"
+    prompt += "6. Tieng Viet co dau.\n"
+    prompt += "7. Markdown: '# ', '## ', '### ', '- ', '1. '.\n"
     return prompt
 
 
-def reflect_on_result(plan, result):
-    """Bộ não tự đánh giá kết quả → học kỹ năng mới."""
-    if not GITHUB_TOKEN:
-        return
-    prompt = f"""Đánh giá tài liệu sau có tốt không. Trả lời ngắn gọn 1 câu, có "TỐT" hoặc "CẦN CẢI THIỆN".
-
-Loại: {plan.get('task')}
-Chủ đề: {plan.get('topic')}
-
-Nội dung (500 ký tự đầu):
-{result[:500]}
-
-Trả lời:"""
-    try:
-        judge = call_ai(prompt)
-        if "CẦN CẢI THIỆN" in judge.upper():
-            # Ghi lại như một bài học
-            append_skill(f"Cần chú ý khi làm {plan.get('task')} chủ đề {plan.get('topic')}")
-    except Exception:
-        pass
-
-
-# ============ THỰC THI ============
-def execute_command(cmd):
-    """Bộ não thực thi lệnh đầy đủ: phân tích → lập kế hoạch → sinh → lưu."""
-    if not available_providers:
-        st.error("Chưa có API key.")
-        return None, None
-    
-    with st.spinner("🧠 Bộ não đang phân tích lệnh..."):
-        plan = analyze_command(cmd)
-    
-    with st.expander("📋 Kế hoạch của bộ não", expanded=False):
-        st.json(plan)
-    
-    if plan.get("needs_clarification") and plan.get("clarification_question"):
-        st.warning("⚠️ Bộ não cần làm rõ: " + plan["clarification_question"])
-    
-    with st.spinner("🤖 Đang sinh nội dung..."):
-        prompt = build_execution_prompt(plan)
-        result = call_ai(prompt)
-    
-    if not result:
-        st.error("Không sinh được nội dung.")
-        return None, plan
-    
-    # Lưu lịch sử
-    if GITHUB_TOKEN:
-        with st.spinner("💾 Đang lưu lịch sử..."):
-            save_history(plan.get("task", ""), plan.get("topic", ""), result)
-            reflect_on_result(plan, result)
-    
-    return result, plan
-
-# ============ GIAO DIỆN CHÍNH ============
 st.divider()
 st.subheader("💬 Ra lệnh cho trợ lý")
-st.caption("Nhập lệnh tự nhiên. Ví dụ: `Soạn giáo án Toán 6 bài Ước chung lớn nhất, 2 tiết`")
+st.caption("Ví dụ: Soạn giáo án Toán 6 bài Ước chung lớn nhất, 2 tiết")
 
 cmd = st.text_area(
     "Lệnh",
     height=100,
-    placeholder="Soạn giáo án Toán 6 bài Ước chung lớn nhất, có ví dụ thực tiễn...",
+    placeholder="Soạn giáo án Toán 6 bài Ước chung lớn nhất...",
     label_visibility="collapsed",
-    key="main_cmd",
 )
 
-cbtn1, cbtn2 = st.columns([3, 1])
-with cbtn1:
+c1, c2 = st.columns([3, 1])
+with c1:
     run = st.button("▶️ Thực hiện", type="primary", use_container_width=True)
-with cbtn2:
+with c2:
     if st.button("🗑️ Xóa", use_container_width=True):
         st.session_state["draft"] = ""
         st.rerun()
 
 if run and cmd.strip():
-    result, plan = execute_command(cmd)
-    if result:
-        st.session_state["draft"] = result
-        st.session_state["draft_title"] = plan.get("task", "Tài liệu") if plan else "Tài liệu"
-        st.session_state["last_topic"] = plan.get("topic", "") if plan else ""
-
-
-# ============ BẢN NHÁP ============
-if st.session_state.get("draft"):
-    st.divider()
-    st.subheader("📄 Kết quả")
-    
-    # Nút tải
-    d = st.session_state["draft"]
-    name = re.sub(r"[^A-Za-z0-9_\-]", "_", st.session_state.get("last_topic", "tai_lieu"))[:45] or "tai_lieu"
-    
-    dc1, dc2, dc3 = st.columns([1, 1, 2])
-    with dc1:
-        st.download_button(
-            "⬇️ Word",
-            make_doc(st.session_state.get("draft_title", "Tài liệu"), d),
-            file_name=name + ".docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True,
-        )
-    with dc2:
-        st.download_button(
-            "⬇️ TXT",
-            d.encode("utf-8"),
-            file_name=name + ".txt",
-            mime="text/plain",
-            use_container_width=True,
-        )
-    
-    # Cho phép sửa
-    st.session_state["draft"] = st.text_area(
-        "Nội dung (có thể chỉnh sửa)",
-        st.session_state["draft"],
-        height=500,
-    )
-
-
-# ============ LỊCH SỬ ============
-with st.expander("🕘 Lịch sử soạn thảo"):
-    if not GITHUB_TOKEN:
-        st.info("Cần GITHUB_TOKEN để lưu lịch sử.")
+    if not available_providers:
+        st.error("Chưa có API key.")
     else:
-        files = gh_list("data/history")
-        if not files:
-            st.info("Chưa có lịch sử.")
-        else:
-            for f in sorted(files, reverse=True)[:20]:
-                if st.button("📄 " + f, key="hist_" + f):
-                    content, _ = gh_get("data/history/" + f)
-                    if content:
-                        st.session_state["draft"] = content
-                        st.rerun()
+        with st.spinner("🧠 Phân tích lệnh..."):
+            plan = analyze_command(cmd)
+        with st.expander("📋 Kế hoạch", expanded=False):
+            st.json(plan)
+        with st.spinner("🤖 Đang sinh nội dung..."):
+            prompt = build_exec_prompt(plan)
+            result = call_ai(prompt)
+        if result:
+            st.session_state["draft"] = result
+            st.session_state["last_topic"] = plan.get("topic", "")
+            if GITHUB_TOKEN:
+                save_history(plan.get("task", ""), plan.get("topic", ""), result)
 
 
-# ============ HÀM XUẤT WORD ============
 def fix_math(text):
     text = re.sub(r"\^2\b", "²", text)
     text = re.sub(r"\^3\b", "³", text)
@@ -646,4 +513,91 @@ def add_table(doc, rows):
             for part in re.split(r"(\*\*[^*]+\*\*)", val):
                 if part.startswith("**") and part.endswith("**") and len(part) > 4:
                     p.add_run(part[2:-2]).bold = True
-                else
+                else:
+                    p.add_run(part)
+
+
+def make_doc(title, body):
+    body = fix_math(body)
+    d = Document()
+    s = d.sections[0]
+    s.top_margin = Inches(0.7)
+    s.bottom_margin = Inches(0.7)
+    s.left_margin = Inches(0.8)
+    s.right_margin = Inches(0.8)
+    d.styles["Normal"].font.name = "Times New Roman"
+    d.styles["Normal"].font.size = Pt(12)
+    d.add_heading(title, 0)
+    mem = st.session_state.get("memory", {})
+    if mem.get("school"):
+        d.add_paragraph("Don vi: " + mem["school"])
+    if mem.get("teacher_name"):
+        d.add_paragraph("Nguoi thuc hien: " + mem["teacher_name"])
+    d.add_paragraph("Ngay tao: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
+
+    lines = body.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("|") and line.endswith("|"):
+            tl = []
+            j = i
+            while j < len(lines) and lines[j].strip().startswith("|") and lines[j].strip().endswith("|"):
+                tl.append(lines[j].strip())
+                j += 1
+            rows = []
+            for t in tl:
+                if re.match(r"^\|[\s\-:]+\|", t):
+                    continue
+                rows.append([c.strip() for c in t.strip("|").split("|")])
+            if rows:
+                add_table(d, rows)
+            i = j
+            continue
+        if line.startswith("### "):
+            d.add_heading(line[4:], 3)
+        elif line.startswith("## "):
+            d.add_heading(line[3:], 2)
+        elif line.startswith("# "):
+            d.add_heading(line[2:], 1)
+        elif line.startswith("- "):
+            add_para(d, line[2:], style="List Bullet")
+        elif re.match(r"^\d+[\.\)] ", line):
+            add_para(d, re.sub(r"^\d+[\.\)] ", "", line), style="List Number")
+        elif line == "":
+            pass
+        else:
+            add_para(d, line)
+        i += 1
+
+    b = io.BytesIO()
+    d.save(b)
+    return b.getvalue()
+
+
+if st.session_state.get("draft"):
+    st.divider()
+    st.subheader("📄 Kết quả")
+    content = st.session_state["draft"]
+    safe_name = re.sub(r"[^A-Za-z0-9_\-]", "_", st.session_state.get("last_topic", "tai_lieu"))[:45] or "tai_lieu"
+    d1, d2 = st.columns(2)
+    with d1:
+        st.download_button(
+            "⬇️ Tải Word",
+            make_doc("Tài liệu", content),
+            file_name=safe_name + ".docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            type="primary",
+            use_container_width=True,
+        )
+    with d2:
+        st.download_button(
+            "⬇️ Tải TXT",
+            content.encode("utf-8"),
+            file_name=safe_name + ".txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    st.session_state["draft"] = st.text_area(
+        "Nội dung (có thể sửa)", content, height=500
+    )
