@@ -353,11 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_v9" not in st.session_state:
+if "app_started_v10" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v9"] = True
+    st.session_state["app_started_v10"] = True
 
 
 defaults = {
@@ -727,7 +727,7 @@ def build_exec_prompt(plan):
     prompt += "2. KHÔNG dùng từ 'máy chiếu' → thay bằng 'tivi' hoặc 'máy vi tính'.\n"
     prompt += "3. Ký hiệu toán Unicode: x², x³, √, ≤, ≥, ∈, π, Ư (KHÔNG LaTeX).\n"
     prompt += "4. Phân số viết dạng a/b.\n"
-    prompt += "5. Trong ô bảng: dùng <br> để xuống dòng.\n"
+    prompt += "5. Trong ô bảng: dùng <br> để xuống dòng. Mỗi bước phải xuống dòng riêng.\n"
     prompt += "6. Độ dài tối thiểu 1500 từ.\n"
     prompt += "7. KHÔNG viết '---', '===', '***', '####' trong bài.\n"
     prompt += "8. KHÔNG dùng HTML tag <div>, <span>, <p>.\n"
@@ -767,9 +767,12 @@ def _set_run_font(run, size=14, bold=False):
 
 def add_para(doc, text, style=None):
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
+    # Bỏ markdown triệt để
     text = re.sub(r"^[\-\+\*\•\#]+\s*", "", text)
     text = re.sub(r"^\d+[\.\)]\s+", "", text)
     text = re.sub(r"^[a-z]\)\s+", "", text)
+    text = text.replace("**", "").replace("__", "")
+    text = re.sub(r"(?<!\*)\*(?!\*)", "", text)
     text = text.strip()
 
     p = doc.add_paragraph()
@@ -781,17 +784,8 @@ def add_para(doc, text, style=None):
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
 
-    for part in re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*)", text):
-        if part.startswith("**") and part.endswith("**") and len(part) > 4:
-            run = p.add_run(part[2:-2])
-            _set_run_font(run, 14, bold=True)
-        elif part.startswith("*") and part.endswith("*") and len(part) > 2:
-            run = p.add_run(part[1:-1])
-            run.italic = True
-            _set_run_font(run, 14, bold=False)
-        else:
-            run = p.add_run(part)
-            _set_run_font(run, 14, bold=False)
+    run = p.add_run(text)
+    _set_run_font(run, 14, bold=False)
     return p
 
 
@@ -799,7 +793,7 @@ def add_table(doc, rows):
     if not rows:
         return
 
-    # Lọc bỏ cột rác ở cuối
+    # Lọc bỏ cột rác
     cleaned_rows = []
     for row in rows:
         while len(row) > 2 and len(row[-1].strip()) <= 2 and row[-1].strip() in (
@@ -809,7 +803,6 @@ def add_table(doc, rows):
             row = row[:-1]
         cleaned_rows.append(row)
 
-    # Nếu > 2 cột → gộp cột 3 trở đi vào cột 2
     max_n = max(len(r) for r in cleaned_rows)
     if max_n > 2:
         for i, r in enumerate(cleaned_rows):
@@ -834,6 +827,7 @@ def add_table(doc, rows):
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(0)
+
             is_header = (i == 0)
             if is_header:
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -841,28 +835,37 @@ def add_table(doc, rows):
                 p.paragraph_format.left_indent = Inches(0)
                 p.paragraph_format.right_indent = Inches(0)
             else:
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                p.paragraph_format.first_line_indent = Inches(0.39)
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                p.paragraph_format.first_line_indent = Inches(0)
                 p.paragraph_format.left_indent = Inches(0)
                 p.paragraph_format.right_indent = Inches(0)
 
             val = (row[j] if j < len(row) else "").replace("<br>", "\n")
+
             if not is_header:
+                # Tự động chèn xuống dòng trước mỗi "Bước N:"
+                val = re.sub(r"\s*(?=[Bb]ước\s*\d+)", "\n", val)
+                # Chèn xuống dòng trước dấu "-" hoặc "+" (nhưng không ở đầu)
+                val = re.sub(r"\s+(?=[\-\+]\s+\S)", "\n", val)
+
                 lines = val.split("\n")
                 cleaned_lines = []
                 for ln in lines:
                     ln_clean = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
                     ln_clean = re.sub(r"^\d+[\.\)]\s+", "", ln_clean)
                     ln_clean = re.sub(r"^[a-z]\)\s+", "", ln_clean)
-                    cleaned_lines.append(ln_clean.strip())
+                    ln_clean = re.sub(r"\s{2,}", " ", ln_clean).strip()
+                    if ln_clean:
+                        cleaned_lines.append(ln_clean)
                 val = "\n".join(cleaned_lines)
 
+            # Xử lý ** cho phần bold
             for part in re.split(r"(\*\*[^*]+\*\*)", val):
                 if part.startswith("**") and part.endswith("**") and len(part) > 4:
                     run = p.add_run(part[2:-2])
                     _set_run_font(run, 13, bold=True)
                 else:
-                    run = p.add_run(part)
+                    run = p.add_run(part.replace("**", ""))
                     _set_run_font(run, 13, bold=is_header)
 
 
@@ -913,7 +916,7 @@ def _add_heading(doc, text):
             run.italic = True
         return p
 
-    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
     p.paragraph_format.right_indent = Inches(0)
@@ -970,7 +973,6 @@ def write_content_to_doc(d, content):
             i += 1
             continue
 
-        # Bảng markdown — chỉ nhận khi có dòng phân cách |---|---|
         if stripped.startswith("|") and stripped.endswith("|"):
             tl = []
             j = i
@@ -1086,7 +1088,6 @@ def make_doc(title, body):
     return b.getvalue()
 
 
-# ============ PHIẾU BÁO GIẢNG ============
 def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     mem = st.session_state.get("memory", {})
     now = datetime.now()
@@ -1191,7 +1192,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     for i, w in enumerate(widths):
         table.rows[0].cells[i].width = w
 
-    # Nhóm theo ngày — chuẩn hóa key
+    # Nhóm theo ngày
     nhom_ngay = []
     for r in lich:
         thu_clean = r["thu"].strip()
@@ -1220,7 +1221,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 run = p.add_run(nhom["thu"])
                 _set_run_font(run, 13, bold=False)
                 p2 = row[0].add_paragraph()
-                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER                
+                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 p2.paragraph_format.space_before = Pt(0)
                 p2.paragraph_format.space_after = Pt(0)
                 run = p2.add_run(nhom["ngay"])
@@ -1271,7 +1272,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 row.cells[i].width = w
 
     doc.add_paragraph("")
-
 
 # ============ SOẠN 1 BÀI ============
 st.divider()
@@ -1505,7 +1505,7 @@ NỘI DUNG PPCT:
 
     def find_ppct_by_tiet(ppct, tiet_str):
         if not tiet_str: return None
-        try: target = int(tiet_str)
+        try: target = int(str(tiet_str).strip())
         except Exception: return None
         for bai in ppct:
             stt = bai.get("stt", 0)
@@ -1617,9 +1617,10 @@ NỘI DUNG PPCT:
                                 ten_bai = found["ten_bai"]
                                 tiet_trong_bai = found["tiet_trong_bai"]
                                 tong_tiet = found["tong_tiet"]
-                                stt_ppct = str(found["stt_ppct"])
+                                stt_ppct = str(int(tkb_ppct))
                             else:
                                 ten_bai = "[Tiết " + tkb_ppct + " chưa có trong PPCT]"
+                                stt_ppct = str(int(tkb_ppct))
                                 canh_bao.append("Tiết " + tkb_ppct + " lớp " + slot["lop"] + " không có PPCT")
                         else:
                             ten_bai = "[TKB thiếu mã Tiết PPCT]"
@@ -1697,7 +1698,6 @@ with sub_t3:
                 if len(parts) < 5: continue
                 if parts[0].lower() in ("thứ", "thu", "stt"): continue
 
-                # Lấy tên bài từ cột 7. Nếu không có, ghép các cột còn lại
                 ten_bai = parts[6].strip() if len(parts) > 6 else ""
                 if not ten_bai and len(parts) > 5:
                     ten_bai = parts[5].strip()
@@ -1730,7 +1730,6 @@ with sub_t3:
             else:
                 st.session_state["lich_bao_giang"] = lich
                 st.success("✅ Đã nạp: " + str(len(lich)) + " tiết")
-                st.rerun() if False else None
 
                 if GITHUB_TOKEN and manual_name.strip():
                     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", manual_name.strip())[:40]
@@ -1781,7 +1780,6 @@ if st.session_state.get("lich_bao_giang"):
         else:
             bai_can_soan = {}
             for r in lich:
-                # Lấy tên bài — kiểm tra nhiều trường hợp
                 ten = r.get("ten_bai", "").strip()
                 if not ten:
                     ten = r.get("ten_bai_day", "").strip()
