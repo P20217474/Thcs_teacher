@@ -4,3 +4,4 @@ pypdf>=4.0
 pillow>=10.0
 freelm
 openpyxl
+google-generativeai
