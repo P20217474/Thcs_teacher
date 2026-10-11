@@ -47,7 +47,7 @@ except Exception:
 
 st.set_page_config(page_title="Trợ lý Giáo viên THCS", page_icon="🧠", layout="wide")
 st.title("🧠 Trợ lý Giáo viên THCS")
-st.caption("Bộ não tự động • Đọc ảnh SGK • Lịch báo giảng theo tuần • Xuất Word")
+st.caption("Bộ não tự động • Bám mẫu giáo án • Lịch báo giảng • Xuất Word")
 
 
 def cfg(key, default=""):
@@ -544,7 +544,7 @@ with tab_up:
         ["Mẫu (định dạng)", "Nguồn (nội dung)", "PPCT", "TKB"],
         horizontal=True,
     )
-    up_name = st.text_input("Tên file", placeholder="toan6_tuan6")
+    up_name = st.text_input("Tên file", placeholder="mau_bai_soan")
     up_files = st.file_uploader(
         "Chọn file",
         type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc",
@@ -614,141 +614,141 @@ with tab_up:
                     st.error("❌ " + msg)
 
 with tab_kho:
-    st.subheader("📐 Mẫu đã lưu")
-    if st.session_state["templates"]:
-        for name in list(st.session_state["templates"].keys()):
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                with st.expander("📄 " + name):
-                    content = st.session_state["templates"][name]
-                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
-                    st.text(content[:2000])
-            with col2:
-                if st.button("🗑️", key="del_tpl_" + name):
-                    with st.spinner("Đang xóa..."):
-                        ok, msg = gh_delete("data/templates/" + name)
-                    if ok:
-                        st.session_state["templates"] = load_templates()
-                        st.rerun()
-    else:
-        st.info("Chưa có mẫu.")
-    if st.session_state["templates"]:
-        if st.button("🗑️ Xóa TẤT CẢ mẫu", key="del_all_tpl"):
-            for name in list(st.session_state["templates"].keys()):
-                gh_delete("data/templates/" + name)
-            st.session_state["templates"] = load_templates()
-            st.rerun()
-
-    st.divider()
-    st.subheader("📚 Nguồn đã lưu")
-    if st.session_state["sources"]:
-        for name in list(st.session_state["sources"].keys()):
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                with st.expander("📄 " + name):
-                    content = st.session_state["sources"][name]
-                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
-                    st.text(content[:2000])
-            with col2:
-                if st.button("🗑️", key="del_src_" + name):
-                    with st.spinner("Đang xóa..."):
-                        ok, msg = gh_delete("data/sources/" + name)
-                    if ok:
-                        st.session_state["sources"] = load_sources()
-                        st.rerun()
-    else:
-        st.info("Chưa có nguồn.")
-    if st.session_state["sources"]:
-        if st.button("🗑️ Xóa TẤT CẢ nguồn", key="del_all_src"):
-            for name in list(st.session_state["sources"].keys()):
-                gh_delete("data/sources/" + name)
-            st.session_state["sources"] = load_sources()
-            st.rerun()
-
-    st.divider()
-    st.subheader("📗 PPCT đã lưu")
-    if st.session_state["ppct"]:
-        for name in list(st.session_state["ppct"].keys()):
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                with st.expander("📄 " + name):
-                    content = st.session_state["ppct"][name]
-                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
-                    st.text(content[:2000])
-            with col2:
-                if st.button("🗑️", key="del_ppct_" + name):
-                    with st.spinner("Đang xóa..."):
-                        ok, msg = gh_delete("data/ppct/" + name)
-                    if ok:
-                        st.session_state["ppct"] = load_ppct()
-                        st.rerun()
-    else:
-        st.info("Chưa có PPCT.")
-    if st.session_state["ppct"]:
-        if st.button("🗑️ Xóa TẤT CẢ PPCT", key="del_all_ppct"):
-            for name in list(st.session_state["ppct"].keys()):
-                gh_delete("data/ppct/" + name)
-            st.session_state["ppct"] = load_ppct()
-            st.rerun()
-
-    st.divider()
-    st.subheader("📘 TKB đã lưu")
-    if st.session_state["tkb"]:
-        for name in list(st.session_state["tkb"].keys()):
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                with st.expander("📄 " + name):
-                    content = st.session_state["tkb"][name]
-                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
-                    st.text(content[:2000])
-            with col2:
-                if st.button("🗑️", key="del_tkb_" + name):
-                    with st.spinner("Đang xóa..."):
-                        ok, msg = gh_delete("data/tkb/" + name)
-                    if ok:
-                        st.session_state["tkb"] = load_tkb()
-                        st.rerun()
-    else:
-        st.info("Chưa có TKB.")
-    if st.session_state["tkb"]:
-        if st.button("🗑️ Xóa TẤT CẢ TKB", key="del_all_tkb"):
-            for name in list(st.session_state["tkb"].keys()):
-                gh_delete("data/tkb/" + name)
-            st.session_state["tkb"] = load_tkb()
-            st.rerun()
+    for label, key, folder in [
+        ("📐 Mẫu", "templates", "templates"),
+        ("📚 Nguồn", "sources", "sources"),
+        ("📗 PPCT", "ppct", "ppct"),
+        ("📘 TKB", "tkb", "tkb"),
+    ]:
+        st.subheader(label + " đã lưu")
+        data_dict = st.session_state[key]
+        if data_dict:
+            for name in list(data_dict.keys()):
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    with st.expander("📄 " + name):
+                        content = data_dict[name]
+                        st.caption("Kích thước: " + str(len(content)) + " ký tự")
+                        st.text(content[:2000])
+                with col2:
+                    if st.button("🗑️", key=f"del_{key}_{name}"):
+                        with st.spinner("Đang xóa..."):
+                            ok, msg = gh_delete(f"data/{folder}/" + name)
+                        if ok:
+                            st.session_state[key] = load_folder(folder)
+                            st.rerun()
+            if st.button("🗑️ Xóa TẤT CẢ " + label, key=f"del_all_{key}"):
+                for name in list(data_dict.keys()):
+                    gh_delete(f"data/{folder}/" + name)
+                st.session_state[key] = load_folder(folder)
+                st.rerun()
+        else:
+            st.info("Chưa có " + label.lower() + ".")
+        st.divider()
 
 
-# ============ PROMPT ============
+# ============ PROMPT BÁM MẪU GIÁO ÁN ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
     tpl_text = ""
     for f in plan.get("template_files", []):
         if f in st.session_state["templates"]:
-            tpl_text += "\n=== FILE MẪU ===\n" + st.session_state["templates"][f][:15000]
+            tpl_text += "\n=== FILE MẪU (BẮT BUỘC BÁM SÁT) ===\n" + st.session_state["templates"][f][:20000]
     src_text = ""
     for f in plan.get("source_files", []):
         if f in st.session_state["sources"]:
             src_text += "\n=== NGUỒN NỘI DUNG (SGK) ===\n" + st.session_state["sources"][f][:25000]
 
     prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n\n"
-    prompt += "NGUYÊN TẮC:\n"
-    prompt += "- NỘI DUNG: LẤY TỪ NGUỒN SGK. KHÔNG bịa.\n"
-    prompt += "- ĐỊNH DẠNG: BÁM THEO FILE MẪU.\n\n"
-    prompt += "GV: " + mem.get("teacher_name", "") + " | Trường: " + mem.get("school", "") + "\n"
-    prompt += "Môn: " + plan.get("subject", "") + " | Khối: " + plan.get("grade", "") + "\n"
-    prompt += "Tên bài: " + plan.get("topic", "") + "\n"
-    prompt += "Thời lượng: " + (plan.get("period") or "") + "\n\n"
+    prompt += "NHIỆM VỤ: Soạn KẾ HOẠCH BÀI DẠY theo ĐÚNG mẫu giáo án.\n\n"
+    prompt += "THÔNG TIN:\n"
+    prompt += "- Giáo viên: " + mem.get("teacher_name", "") + "\n"
+    prompt += "- Trường: " + mem.get("school", "") + "\n"
+    prompt += "- Môn: " + plan.get("subject", "") + " | Khối: " + plan.get("grade", "") + "\n"
+    prompt += "- Tên bài: " + plan.get("topic", "") + "\n"
+    prompt += "- Số tiết: " + (plan.get("period") or "1") + "\n\n"
+
     if tpl_text:
         prompt += tpl_text + "\n"
     if src_text:
         prompt += src_text + "\n"
-    prompt += "YÊU CẦU:\n"
-    prompt += "1. Chi tiết, tối thiểu 1500 từ.\n"
-    prompt += "2. Mỗi hoạt động: mục tiêu, tổ chức, sản phẩm.\n"
-    prompt += "3. Bảng hoạt động ĐÚNG 2 CỘT: | Hoạt động của GV và HS | Sản phẩm |\n"
-    prompt += "4. <br> xuống dòng, **bold** in đậm.\n"
-    prompt += "5. Ký hiệu toán Unicode: x², √x, ≤, π.\n"
-    prompt += "6. Markdown: '# ', '## ', '### ', '- ', '1. '.\n"
+
+    prompt += "=== CẤU TRÚC BẮT BUỘC CỦA BÀI SOẠN ===\n\n"
+
+    prompt += "**I. MỤC TIÊU**\n"
+    prompt += "1. Kiến thức: [nêu kiến thức trọng tâm từ SGK]\n"
+    prompt += "2. Năng lực:\n"
+    prompt += "   - Năng lực riêng: [2-3 năng lực đặc thù]\n"
+    prompt += "   - Năng lực chung: Năng lực tư duy và lập luận toán học; năng lực giao tiếp toán học tự học; năng lực giải quyết vấn đề toán học, năng lực tư duy sáng tạo, năng lực hợp tác.\n"
+    prompt += "3. Phẩm chất: Bồi dưỡng hứng thú học tập, ý thức làm việc nhóm, ý thức tìm tòi, khám phá và sáng tạo cho HS => độc lập, tự tin và tự chủ.\n\n"
+
+    prompt += "**II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU**\n"
+    prompt += "1. GV: Bài giảng, khbd.\n"
+    prompt += "   (KHÔNG dùng từ 'máy chiếu'. Nếu cần thiết bị hiển thị, dùng 'tivi' hoặc 'máy vi tính'.)\n"
+    prompt += "2. HS: SGK; Đồ dùng học tập; Ôn tập khái niệm về [kiến thức liên quan đã học].\n\n"
+
+    prompt += "**III. TIẾN TRÌNH DẠY HỌC**\n\n"
+
+    prompt += "**A. HOẠT ĐỘNG KHỞI ĐỘNG (MỞ ĐẦU)**\n"
+    prompt += "a) Mục tiêu: [2 gạch đầu dòng: gây hứng thú + gợi mở nội dung]\n"
+    prompt += "b) Nội dung: HS chú ý lắng nghe và thực hiện yêu cầu.\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm:\n"
+    prompt += "- Bước 1: Chuyển giao nhiệm vụ: [GV đặt vấn đề bằng bài toán mở đầu SGK]\n"
+    prompt += "- Bước 2: Thực hiện nhiệm vụ: HS đọc, suy nghĩ, thảo luận nhóm và suy đoán, giải thích.\n"
+    prompt += "- Bước 3: Báo cáo, thảo luận: GV gọi một số HS trả lời, HS khác nhận xét.\n"
+    prompt += "- Bước 4: Kết luận, nhận định: GV đánh giá kết quả của HS, dẫn dắt vào bài mới.\n\n"
+
+    prompt += "**B. HÌNH THÀNH KIẾN THỨC MỚI**\n\n"
+    prompt += "Với MỖI Hoạt động (Hoạt động 1, 2, 3...), trình bày ĐẦY ĐỦ:\n\n"
+    prompt += "**Hoạt động N: [Tên hoạt động]**\n"
+    prompt += "a) Mục tiêu: [3-4 gạch đầu dòng cụ thể]\n"
+    prompt += "b) Nội dung: HS quan sát SGK để tìm hiểu nội dung kiến thức theo yêu cầu của GV.\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+
+    prompt += "**BẮT BUỘC dùng BẢNG 2 CỘT:**\n"
+    prompt += "| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM |\n"
+    prompt += "|---|---|\n"
+    prompt += "| - Bước 1: Chuyển giao nhiệm vụ:<br>+ GV hướng dẫn...<br>+ GV phân tích... | **N. [Tên kiến thức]**<br>* [Nội dung cụ thể]<br>+ Ví dụ 1: [chi tiết]<br>+ Ư(24) = {1; 2; 3; 4; 6; 8; 12; 24}<br>+ Ư(28) = {1; 2; 4; 7; 14; 28}<br>+ ƯC(24; 28) = {1; 2; 4} |\n"
+    prompt += "| - Bước 2: Thực hiện nhiệm vụ:<br>+ HS chú ý lắng nghe...<br>+ GV quan sát và trợ giúp HS | [Sản phẩm tiếp] |\n"
+    prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS: Chú ý, thảo luận và phát biểu... | [Sản phẩm tiếp] |\n"
+    prompt += "| - Bước 4: Kết luận, nhận định: GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính: ... | [Tổng kết] |\n\n"
+
+    prompt += "**C. HOẠT ĐỘNG LUYỆN TẬP**\n"
+    prompt += "a) Mục tiêu: Học sinh củng cố lại kiến thức thông qua một số bài tập.\n"
+    prompt += "b) Nội dung: HS dựa vào kiến thức đã học vận dụng làm BT.\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm:\n"
+    prompt += "BẢNG 2 CỘT:\n"
+    prompt += "| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM |\n"
+    prompt += "|---|---|\n"
+    prompt += "| - GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK).<br>- HS tiếp nhận nhiệm vụ... | **Bài [số]:**<br>[Lời giải chi tiết] |\n\n"
+
+    prompt += "**D. HOẠT ĐỘNG VẬN DỤNG**\n"
+    prompt += "a) Mục tiêu: Học sinh thực hiện làm bài tập vận dụng để củng cố kiến thức và áp dụng kiến thức vào thực tế đời sống.\n"
+    prompt += "b) Nội dung: HS sử dụng SGK và vận dụng kiến thức đã học để hoàn thành bài tập.\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm: BẢNG 2 CỘT:\n"
+    prompt += "| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM |\n"
+    prompt += "|---|---|\n"
+    prompt += "| - GV cho HS đọc...<br>- GV yêu cầu HS hoàn thành... | **Bài [số]:** [Lời giải chi tiết] |\n\n"
+
+    prompt += "**\\* HƯỚNG DẪN VỀ NHÀ**\n"
+    prompt += "- Đọc và ghi nhớ nội dung chính của bài.\n"
+    prompt += "- Vận dụng kiến thức làm bài tập [số] (SGK- tr[XX]).\n"
+    prompt += "- Chuẩn bị bài mới \"[tên bài tiếp theo]\".\n\n"
+
+    prompt += "**KẾT BÀI (ghi ở cuối cùng, căn phải):**\n"
+    prompt += "Sông Đốc, ngày ... tháng ... năm ...\n"
+    prompt += "NGƯỜI SOẠN\n"
+    prompt += "(Ký tên)\n"
+    prompt += mem.get("teacher_name", "") + "\n\n"
+
+    prompt += "=== QUY TẮC BẮT BUỘC ===\n"
+    prompt += "1. NỘI DUNG PHẢI LẤY TỪ NGUỒN SGK. KHÔNG bịa.\n"
+    prompt += "2. KHÔNG dùng từ 'máy chiếu' → thay bằng 'tivi' hoặc 'máy vi tính'.\n"
+    prompt += "3. Ký hiệu toán Unicode: x², x³, √, ≤, ≥, ∈, π, Ư (KHÔNG LaTeX).\n"
+    prompt += "4. Phân số viết dạng a/b.\n"
+    prompt += "5. Tiếng Việt có dấu đầy đủ.\n"
+    prompt += "6. Trong ô bảng: dùng <br> để xuống dòng, **bold** để in đậm.\n"
+    prompt += "7. Độ dài tối thiểu: 1500 từ.\n"
     return prompt
 
 
@@ -858,60 +858,66 @@ def make_doc(title, body):
 # ============ PHIẾU BÁO GIẢNG ============
 def add_phieu_bao_giang(doc, lich, tuan_start):
     mem = st.session_state.get("memory", {})
+
+    # Dòng ngày tháng (căn phải)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    now = datetime.now()
+    p.add_run("Sông Đốc, ngày " + now.strftime("%d") + " tháng " + now.strftime("%m") + " năm " + now.strftime("%Y"))
+
+    # Tiêu đề
     h = doc.add_heading("PHIẾU BÁO GIẢNG", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run("Trường: ").bold = True
-    p.add_run(mem.get("school", "..."))
-
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run("Giáo viên: ").bold = True
-    p.add_run(mem.get("teacher_name", "..."))
-
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run("Tuần: ").bold = True
     end_date = tuan_start + timedelta(days=6)
-    p.add_run("Từ ngày " + tuan_start.strftime("%d/%m/%Y")
-              + " đến ngày " + end_date.strftime("%d/%m/%Y"))
+    p.add_run("Từ " + tuan_start.strftime("%d/%m/%Y")
+              + " đến " + end_date.strftime("%d/%m/%Y"))
 
     doc.add_paragraph()
 
-    table = doc.add_table(rows=1, cols=6)
+    # Bảng phiếu báo giảng — 7 cột
+    table = doc.add_table(rows=1, cols=7)
     table.style = "Table Grid"
     hdr = table.rows[0].cells
-    for i, h_text in enumerate(["Thứ", "Ngày", "Tiết", "Lớp", "Tên bài dạy", "Ghi chú"]):
+    headers = ["Thứ ngày tháng", "Tiết TKB", "Môn", "Lớp",
+               "Tiết PPCT", "Tên bài dạy", "Ghi chú"]
+    for i, h_text in enumerate(headers):
         hdr[i].text = ""
         run = hdr[i].paragraphs[0].add_run(h_text)
         run.bold = True
 
+    prev_ngay = ""
     for r in lich:
         row = table.add_row().cells
-        row[0].text = r["thu"]
-        row[1].text = r["ngay"]
-        row[2].text = r["tiet"]
+        key_ngay = r["thu"] + " " + r["ngay"]
+        if key_ngay != prev_ngay:
+            row[0].text = key_ngay
+            prev_ngay = key_ngay
+        else:
+            row[0].text = ""
+        row[1].text = r["tiet"].replace("Tiết ", "")
+        row[2].text = r["mon"]
         row[3].text = r["lop"]
-        row[4].text = r["ten_bai"]
-        row[5].text = ""
+        row[4].text = str(r.get("stt_ppct", ""))
+        row[5].text = r["ten_bai"]
+        row[6].text = ""
 
     doc.add_paragraph()
-    now = datetime.now()
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p.add_run("Ngày " + now.strftime("%d") + " tháng " + now.strftime("%m") + " năm " + now.strftime("%Y"))
 
+    # Ký duyệt
+    p = doc.add_paragraph()
+    p.add_run("KÝ DUYỆT").bold = True
     p2 = doc.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p2.add_run("Giáo viên").bold = True
-
+    p2.add_run("NGƯỜI SOẠN").bold = True
     doc.add_paragraph()
     doc.add_paragraph()
     p3 = doc.add_paragraph()
     p3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p3.add_run(mem.get("teacher_name", "..."))
+    p3.add_run(mem.get("teacher_name", ""))
 
 
 # ============ SOẠN 1 BÀI ============
@@ -972,7 +978,6 @@ if st.session_state.get("draft"):
 st.divider()
 st.subheader("📅 1. Tạo lịch báo giảng từ TKB + PPCT")
 
-# Chọn PPCT/TKB đã lưu
 st.markdown("**Chọn từ kho đã lưu:**")
 col_ppct, col_tkb = st.columns(2)
 with col_ppct:
@@ -1009,24 +1014,20 @@ def ai_extract_ppct(raw):
     prompt = """Đọc bảng PHÂN PHỐI CHƯƠNG TRÌNH sau. Bảng có 5 cột:
 STT | Bài học | Số tiết | Thời điểm | Ghi chú
 
-Cột "Thời điểm" chứa mốc tuần và ngày tháng, ví dụ:
-"Tuần: 1 (7/09/2026 - 13/09/2026)"
-
-QUAN TRỌNG: Cột "Thời điểm" thường bị GỘP Ô (merge cell) — nghĩa là
-nhiều bài liên tiếp dùng chung 1 tuần. Trong file gốc, ô này chỉ xuất hiện
-1 lần ở đầu nhóm, các dòng sau để trống.
-
-Nhiệm vụ: ĐIỀN tuần cho TẤT CẢ các bài, kể cả khi ô trống.
+QUAN TRỌNG:
+1. Cột "Thời điểm" thường bị GỘP Ô — nhiều bài liên tiếp dùng chung 1 tuần.
+   Hãy ĐIỀN tuần cho TẤT CẢ các bài, kể cả khi ô trống.
+2. Các dòng có cùng tên bài và ghi "(Tiết 1)", "(Tiết 2)" → GỘP THÀNH 1 BÀI
+   với số tiết = tổng các tiết.
 
 Trả về MỖI BÀI 1 DÒNG format:
-STT | Tên bài | Số tiết | Tuần | Ngày bắt đầu | Ngày kết thúc
+STT | Tên bài (KHÔNG có "(Tiết N)") | Số tiết (đã gộp) | Tuần | Ngày bắt đầu | Ngày kết thúc
 
-Ví dụ ĐÚNG:
+Ví dụ:
 1 | Bài 1. Tập hợp | 1 | 1 | 07/09/2026 | 13/09/2026
-2 | Bài 2. Cách ghi số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
-5 | Bài 5. Phép nhân và phép chia số tự nhiên (Tiết 1) | 1 | 2 | 14/09/2026 | 20/09/2026
+5 | Bài 5. Phép nhân và phép chia số tự nhiên | 2 | 2 | 14/09/2026 | 20/09/2026
 
-CHỈ trả về các dòng theo format. KHÔNG giải thích. KHÔNG thêm header.
+CHỈ trả về các dòng theo format. KHÔNG giải thích.
 
 NỘI DUNG PPCT:
 """ + raw[:15000]
@@ -1092,7 +1093,8 @@ def parse_tkb(text):
 
 
 def parse_ppct(text):
-    result = []
+    """Parse PPCT — GỘP bài nhiều tiết."""
+    raw_list = []
     for line in text.strip().splitlines():
         line = line.strip()
         if not line or "|" not in line:
@@ -1127,7 +1129,7 @@ def parse_ppct(text):
                     tuan_end = datetime(int(d2.group(3)), int(d2.group(2)), int(d2.group(1)))
                 except Exception:
                     pass
-        result.append({
+        raw_list.append({
             "stt": stt,
             "tiet_bd": stt,
             "ten_bai": ten_bai,
@@ -1136,7 +1138,35 @@ def parse_ppct(text):
             "tuan_start": tuan_start,
             "tuan_end": tuan_end,
         })
-    return result
+
+    # GỘP bài có cùng tên (bài nhiều tiết)
+    merged = []
+    i = 0
+    while i < len(raw_list):
+        bai = raw_list[i]
+        ten_goc = bai["ten_bai"]
+        ten_chuan = re.sub(r"\s*\(Tiết\s*\d+\)", "", ten_goc).strip()
+        so_tiet_gop = 0
+        j = i
+        while j < len(raw_list):
+            ten_j = re.sub(r"\s*\(Tiết\s*\d+\)", "", raw_list[j]["ten_bai"]).strip()
+            if ten_j == ten_chuan and raw_list[j]["tuan"] == bai["tuan"]:
+                so_tiet_gop += raw_list[j]["so_tiet"]
+                j += 1
+            else:
+                break
+        merged.append({
+            "stt": bai["stt"],
+            "tiet_bd": bai["tiet_bd"],
+            "ten_bai": ten_chuan,
+            "so_tiet": so_tiet_gop,
+            "tuan": bai["tuan"],
+            "tuan_start": bai["tuan_start"],
+            "tuan_end": bai["tuan_end"],
+        })
+        i = j if so_tiet_gop > 0 else i + 1
+
+    return merged
 
 
 def find_week_ppct(ppct, target_date):
@@ -1153,7 +1183,6 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
     if not available_providers:
         st.error("Cần API key.")
     else:
-        # Ưu tiên: file upload > dán > dropdown đã chọn > file đầu tiên đã lưu
         tkb_raw = tkb_manual.strip()
         if tkb_file:
             _, text, _ = read_file(tkb_file, use_ocr=False)
@@ -1179,7 +1208,7 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
             st.info("📗 Dùng PPCT đã lưu: " + first)
 
         if not tkb_raw or not ppct_raw:
-            st.error("Cần TKB và PPCT (upload, dán, hoặc chọn từ kho).")
+            st.error("Cần TKB và PPCT.")
         else:
             tkb_auto = auto_fix_tkb(tkb_raw)
             if tkb_auto and "|" in tkb_auto and len(tkb_auto.splitlines()[0].split("|")) >= 4:
@@ -1188,13 +1217,13 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                 with st.spinner("🧠 AI đang đọc TKB..."):
                     tkb_clean = ai_extract_tkb(tkb_raw)
 
-            with st.spinner("🧠 AI đang đọc PPCT (tách tuần)..."):
+            with st.spinner("🧠 AI đang đọc PPCT (tách tuần, gộp bài)..."):
                 ppct_clean = ai_extract_ppct(ppct_raw)
 
-            with st.expander("📋 Xem kết quả AI trích xuất", expanded=True):
+            with st.expander("📋 Xem kết quả AI trích xuất", expanded=False):
                 st.markdown("**TKB đã chuẩn hóa:**")
                 st.code(tkb_clean)
-                st.markdown("**PPCT đã chuẩn hóa (có tuần):**")
+                st.markdown("**PPCT đã chuẩn hóa:**")
                 st.code(ppct_clean)
 
             tkb = parse_tkb(tkb_clean)
@@ -1211,9 +1240,10 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                                + "** — " + str(len(week_bais)) + " bài")
                     ppct_week = week_bais
                 else:
-                    st.warning("⚠️ Không tìm thấy tuần khớp. Kiểm tra cột Thời điểm.")
+                    st.warning("⚠️ Không tìm thấy tuần khớp.")
                     ppct_week = ppct
 
+                # Tạo ppct_tiets — mỗi bài chiếm n tiết
                 ppct_tiets = []
                 for bai in ppct_week:
                     for k in range(bai["so_tiet"]):
@@ -1222,6 +1252,7 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                             "tiet_trong_bai": k + 1,
                             "tong_tiet": bai["so_tiet"],
                             "tuan": bai.get("tuan", ""),
+                            "stt_ppct": bai.get("stt", ""),
                         })
 
                 days_map = {
@@ -1242,11 +1273,9 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                                     "lop": item["lop"], "mon": item["mon"],
                                 })
 
+                # Ghép slot với tiết — GIỮ ĐỦ tất cả slot
                 lich = []
                 for idx, slot in enumerate(all_slots):
-                    if idx >= len(ppct_tiets):
-                        break
-                    tiet_info = ppct_tiets[idx]
                     thu_lower = slot["thu"].lower()
                     offset = 0
                     for key in days_map:
@@ -1254,16 +1283,29 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                             offset = days_map[key]
                             break
                     ngay = start_date + timedelta(days=offset)
+
+                    ten_bai = ""
+                    tiet_trong_bai = 1
+                    tong_tiet = 1
+                    stt_ppct = ""
+                    if idx < len(ppct_tiets):
+                        tiet_info = ppct_tiets[idx]
+                        ten_bai = tiet_info["ten_bai"]
+                        tiet_trong_bai = tiet_info["tiet_trong_bai"]
+                        tong_tiet = tiet_info["tong_tiet"]
+                        stt_ppct = tiet_info.get("stt_ppct", "")
+
                     lich.append({
                         "thu": slot["thu"],
                         "ngay": ngay.strftime("%d/%m/%Y"),
                         "tiet": slot["tiet"],
                         "lop": slot["lop"],
                         "mon": slot["mon"],
-                        "ten_bai": tiet_info["ten_bai"],
-                        "tiet_trong_bai": tiet_info["tiet_trong_bai"],
-                        "tong_tiet": tiet_info["tong_tiet"],
-                        "tuan": tiet_info.get("tuan", ""),
+                        "ten_bai": ten_bai,
+                        "tiet_trong_bai": tiet_trong_bai,
+                        "tong_tiet": tong_tiet,
+                        "tuan": "",
+                        "stt_ppct": stt_ppct,
                     })
 
                 st.session_state["lich_bao_giang"] = lich
@@ -1271,63 +1313,101 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
 
 
 # ============ HIỂN THỊ LỊCH ============
+def hien_thi_lich_theo_ngay(lich):
+    days_order = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]
+    for thu in days_order:
+        bai_trong_ngay = [r for r in lich if r["thu"].lower().startswith(thu.lower()[:5])]
+        if not bai_trong_ngay:
+            continue
+        ngay = bai_trong_ngay[0]["ngay"]
+        st.markdown("### 📅 **" + thu + " — " + ngay + "**")
+        st.markdown("| Tiết | Lớp | Môn | Tên bài | Tiết |")
+        st.markdown("|---|---|---|---|---|")
+        for r in bai_trong_ngay:
+            st.markdown(
+                "| " + r["tiet"] + " | " + r["lop"] + " | " + r["mon"]
+                + " | " + r["ten_bai"]
+                + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |"
+            )
+        st.markdown("")
+
+
 if st.session_state.get("lich_bao_giang"):
     lich = st.session_state["lich_bao_giang"]
-    tuan_hien_thi = lich[0].get("tuan", "") if lich else ""
     st.divider()
-    if tuan_hien_thi:
-        st.subheader("📋 Lịch báo giảng — Tuần " + str(tuan_hien_thi)
-                     + " (" + str(len(lich)) + " tiết)")
-    else:
-        st.subheader("📋 Lịch báo giảng — " + str(len(lich)) + " tiết")
+    st.subheader("📋 Lịch báo giảng — Tuần (" + str(len(lich)) + " tiết)")
 
-    st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tên bài | Tiết |")
-    st.markdown("|---|---|---|---|---|---|---|")
+    st.markdown("#### 📊 Bảng tổng hợp")
+    st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài | Tiết |")
+    st.markdown("|---|---|---|---|---|---|---|---|")
     for r in lich:
         st.markdown("| " + r["thu"] + " | " + r["ngay"] + " | " + r["tiet"]
                     + " | " + r["lop"] + " | " + r["mon"]
+                    + " | " + str(r.get("stt_ppct", ""))
                     + " | " + r["ten_bai"]
                     + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
 
-    if st.button("🚀 2. Soạn cả tuần (có Phiếu báo giảng ở trang đầu)",
+    st.markdown("")
+    st.markdown("#### 📅 Chi tiết theo ngày")
+    hien_thi_lich_theo_ngay(lich)
+
+    if st.button("🚀 2. Soạn cả tuần (KHÔNG soạn trùng bài)",
                  type="primary", use_container_width=True):
         if not available_providers:
             st.error("Chưa có API key.")
         else:
+            # Gom bài KHÔNG trùng để soạn
+            bai_can_soan = {}
+            for r in lich:
+                if not r["ten_bai"]:
+                    continue
+                key = r["ten_bai"].strip()
+                if key not in bai_can_soan:
+                    bai_can_soan[key] = {
+                        "ten_bai": key,
+                        "cac_lop": [r["lop"]],
+                        "tong_tiet": r["tong_tiet"],
+                    }
+                else:
+                    if r["lop"] not in bai_can_soan[key]["cac_lop"]:
+                        bai_can_soan[key]["cac_lop"].append(r["lop"])
+
+            st.info("📚 Có **" + str(len(bai_can_soan)) + " bài** không trùng cần soạn "
+                    + "(trong " + str(len(lich)) + " tiết dạy).")
+
             progress = st.progress(0)
             status_text = st.empty()
             results = []
-            for idx, r in enumerate(lich):
-                status_text.write("⏳ Soạn bài " + str(idx + 1) + "/" + str(len(lich))
-                                  + ": " + r["ten_bai"])
+            bai_list = list(bai_can_soan.values())
+            for idx, bai in enumerate(bai_list):
+                status_text.write("⏳ Soạn bài " + str(idx + 1) + "/" + str(len(bai_list))
+                                   + ": " + bai["ten_bai"])
                 plan = {
                     "task": "Soạn kế hoạch bài dạy",
-                    "subject": r["mon"],
+                    "subject": st.session_state.get("memory", {}).get("default_subject", "Toan"),
                     "grade": st.session_state.get("memory", {}).get("default_grade", "6"),
-                    "topic": r["ten_bai"],
-                    "period": str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]),
+                    "topic": bai["ten_bai"],
+                    "period": str(bai["tong_tiet"]) + " tiết",
                     "template_files": list(st.session_state["templates"].keys())[:1],
                     "source_files": list(st.session_state["sources"].keys())[:1],
                 }
                 try:
                     content = call_ai(build_exec_prompt(plan))
                     results.append({
-                        "thu": r["thu"] + " " + r["ngay"],
-                        "ten_bai": r["ten_bai"],
-                        "mon_lop": r["mon"] + " " + r["lop"],
-                        "so_tiet": str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]),
+                        "ten_bai": bai["ten_bai"],
+                        "cac_lop": bai["cac_lop"],
+                        "tong_tiet": bai["tong_tiet"],
                         "content": content,
                     })
                 except Exception as e:
                     results.append({
-                        "thu": r["thu"] + " " + r["ngay"],
-                        "ten_bai": r["ten_bai"],
-                        "mon_lop": r["mon"] + " " + r["lop"],
-                        "so_tiet": "",
+                        "ten_bai": bai["ten_bai"],
+                        "cac_lop": bai["cac_lop"],
+                        "tong_tiet": bai["tong_tiet"],
                         "content": "[Lỗi: " + str(e) + "]",
                     })
-                progress.progress((idx + 1) / len(lich))
-            status_text.write("✅ Đã soạn " + str(len(results)) + " bài!")
+                progress.progress((idx + 1) / len(bai_list))
+            status_text.write("✅ Đã soạn " + str(len(results)) + " bài (không trùng)!")
             st.session_state["weekly_results"] = results
 
 
@@ -1336,9 +1416,11 @@ if st.session_state.get("weekly_results"):
     results = st.session_state["weekly_results"]
     lich = st.session_state.get("lich_bao_giang", [])
     st.divider()
-    st.subheader("📚 Kết quả tuần — " + str(len(results)) + " bài")
+    st.subheader("📚 Kết quả tuần — " + str(len(results)) + " bài không trùng")
     for r in results:
-        st.write("- " + r.get("thu", "") + " | " + r.get("ten_bai", ""))
+        lop_str = ", ".join(r.get("cac_lop", []))
+        st.write("- **" + r.get("ten_bai", "") + "** — Lớp: " + lop_str
+                 + " (" + str(r.get("tong_tiet", 1)) + " tiết)")
 
     if st.button("📄 3. Xuất file Word tuần (Phiếu báo giảng + bài soạn)",
                  type="primary", use_container_width=True):
@@ -1356,15 +1438,20 @@ if st.session_state.get("weekly_results"):
 
         for idx, r in enumerate(results):
             d.add_page_break()
+            lop_str = ", ".join(r.get("cac_lop", []))
             d.add_heading("BÀI " + str(idx + 1) + ": " + r.get("ten_bai", ""), 1)
-            d.add_paragraph("Thứ: " + r.get("thu", "") + " | "
-                            + r.get("mon_lop", "") + " | " + r.get("so_tiet", ""))
+            p_info = d.add_paragraph()
+            p_info.add_run("Lớp: ").bold = True
+            p_info.add_run(lop_str)
+            p_info.add_run(" | Số tiết: ").bold = True
+            p_info.add_run(str(r.get("tong_tiet", 1)))
             d.add_paragraph("---")
             write_content_to_doc(d, r.get("content", ""))
 
         bio = io.BytesIO()
         d.save(bio)
-        st.success("✅ Đã tạo file Word: Phiếu báo giảng + " + str(len(results)) + " bài soạn")
+        st.success("✅ File Word: Phiếu báo giảng + " + str(len(results))
+                   + " bài soạn (không trùng)")
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
