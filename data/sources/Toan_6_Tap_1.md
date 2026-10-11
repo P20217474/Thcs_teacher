@@ -1,2 +1,2 @@
 --- TOAN_6_Tap_1.pdf ---
-[File rỗng]
+[PDF scan, không có text. Hãy dùng tính năng OCR ảnh: chụp ảnh từng trang → upload dạng .jpg/.png → AI đọc.]
