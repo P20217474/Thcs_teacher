@@ -353,11 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_v5" not in st.session_state:
+if "app_started_v6" not in st.session_state:
     for k in list(st.session_state.keys()):
-        if k in ("tuan_final_x", "tuan_widget_v2", "tuan_num_input"):
+        if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v5"] = True
+    st.session_state["app_started_v6"] = True
 
 
 defaults = {
@@ -419,31 +419,28 @@ with st.sidebar:
 
     st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
 
-    # ============ DỌN DẸP RÁC VÀ CACHE ============
+    # ============ DỌN DẸP ============
     st.divider()
     st.subheader("🧹 Dọn dẹp")
 
     with st.expander("🗑️ Dọn rác và cache", expanded=False):
         st.caption("Chọn mục cần dọn:")
 
-        # 1. Xóa session_state tạm
-        if st.button("🧼 Xóa phiên làm việc tạm (draft, kết quả)", use_container_width=True):
+        if st.button("🧼 Xóa phiên làm việc tạm", use_container_width=True, key="clean_session"):
             for k in ["draft", "last_topic", "weekly_results", "lich_bao_giang"]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.success("✅ Đã xóa phiên làm việc tạm")
             st.rerun()
 
-        # 2. Xóa cache Streamlit
-        if st.button("♻️ Xóa cache Streamlit", use_container_width=True):
+        if st.button("♻️ Xóa cache Streamlit", use_container_width=True, key="clean_cache"):
             st.cache_data.clear()
             st.cache_resource.clear()
             st.success("✅ Đã xóa cache Streamlit")
             st.rerun()
 
-        # 3. Xóa lịch sử soạn bài trên GitHub
         if GITHUB_TOKEN:
-            if st.button("📜 Xóa lịch sử soạn bài (trên GitHub)", use_container_width=True):
+            if st.button("📜 Xóa lịch sử soạn bài", use_container_width=True, key="clean_history"):
                 files = gh_list("data/history")
                 deleted = 0
                 for f in files:
@@ -452,14 +449,12 @@ with st.sidebar:
                         deleted += 1
                 st.success("✅ Đã xóa " + str(deleted) + " file lịch sử")
 
-        # 4. Xóa file rác .md không dùng
-        if GITHUB_TOKEN:
-            if st.button("🗑️ Xóa file rác (file_*.md, .gitkeep)", use_container_width=True):
+            if st.button("🗑️ Xóa file rác (file_*.md)", use_container_width=True, key="clean_junk"):
                 deleted = 0
                 for folder in ["templates", "sources", "ppct", "tkb", "schedule"]:
                     files = gh_list(f"data/{folder}")
                     for f in files:
-                        if f.startswith("file_") or f == ".gitkeep":
+                        if f.startswith("file_"):
                             ok, _ = gh_delete(f"data/{folder}/{f}")
                             if ok:
                                 deleted += 1
@@ -471,9 +466,7 @@ with st.sidebar:
                 st.session_state["schedule"] = load_schedule()
                 st.rerun()
 
-        # 5. Xóa TẤT CẢ lịch báo giảng đã lưu
-        if GITHUB_TOKEN:
-            if st.button("📅 Xóa tất cả lịch báo giảng đã lưu", use_container_width=True):
+            if st.button("📅 Xóa tất cả lịch đã lưu", use_container_width=True, key="clean_sched"):
                 files = gh_list("data/schedule")
                 deleted = 0
                 for f in files:
@@ -486,23 +479,21 @@ with st.sidebar:
         st.divider()
         st.caption("⚠️ **Cảnh báo**: các nút dưới đây xóa dữ liệu VĨNH VIỄN")
 
-        # 6. Reset toàn bộ session_state (khôi phục về mặc định)
-        if st.button("🔴 Reset toàn bộ app (xóa session)", use_container_width=True):
+        if st.button("🔴 Reset toàn bộ app", use_container_width=True, key="reset_all"):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
-            st.success("✅ Đã reset toàn bộ. Đang tải lại...")
+            st.success("✅ Đã reset. Đang tải lại...")
             st.rerun()
 
-        # 7. XÓA TẤT CẢ dữ liệu trên GitHub (nguy hiểm)
         if GITHUB_TOKEN:
-            if st.button("🔴🔴 XÓA TẤT CẢ dữ liệu GitHub", use_container_width=True):
+            if st.button("🔴🔴 XÓA TẤT CẢ dữ liệu GitHub", use_container_width=True, key="del_all_gh"):
                 st.session_state["confirm_delete_all"] = True
 
             if st.session_state.get("confirm_delete_all"):
-                st.warning("⚠️ Bạn có chắc muốn xóa TẤT CẢ mẫu, nguồn, PPCT, TKB, lịch?")
+                st.warning("⚠️ Bạn có chắc muốn xóa TẤT CẢ?")
                 c_yes, c_no = st.columns(2)
                 with c_yes:
-                    if st.button("✅ XÓA", key="confirm_yes"):
+                    if st.button("✅ XÓA", key="confirm_yes_x"):
                         deleted = 0
                         for folder in ["templates", "sources", "ppct", "tkb", "schedule", "history"]:
                             files = gh_list(f"data/{folder}")
@@ -519,7 +510,7 @@ with st.sidebar:
                         st.success("✅ Đã xóa " + str(deleted) + " file")
                         st.rerun()
                 with c_no:
-                    if st.button("❌ Hủy", key="confirm_no"):
+                    if st.button("❌ Hủy", key="confirm_no_x"):
                         del st.session_state["confirm_delete_all"]
                         st.rerun()
 
@@ -669,10 +660,6 @@ def build_exec_prompt(plan):
     if src_text: prompt += src_text + "\n"
 
     prompt += "=== CẤU TRÚC BẮT BUỘC ===\n\n"
-    prompt += "**TÊN BÀI DẠY: " + plan.get("topic", "") + "**\n"
-    prompt += "**Môn học: " + plan.get("subject", "") + "; lớp: " + plan.get("grade", "") + "**\n"
-    prompt += "**Thời gian thực hiện: " + (plan.get("period") or "1") + "**\n\n"
-
     prompt += "**I. MỤC TIÊU**\n"
     prompt += "1. Kiến thức:\n"
     prompt += "[2-4 đoạn văn mô tả kiến thức, KHÔNG dùng dấu gạch đầu dòng]\n"
@@ -739,7 +726,7 @@ def build_exec_prompt(plan):
     prompt += "10. KHÔNG viết phần 'Người soạn', 'Ký tên', 'Sông Đốc' ở cuối.\n"
     prompt += "11. Kết thúc bài bằng '4. Hoạt động 4'.\n"
     prompt += "12. KHÔNG dùng dấu gạch đầu dòng (-, +, •) ở đầu các đoạn văn. "
-    prompt += "Các ý nhỏ trong mục 1, 2, 3 viết thành đoạn văn liền mạch, mỗi ý 1 đoạn.\n"
+    prompt += "Các ý nhỏ trong mục 1, 2, 3 viết thành đoạn văn liền mạch.\n"
     return prompt
 
 
@@ -891,10 +878,10 @@ def write_content_to_doc(d, content):
     start_idx = 0
     for idx, line in enumerate(lines):
         s = line.strip()
-        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", s, re.IGNORECASE):
+        if re.match(r"^\**\s*I\.\s*(Mục|MỤC)\s*tiêu", s, re.IGNORECASE):
             start_idx = idx
             break
-        if re.match(r"^\**\s*I\.\s*(Mục|MỤC)\s*tiêu", s, re.IGNORECASE):
+        if re.match(r"^\**\s*1\.\s*Kiến\s*thức", s, re.IGNORECASE):
             start_idx = idx
             break
     lines = lines[start_idx:]
@@ -938,19 +925,6 @@ def write_content_to_doc(d, content):
             if rows:
                 add_table(d, rows)
             i = j
-            continue
-
-        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", stripped, re.IGNORECASE):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
-            i += 1
-            continue
-        if re.match(r"^\**\s*Môn\s*học", stripped, re.IGNORECASE):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
-            i += 1
-            continue
-        if re.match(r"^\**\s*Thời\s*gian\s*thực\s*hiện", stripped, re.IGNORECASE):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
-            i += 1
             continue
 
         if re.match(r"^\**\s*(I|II|III|IV|V)\.\s+\S", stripped):
@@ -1134,10 +1108,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     for r in lich:
         key = r["thu"] + "|" + r["ngay"]
         if not nhom_ngay or nhom_ngay[-1]["key"] != key:
-            nhom_ngay.append({
-                "key": key, "thu": r["thu"], "ngay": r["ngay"],
-                "items": [r],
-            })
+            nhom_ngay.append({"key": key, "thu": r["thu"], "ngay": r["ngay"], "items": [r]})
         else:
             nhom_ngay[-1]["items"].append(r)
 
@@ -1290,63 +1261,44 @@ with sub_t1:
     with col1_d:
         start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
                                     value=datetime.now().date(),
-                                    key="ngay_bd_x")
+                                    key="ngay_bd_z")
     with col2_d:
-        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_x")
+        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_z")
     with col3_d:
-        tuan_number = st.number_input(
-            "📅 Số tuần",
-            min_value=1,
-            max_value=52,
-            value=1,
-            step=1,
-            key="tuan_num_x",
-        )
+        tuan_number = st.number_input("📅 Số tuần", min_value=1, max_value=52,
+                                       value=1, step=1, key="tuan_z")
         tuan_number_str = str(int(tuan_number))
 
     def ai_extract_tkb(raw):
-        system = "Bạn là trợ lý đọc bảng. CHỈ trả về text theo format, KHÔNG giải thích."
-        prompt = """Đọc bảng THỜI KHÓA BIỂU sau. Bảng có 5 cột:
-Thứ | Tiết | Lớp | Môn | Tiết PPCT
+        system = "Bạn là trợ lý đọc bảng. CHỈ trả về text theo format."
+        prompt = """Đọc bảng TKB sau. 5 cột: Thứ | Tiết | Lớp | Môn | Tiết PPCT
+Trả về mỗi dòng: Thứ | Tiết | Lớp | Môn | Tiết PPCT
+Cột Tiết PPCT: SỐ NGUYÊN.
+CHỈ trả về dòng dữ liệu.
 
-Trả về mỗi dòng 1 tiết dạy: Thứ | Tiết | Lớp | Môn | Tiết PPCT
-
-Ví dụ ĐÚNG:
-Thứ 2 | 1 | 6A10 | Toán | 25
-Thứ 2 | 2 | 6A10 | Toán | 26
-
-QUY TẮC:
-- Cột "Thứ": giữ nguyên "Thứ 2", "Thứ 4", "Thứ 5", "Thứ 6"
-- Cột "Tiết PPCT": SỐ NGUYÊN — PHẢI lấy đúng từ cột cuối bảng gốc
-
-CHỈ trả về các dòng dữ liệu.
-
-NỘI DUNG TKB GỐC:
+NỘI DUNG TKB:
 """ + raw[:15000]
         try:
             result = call_ai(prompt, system)
             lines = []
             for l in result.splitlines():
                 l = l.strip()
-                if not l or "|" not in l:
-                    continue
+                if not l or "|" not in l: continue
                 parts = [p.strip() for p in l.split("|")]
-                if len(parts) < 4:
-                    continue
-                if parts[0].lower().startswith("thứ") and "tiết" in parts[1].lower():
-                    continue
+                if len(parts) < 4: continue
+                if parts[0].lower().startswith("thứ") and "tiết" in parts[1].lower(): continue
                 lines.append(l)
             return "\n".join(lines)
         except Exception:
             return ""
 
     def ai_extract_ppct(raw):
-        system = "Bạn là trợ lý đọc bảng. Chỉ trả về text theo format."
-        prompt = """Đọc PPCT sau. Bảng 5 cột: STT | Bài học | Số tiết | Thời điểm | Ghi chú
+        system = "Bạn là trợ lý đọc bảng."
+        prompt = """Đọc PPCT sau. 5 cột: STT | Bài học | Số tiết | Thời điểm | Ghi chú
 Cột "Thời điểm" bị GỘP Ô — điền tuần cho TẤT CẢ các bài.
 Các dòng cùng tên và "(Tiết 1)", "(Tiết 2)" → GỘP thành 1 bài.
 
-Trả về MỖI BÀI 1 DÒNG: STT | Tên bài (không có "(Tiết N)") | Số tiết (đã gộp) | Tuần | Ngày BĐ | Ngày KT
+Trả về MỖI BÀI: STT | Tên bài | Số tiết | Tuần | Ngày BĐ | Ngày KT
 
 NỘI DUNG PPCT:
 """ + raw[:15000]
@@ -1387,8 +1339,7 @@ NỘI DUNG PPCT:
             if not line or "|" not in line: continue
             parts = [p.strip() for p in line.split("|")]
             if len(parts) < 4: continue
-            if parts[0].lower() in ("thứ", "thu") and "tiết" in parts[1].lower():
-                continue
+            if parts[0].lower() in ("thứ", "thu") and "tiết" in parts[1].lower(): continue
             thu = parts[0]
             if not thu.lower().startswith("thứ"):
                 thu = "Thứ " + thu
@@ -1396,18 +1347,13 @@ NỘI DUNG PPCT:
             if not tiet.lower().startswith("tiết"):
                 num = re.search(r"\d+", tiet)
                 tiet = "Tiết " + (num.group(0) if num else tiet)
-            lop = parts[2]
-            mon = parts[3]
             tiet_ppct = ""
             if len(parts) >= 5:
                 m = re.search(r"\d+", parts[4])
                 if m: tiet_ppct = m.group(0)
             if thu not in result:
                 result[thu] = []
-            result[thu].append({
-                "tiet": tiet, "lop": lop, "mon": mon,
-                "tiet_ppct": tiet_ppct,
-            })
+            result[thu].append({"tiet": tiet, "lop": parts[2], "mon": parts[3], "tiet_ppct": tiet_ppct})
         for thu in result:
             result[thu].sort(key=lambda x: int(re.search(r"\d+", x["tiet"]).group(0)) if re.search(r"\d+", x["tiet"]) else 0)
         return result
@@ -1439,11 +1385,8 @@ NỘI DUNG PPCT:
                 if d2:
                     try: te = datetime(int(d2.group(3)), int(d2.group(2)), int(d2.group(1)))
                     except Exception: pass
-            raw_list.append({
-                "stt": stt, "ten_bai": ten_bai, "so_tiet": n_tiet,
-                "tuan": tuan, "tuan_start": ts, "tuan_end": te,
-            })
-
+            raw_list.append({"stt": stt, "ten_bai": ten_bai, "so_tiet": n_tiet,
+                             "tuan": tuan, "tuan_start": ts, "tuan_end": te})
         merged = []
         i = 0
         while i < len(raw_list):
@@ -1458,30 +1401,22 @@ NỘI DUNG PPCT:
                     j += 1
                 else:
                     break
-            merged.append({
-                "stt": bai["stt"], "ten_bai": ten_chuan,
-                "so_tiet": so_tiet_gop, "tuan": bai["tuan"],
-                "tuan_start": bai["tuan_start"], "tuan_end": bai["tuan_end"],
-            })
+            merged.append({"stt": bai["stt"], "ten_bai": ten_chuan,
+                           "so_tiet": so_tiet_gop, "tuan": bai["tuan"],
+                           "tuan_start": bai["tuan_start"], "tuan_end": bai["tuan_end"]})
             i = j if so_tiet_gop > 0 else i + 1
         return merged
 
     def find_ppct_by_tiet(ppct, tiet_str):
         if not tiet_str: return None
-        try:
-            target = int(tiet_str)
-        except Exception:
-            return None
+        try: target = int(tiet_str)
+        except Exception: return None
         for bai in ppct:
             stt = bai.get("stt", 0)
             so_tiet = bai.get("so_tiet", 1)
             if stt <= target < stt + so_tiet:
-                return {
-                    "ten_bai": bai["ten_bai"],
-                    "tiet_trong_bai": target - stt + 1,
-                    "tong_tiet": so_tiet,
-                    "stt_ppct": target,
-                }
+                return {"ten_bai": bai["ten_bai"], "tiet_trong_bai": target - stt + 1,
+                        "tong_tiet": so_tiet, "stt_ppct": target}
         return None
 
     def find_week_ppct(ppct, target_date):
@@ -1539,11 +1474,10 @@ NỘI DUNG PPCT:
                     target = datetime.combine(start_date, datetime.min.time())
                     week_bais, week_num = find_week_ppct(ppct, target)
                     if week_bais:
-                        st.success("✅ Tuần " + str(week_num)
-                                   + " — " + str(len(week_bais)) + " bài")
+                        st.success("✅ Tuần " + str(week_num) + " — " + str(len(week_bais)) + " bài")
                         ppct_week = week_bais
                     else:
-                        st.warning("⚠️ Không tìm thấy tuần khớp. Dùng toàn bộ PPCT.")
+                        st.warning("⚠️ Không tìm thấy tuần khớp.")
                         ppct_week = ppct
 
                     days_map = {
@@ -1566,7 +1500,6 @@ NỘI DUNG PPCT:
 
                     lich = []
                     canh_bao = []
-
                     for idx, slot in enumerate(all_slots):
                         thu_lower = slot["thu"].lower()
                         offset = 0
@@ -1590,32 +1523,21 @@ NỘI DUNG PPCT:
                                 tong_tiet = found["tong_tiet"]
                                 stt_ppct = str(found["stt_ppct"])
                             else:
-                                ten_bai = "[Tiết " + tkb_ppct + " chưa có trong PPCT tuần này]"
-                                canh_bao.append(
-                                    "Tiết " + tkb_ppct + " (" + slot["thu"]
-                                    + " lớp " + slot["lop"] + ") không có trong PPCT tuần này"
-                                )
+                                ten_bai = "[Tiết " + tkb_ppct + " chưa có trong PPCT]"
+                                canh_bao.append("Tiết " + tkb_ppct + " lớp " + slot["lop"] + " không có PPCT")
                         else:
                             ten_bai = "[TKB thiếu mã Tiết PPCT]"
-                            canh_bao.append(
-                                slot["thu"] + " lớp " + slot["lop"]
-                                + ": TKB thiếu mã Tiết PPCT"
-                            )
+                            canh_bao.append(slot["thu"] + " lớp " + slot["lop"] + ": thiếu mã")
 
                         lich.append({
-                            "thu": slot["thu"],
-                            "ngay": ngay.strftime("%d/%m/%Y"),
-                            "tiet": slot["tiet"],
-                            "lop": slot["lop"],
-                            "mon": slot["mon"],
-                            "ten_bai": ten_bai,
-                            "tiet_trong_bai": tiet_trong_bai,
-                            "tong_tiet": tong_tiet,
-                            "stt_ppct": stt_ppct,
+                            "thu": slot["thu"], "ngay": ngay.strftime("%d/%m/%Y"),
+                            "tiet": slot["tiet"], "lop": slot["lop"], "mon": slot["mon"],
+                            "ten_bai": ten_bai, "tiet_trong_bai": tiet_trong_bai,
+                            "tong_tiet": tong_tiet, "stt_ppct": stt_ppct,
                         })
 
                     if canh_bao:
-                        with st.expander("⚠️ Cảnh báo (" + str(len(canh_bao)) + " vấn đề)"):
+                        with st.expander("⚠️ Cảnh báo (" + str(len(canh_bao)) + ")"):
                             for msg in sorted(set(canh_bao)):
                                 st.warning(msg)
 
@@ -1625,7 +1547,7 @@ NỘI DUNG PPCT:
                     if GITHUB_TOKEN:
                         lich_json = json.dumps(lich, ensure_ascii=False)
                         schedule_name = "lich_tuan_" + start_date.strftime("%Y%m%d")
-                        with st.spinner("💾 Đang lưu lịch..."):
+                        with st.spinner("💾 Đang lưu..."):
                             ok_s, msg_s = gh_save(f"data/schedule/{schedule_name}.json",
                                                   lich_json, "Save schedule")
                         if ok_s:
@@ -1634,7 +1556,7 @@ NỘI DUNG PPCT:
 
 
 with sub_t2:
-    st.markdown("**Nạp lịch đã lưu từ GitHub**")
+    st.markdown("**Nạp lịch đã lưu**")
     if st.session_state["schedule"]:
         sched_options = [f for f in st.session_state["schedule"].keys() if f.endswith(".json")]
         if sched_options:
@@ -1647,22 +1569,18 @@ with sub_t2:
                 except Exception as e:
                     st.error("Lỗi: " + str(e))
         else:
-            st.info("Chưa có file lịch JSON.")
+            st.info("Chưa có file JSON.")
     else:
-        st.info("Chưa có lịch nào được lưu.")
+        st.info("Chưa có lịch.")
 
 
 with sub_t3:
     st.markdown("**Nạp lịch thủ công**")
-    st.caption("Dán lịch theo mẫu: Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài")
+    st.caption("Mẫu: Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài")
 
-    manual_file = st.file_uploader("Upload file Excel/Word/CSV/PDF",
-        type=["xlsx", "xls", "docx", "csv", "pdf", "txt"], key="manual_sched_file")
-    manual_paste = st.text_area("Hoặc dán lịch", height=150,
-        placeholder="Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 25 | Luyện tập chung",
-        key="manual_sched_paste")
-    manual_name = st.text_input("Tên lịch (nếu muốn lưu)",
-                                 placeholder="lich_tuan_06", key="manual_sched_name")
+    manual_file = st.file_uploader("Upload file", type=["xlsx", "xls", "docx", "csv", "pdf", "txt"], key="manual_sched_file")
+    manual_paste = st.text_area("Hoặc dán lịch", height=150, key="manual_sched_paste")
+    manual_name = st.text_input("Tên lịch (nếu lưu)", placeholder="lich_tuan_06", key="manual_sched_name")
 
     if st.button("📥 Nạp lịch thủ công", type="primary", use_container_width=True):
         raw_text = manual_paste.strip()
@@ -1680,29 +1598,24 @@ with sub_t3:
                 if len(parts) < 5: continue
                 if parts[0].lower() in ("thứ", "thu", "stt"): continue
                 lich.append({
-                    "thu": parts[0],
-                    "ngay": parts[1] if len(parts) > 1 else "",
+                    "thu": parts[0], "ngay": parts[1] if len(parts) > 1 else "",
                     "tiet": parts[2] if len(parts) > 2 else "",
                     "lop": parts[3] if len(parts) > 3 else "",
                     "mon": parts[4] if len(parts) > 4 else "",
                     "stt_ppct": parts[5] if len(parts) > 5 else "",
                     "ten_bai": parts[6] if len(parts) > 6 else "",
-                    "tiet_trong_bai": 1,
-                    "tong_tiet": 1,
+                    "tiet_trong_bai": 1, "tong_tiet": 1,
                 })
-
             if not lich:
                 st.error("Không đọc được.")
             else:
                 st.session_state["lich_bao_giang"] = lich
                 st.success("✅ Đã nạp: " + str(len(lich)) + " tiết")
-
                 if GITHUB_TOKEN and manual_name.strip():
                     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", manual_name.strip())[:40]
                     with st.spinner("💾 Đang lưu..."):
                         ok_s, msg_s = gh_save(f"data/schedule/{safe_name}.json",
-                                              json.dumps(lich, ensure_ascii=False),
-                                              "Manual schedule")
+                                              json.dumps(lich, ensure_ascii=False), "Manual schedule")
                     if ok_s:
                         st.success("✅ Đã lưu: " + safe_name)
                         st.session_state["schedule"] = load_schedule()
@@ -1719,8 +1632,8 @@ def hien_thi_lich_theo_ngay(lich):
         st.markdown("|---|---|---|---|---|")
         for r in bai_trong_ngay:
             st.markdown("| " + r["tiet"] + " | " + r["lop"] + " | " + r["mon"]
-                        + " | " + r["ten_bai"]
-                        + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
+                        + " | " + r["ten_bai"] + " | "
+                        + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
         st.markdown("")
 
 
@@ -1741,7 +1654,7 @@ if st.session_state.get("lich_bao_giang"):
     st.markdown("#### 📅 Chi tiết theo ngày")
     hien_thi_lich_theo_ngay(lich)
 
-    if st.button("🚀 Soạn cả tuần (không soạn trùng bài)", type="primary", use_container_width=True):
+    if st.button("🚀 Soạn cả tuần", type="primary", use_container_width=True):
         if not available_providers:
             st.error("Chưa có API key.")
         else:
@@ -1750,24 +1663,19 @@ if st.session_state.get("lich_bao_giang"):
                 if not r["ten_bai"]: continue
                 key = r["ten_bai"].strip()
                 if key not in bai_can_soan:
-                    bai_can_soan[key] = {
-                        "ten_bai": key, "cac_lop": [r["lop"]],
-                        "tong_tiet": r["tong_tiet"],
-                    }
+                    bai_can_soan[key] = {"ten_bai": key, "cac_lop": [r["lop"]], "tong_tiet": r["tong_tiet"]}
                 else:
                     if r["lop"] not in bai_can_soan[key]["cac_lop"]:
                         bai_can_soan[key]["cac_lop"].append(r["lop"])
 
-            st.info("📚 Có **" + str(len(bai_can_soan)) + " bài** không trùng cần soạn "
-                    + "(trong " + str(len(lich)) + " tiết).")
+            st.info("📚 Có **" + str(len(bai_can_soan)) + " bài** không trùng cần soạn.")
 
             progress = st.progress(0)
             status_text = st.empty()
             results = []
             bai_list = list(bai_can_soan.values())
             for idx, bai in enumerate(bai_list):
-                status_text.write("⏳ Soạn bài " + str(idx + 1) + "/" + str(len(bai_list))
-                                   + ": " + bai["ten_bai"])
+                status_text.write("⏳ Soạn " + str(idx + 1) + "/" + str(len(bai_list)) + ": " + bai["ten_bai"])
                 plan = {
                     "task": "Soạn kế hoạch bài dạy",
                     "subject": st.session_state.get("memory", {}).get("default_subject", "Toan"),
@@ -1779,25 +1687,16 @@ if st.session_state.get("lich_bao_giang"):
                 }
                 try:
                     content = call_ai(build_exec_prompt(plan))
-                    results.append({
-                        "ten_bai": bai["ten_bai"],
-                        "cac_lop": bai["cac_lop"],
-                        "tong_tiet": bai["tong_tiet"],
-                        "content": content,
-                    })
+                    results.append({"ten_bai": bai["ten_bai"], "cac_lop": bai["cac_lop"],
+                                    "tong_tiet": bai["tong_tiet"], "content": content})
                 except Exception as e:
-                    results.append({
-                        "ten_bai": bai["ten_bai"],
-                        "cac_lop": bai["cac_lop"],
-                        "tong_tiet": bai["tong_tiet"],
-                        "content": "[Lỗi: " + str(e) + "]",
-                    })
+                    results.append({"ten_bai": bai["ten_bai"], "cac_lop": bai["cac_lop"],
+                                    "tong_tiet": bai["tong_tiet"], "content": "[Lỗi: " + str(e) + "]"})
                 progress.progress((idx + 1) / len(bai_list))
             status_text.write("✅ Đã soạn " + str(len(results)) + " bài!")
             st.session_state["weekly_results"] = results
 
 
-# ============ XUẤT WORD TUẦN ============
 if st.session_state.get("weekly_results"):
     results = st.session_state["weekly_results"]
     lich = st.session_state.get("lich_bao_giang", [])
@@ -1805,39 +1704,32 @@ if st.session_state.get("weekly_results"):
     st.subheader("📚 Kết quả tuần — " + str(len(results)) + " bài")
     for r in results:
         lop_str = ", ".join(r.get("cac_lop", []))
-        st.write("- **" + r.get("ten_bai", "") + "** — Lớp: " + lop_str
-                 + " (" + str(r.get("tong_tiet", 1)) + " tiết)")
+        st.write("- **" + r.get("ten_bai", "") + "** — Lớp: " + lop_str + " (" + str(r.get("tong_tiet", 1)) + " tiết)")
 
-    if st.button("📄 Xuất file Word tuần (Phiếu báo giảng + bài soạn)",
-                 type="primary", use_container_width=True):
+    if st.button("📄 Xuất file Word tuần", type="primary", use_container_width=True):
         d = Document()
         s = d.sections[0]
-        s.top_margin = Inches(0.7)
-        s.bottom_margin = Inches(0.7)
-        s.left_margin = Inches(0.8)
-        s.right_margin = Inches(0.8)
+        s.top_margin = Inches(0.7); s.bottom_margin = Inches(0.7)
+        s.left_margin = Inches(0.8); s.right_margin = Inches(0.8)
 
         style = d.styles["Normal"]
-        style.font.name = "Times New Roman"
-        style.font.size = Pt(14)
+        style.font.name = "Times New Roman"; style.font.size = Pt(14)
         rpr = style.element.get_or_add_rPr()
         rfonts = rpr.find(qn("w:rFonts"))
         if rfonts is None:
-            rfonts = rpr.makeelement(qn("w:rFonts"), {})
-            rpr.append(rfonts)
+            rfonts = rpr.makeelement(qn("w:rFonts"), {}); rpr.append(rfonts)
         rfonts.set(qn("w:ascii"), "Times New Roman")
         rfonts.set(qn("w:hAnsi"), "Times New Roman")
         rfonts.set(qn("w:eastAsia"), "Times New Roman")
         rfonts.set(qn("w:cs"), "Times New Roman")
         pf = style.paragraph_format
         pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
-        pf.space_before = Pt(0)
-        pf.space_after = Pt(0)
+        pf.space_before = Pt(0); pf.space_after = Pt(0)
 
         if lich:
-            buoi = st.session_state.get("buoi_x", "BUỔI CHIỀU")
-            tuan_num = str(st.session_state.get("tuan_num_x", 1))
-            ngay_bd = st.session_state.get("ngay_bd_x", datetime.now().date())
+            buoi = st.session_state.get("buoi_z", "BUỔI CHIỀU")
+            tuan_num = str(st.session_state.get("tuan_z", 1))
+            ngay_bd = st.session_state.get("ngay_bd_z", datetime.now().date())
             add_phieu_bao_giang(d, lich, ngay_bd, buoi, tuan_num)
 
         for idx, r in enumerate(results):
@@ -1850,7 +1742,7 @@ if st.session_state.get("weekly_results"):
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
-            file_name="tuan_" + st.session_state.get("ngay_bd_x", datetime.now().date()).strftime("%Y%m%d") + ".docx",
+            file_name="tuan_" + st.session_state.get("ngay_bd_z", datetime.now().date()).strftime("%Y%m%d") + ".docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary", use_container_width=True,
         )
