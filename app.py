@@ -353,11 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_v8" not in st.session_state:
+if "app_started_v9" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v8"] = True
+    st.session_state["app_started_v9"] = True
 
 
 defaults = {
@@ -799,7 +799,7 @@ def add_table(doc, rows):
     if not rows:
         return
 
-    # Lọc bỏ cột rác ở cuối (sinh ra từ dấu | lạ trong nội dung)
+    # Lọc bỏ cột rác ở cuối
     cleaned_rows = []
     for row in rows:
         while len(row) > 2 and len(row[-1].strip()) <= 2 and row[-1].strip() in (
@@ -809,7 +809,7 @@ def add_table(doc, rows):
             row = row[:-1]
         cleaned_rows.append(row)
 
-    # Nếu có nhiều hơn 2 cột → gộp cột 3 trở đi vào cột 2
+    # Nếu > 2 cột → gộp cột 3 trở đi vào cột 2
     max_n = max(len(r) for r in cleaned_rows)
     if max_n > 2:
         for i, r in enumerate(cleaned_rows):
@@ -970,7 +970,7 @@ def write_content_to_doc(d, content):
             i += 1
             continue
 
-        # Bảng markdown — CHỈ nhận khi có dòng phân cách |---|---|
+        # Bảng markdown — chỉ nhận khi có dòng phân cách |---|---|
         if stripped.startswith("|") and stripped.endswith("|"):
             tl = []
             j = i
@@ -1191,7 +1191,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     for i, w in enumerate(widths):
         table.rows[0].cells[i].width = w
 
-    # Nhóm theo ngày — chuẩn hóa key để tránh tách nhóm
+    # Nhóm theo ngày — chuẩn hóa key
     nhom_ngay = []
     for r in lich:
         thu_clean = r["thu"].strip()
@@ -1220,7 +1220,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 run = p.add_run(nhom["thu"])
                 _set_run_font(run, 13, bold=False)
                 p2 = row[0].add_paragraph()
-                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p2.alignment = WD_ALIGN_PARAGRAPH.CENTER                
                 p2.paragraph_format.space_before = Pt(0)
                 p2.paragraph_format.space_after = Pt(0)
                 run = p2.add_run(nhom["ngay"])
@@ -1673,9 +1673,12 @@ with sub_t2:
 with sub_t3:
     st.markdown("**Nạp lịch thủ công**")
     st.caption("Mẫu: Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài")
+    st.caption("Ví dụ: Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 25 | Luyện tập chung")
 
     manual_file = st.file_uploader("Upload file", type=["xlsx", "xls", "docx", "csv", "pdf", "txt"], key="manual_sched_file")
-    manual_paste = st.text_area("Hoặc dán lịch", height=150, key="manual_sched_paste")
+    manual_paste = st.text_area("Hoặc dán lịch", height=150,
+        placeholder="Thứ Hai | 12/10/2026 | 1 | 6A10 | Toán | 25 | Luyện tập chung",
+        key="manual_sched_paste")
     manual_name = st.text_input("Tên lịch (nếu lưu)", placeholder="lich_tuan_06", key="manual_sched_name")
 
     if st.button("📥 Nạp lịch thủ công", type="primary", use_container_width=True):
@@ -1693,20 +1696,42 @@ with sub_t3:
                 parts = [p.strip() for p in line.split("|")]
                 if len(parts) < 5: continue
                 if parts[0].lower() in ("thứ", "thu", "stt"): continue
+
+                # Lấy tên bài từ cột 7. Nếu không có, ghép các cột còn lại
+                ten_bai = parts[6].strip() if len(parts) > 6 else ""
+                if not ten_bai and len(parts) > 5:
+                    ten_bai = parts[5].strip()
+                if not ten_bai:
+                    ten_bai = "[Chưa có tên bài - tiết " + (parts[2] if len(parts) > 2 else "") + "]"
+
+                so_tiet = 1
+                m_so_tiet = re.search(r"\((\d+)\s*tiết\)", ten_bai)
+                if m_so_tiet:
+                    try:
+                        so_tiet = int(m_so_tiet.group(1))
+                        ten_bai = re.sub(r"\s*\(\d+\s*tiết\)", "", ten_bai).strip()
+                    except Exception:
+                        pass
+
                 lich.append({
-                    "thu": parts[0], "ngay": parts[1] if len(parts) > 1 else "",
+                    "thu": parts[0],
+                    "ngay": parts[1] if len(parts) > 1 else "",
                     "tiet": parts[2] if len(parts) > 2 else "",
                     "lop": parts[3] if len(parts) > 3 else "",
                     "mon": parts[4] if len(parts) > 4 else "",
                     "stt_ppct": parts[5] if len(parts) > 5 else "",
-                    "ten_bai": parts[6] if len(parts) > 6 else "",
-                    "tiet_trong_bai": 1, "tong_tiet": 1,
+                    "ten_bai": ten_bai,
+                    "tiet_trong_bai": 1,
+                    "tong_tiet": so_tiet,
                 })
+
             if not lich:
                 st.error("Không đọc được.")
             else:
                 st.session_state["lich_bao_giang"] = lich
                 st.success("✅ Đã nạp: " + str(len(lich)) + " tiết")
+                st.rerun() if False else None
+
                 if GITHUB_TOKEN and manual_name.strip():
                     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", manual_name.strip())[:40]
                     with st.spinner("💾 Đang lưu..."):
@@ -1756,41 +1781,57 @@ if st.session_state.get("lich_bao_giang"):
         else:
             bai_can_soan = {}
             for r in lich:
-                if not r["ten_bai"]: continue
-                key = r["ten_bai"].strip()
+                # Lấy tên bài — kiểm tra nhiều trường hợp
+                ten = r.get("ten_bai", "").strip()
+                if not ten:
+                    ten = r.get("ten_bai_day", "").strip()
+                if not ten:
+                    ten = r.get("bai", "").strip()
+                if not ten:
+                    continue
+
+                key = ten
                 if key not in bai_can_soan:
-                    bai_can_soan[key] = {"ten_bai": key, "cac_lop": [r["lop"]], "tong_tiet": r["tong_tiet"]}
+                    bai_can_soan[key] = {
+                        "ten_bai": key,
+                        "cac_lop": [r.get("lop", "")],
+                        "tong_tiet": r.get("tong_tiet", 1),
+                    }
                 else:
-                    if r["lop"] not in bai_can_soan[key]["cac_lop"]:
-                        bai_can_soan[key]["cac_lop"].append(r["lop"])
+                    lop = r.get("lop", "")
+                    if lop and lop not in bai_can_soan[key]["cac_lop"]:
+                        bai_can_soan[key]["cac_lop"].append(lop)
 
-            st.info("📚 Có **" + str(len(bai_can_soan)) + " bài** không trùng cần soạn.")
+            if not bai_can_soan:
+                st.warning("⚠️ Không có bài nào để soạn. Kiểm tra cột 'Tên bài' trong lịch.")
+            else:
+                st.info("📚 Có **" + str(len(bai_can_soan)) + " bài** không trùng cần soạn.")
 
-            progress = st.progress(0)
-            status_text = st.empty()
-            results = []
-            bai_list = list(bai_can_soan.values())
-            for idx, bai in enumerate(bai_list):
-                status_text.write("⏳ Soạn " + str(idx + 1) + "/" + str(len(bai_list)) + ": " + bai["ten_bai"])
-                plan = {
-                    "task": "Soạn kế hoạch bài dạy",
-                    "subject": st.session_state.get("memory", {}).get("default_subject", "Toan"),
-                    "grade": st.session_state.get("memory", {}).get("default_grade", "6"),
-                    "topic": bai["ten_bai"],
-                    "period": str(bai["tong_tiet"]) + " tiết",
-                    "template_files": list(st.session_state["templates"].keys())[:1],
-                    "source_files": list(st.session_state["sources"].keys())[:1],
-                }
-                try:
-                    content = call_ai(build_exec_prompt(plan))
-                    results.append({"ten_bai": bai["ten_bai"], "cac_lop": bai["cac_lop"],
-                                    "tong_tiet": bai["tong_tiet"], "content": content})
-                except Exception as e:
-                    results.append({"ten_bai": bai["ten_bai"], "cac_lop": bai["cac_lop"],
-                                    "tong_tiet": bai["tong_tiet"], "content": "[Lỗi: " + str(e) + "]"})
-                progress.progress((idx + 1) / len(bai_list))
-            status_text.write("✅ Đã soạn " + str(len(results)) + " bài!")
-            st.session_state["weekly_results"] = results
+                progress = st.progress(0)
+                status_text = st.empty()
+                results = []
+                bai_list = list(bai_can_soan.values())
+                for idx, bai in enumerate(bai_list):
+                    status_text.write("⏳ Soạn " + str(idx + 1) + "/" + str(len(bai_list)) + ": " + bai["ten_bai"])
+                    plan = {
+                        "task": "Soạn kế hoạch bài dạy",
+                        "subject": st.session_state.get("memory", {}).get("default_subject", "Toan"),
+                        "grade": st.session_state.get("memory", {}).get("default_grade", "6"),
+                        "topic": bai["ten_bai"],
+                        "period": str(bai["tong_tiet"]) + " tiết",
+                        "template_files": list(st.session_state["templates"].keys())[:1],
+                        "source_files": list(st.session_state["sources"].keys())[:1],
+                    }
+                    try:
+                        content = call_ai(build_exec_prompt(plan))
+                        results.append({"ten_bai": bai["ten_bai"], "cac_lop": bai["cac_lop"],
+                                        "tong_tiet": bai["tong_tiet"], "content": content})
+                    except Exception as e:
+                        results.append({"ten_bai": bai["ten_bai"], "cac_lop": bai["cac_lop"],
+                                        "tong_tiet": bai["tong_tiet"], "content": "[Lỗi: " + str(e) + "]"})
+                    progress.progress((idx + 1) / len(bai_list))
+                status_text.write("✅ Đã soạn " + str(len(results)) + " bài!")
+                st.session_state["weekly_results"] = results
 
 
 if st.session_state.get("weekly_results"):
