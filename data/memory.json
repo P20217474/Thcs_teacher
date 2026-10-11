@@ -1,0 +1,13 @@
+{
+  "teacher_name": "Nguyễn Hoàng Phương",
+  "school": "Trường THCS Sông Đốc",
+  "default_subject": "Toan",
+  "default_grade": "6",
+  "preferences": {
+    "style": "chi tiết, có ví dụ cụ thể",
+    "format": "theo mẫu của trường",
+    "length": "đầy đủ, không sơ sài"
+  },
+  "created_at": "2026-10-11",
+  "last_updated": "2026-10-11"
+}
