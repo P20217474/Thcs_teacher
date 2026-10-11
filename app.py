@@ -79,7 +79,7 @@ GITHUB_BRANCH = cfg("GITHUB_BRANCH", "main")
 # ============ GITHUB API ============
 def gh_api(method, path, data=None):
     if not GITHUB_TOKEN:
-        return None
+        return {"error": "Chưa có GITHUB_TOKEN"}
     url = "https://api.github.com" + path
     headers = {
         "Authorization": "token " + GITHUB_TOKEN,
@@ -106,6 +106,11 @@ def gh_get(path):
 
 
 def gh_save(path, content, message="Update"):
+    if not GITHUB_TOKEN:
+        return (False, "Chưa có GITHUB_TOKEN")
+    if not GITHUB_REPO:
+        return (False, "Chưa có GITHUB_REPO")
+
     old, sha = gh_get(path)
     data = {
         "message": message,
@@ -114,8 +119,37 @@ def gh_save(path, content, message="Update"):
     }
     if sha:
         data["sha"] = sha
+
     res = gh_api("PUT", f"/repos/{GITHUB_REPO}/contents/{path}", data)
-    return res and "error" not in res
+
+    if res is None:
+        return (False, "Không gọi được GitHub API")
+    if isinstance(res, dict) and "error" in res:
+        return (False, "Lỗi: " + str(res["error"]))
+    if isinstance(res, dict) and "content" in res:
+        return (True, "Đã lưu: " + path)
+    return (False, "Phản hồi không hợp lệ")
+
+
+def gh_delete(path):
+    """Xóa file trên GitHub. Trả về (success, message)."""
+    if not GITHUB_TOKEN:
+        return (False, "Chưa có GITHUB_TOKEN")
+    old, sha = gh_get(path)
+    if not sha:
+        return (False, "File không tồn tại: " + path)
+    res = gh_api(
+        "DELETE",
+        f"/repos/{GITHUB_REPO}/contents/{path}",
+        {"message": "Delete " + path, "sha": sha, "branch": GITHUB_BRANCH},
+    )
+    if isinstance(res, dict) and "error" in res:
+        return (False, "Lỗi: " + str(res["error"]))
+    if isinstance(res, dict) and "content" in res:
+        return (True, "Đã xóa: " + path)
+    if isinstance(res, dict) and "commit" in res:
+        return (True, "Đã xóa: " + path)
+    return (False, "Phản hồi không hợp lệ")
 
 
 def gh_list(folder):
@@ -123,6 +157,26 @@ def gh_list(folder):
     if not res or "error" in res or not isinstance(res, list):
         return []
     return [item["name"] for item in res if item["type"] == "file"]
+
+
+def gh_test():
+    if not GITHUB_TOKEN:
+        return (False, "Thiếu GITHUB_TOKEN trong Secrets")
+    res = gh_api("GET", "/user")
+    if res is None:
+        return (False, "Không gọi được API")
+    if isinstance(res, dict) and "error" in res:
+        return (False, "Lỗi: " + res["error"])
+    if isinstance(res, dict) and "login" in res:
+        login = res["login"]
+        res2 = gh_api("GET", f"/repos/{GITHUB_REPO}")
+        if isinstance(res2, dict) and "permissions" in res2:
+            perms = res2["permissions"]
+            if perms.get("push") or perms.get("admin"):
+                return (True, "OK — " + login + " | Có quyền ghi vào " + GITHUB_REPO)
+            return (False, "Token thiếu quyền 'repo'")
+        return (True, "OK — " + login)
+    return (False, "Token không hợp lệ")
 
 
 # ============ BỘ NHỚ ============
@@ -342,28 +396,42 @@ def read_file(file):
 
 
 # ============ SESSION STATE ============
-for _k, _v in {
-    "memory": load_memory() if GITHUB_TOKEN else {},
-    "templates": load_templates() if GITHUB_TOKEN else {},
-    "sources": load_sources() if GITHUB_TOKEN else {},
-    "draft": "",
-    "last_topic": "",
-    "weekly_results": [],
-    "lich_bao_giang": [],
-    "start_date_val": datetime.now().date(),
-}.items():
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
+if "memory" not in st.session_state:
+    st.session_state["memory"] = load_memory()
+if "templates" not in st.session_state:
+    st.session_state["templates"] = load_templates()
+if "sources" not in st.session_state:
+    st.session_state["sources"] = load_sources()
+if "draft" not in st.session_state:
+    st.session_state["draft"] = ""
+if "last_topic" not in st.session_state:
+    st.session_state["last_topic"] = ""
+if "weekly_results" not in st.session_state:
+    st.session_state["weekly_results"] = []
+if "lich_bao_giang" not in st.session_state:
+    st.session_state["lich_bao_giang"] = []
+if "start_date_val" not in st.session_state:
+    st.session_state["start_date_val"] = datetime.now().date()
 
 
 # ============ SIDEBAR ============
 with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
+
     if GITHUB_TOKEN:
-        st.success("💾 Bộ nhớ vĩnh viễn")
+        st.success("💾 Đã có GITHUB_TOKEN")
+        st.caption("Repo: " + GITHUB_REPO)
+        st.caption("Branch: " + GITHUB_BRANCH)
+        if st.button("🧪 Test GitHub", use_container_width=True):
+            ok, msg = gh_test()
+            if ok:
+                st.success("✅ " + msg)
+            else:
+                st.error("❌ " + msg)
     else:
-        st.warning("⚠️ Chưa có GITHUB_TOKEN")
+        st.error("❌ Chưa có GITHUB_TOKEN")
+        st.caption("Thêm vào Secrets: GITHUB_TOKEN = \"ghp_...\"")
 
     mem["teacher_name"] = st.text_input("Giáo viên", value=mem.get("teacher_name", ""))
     mem["school"] = st.text_input("Trường", value=mem.get("school", ""))
@@ -371,8 +439,11 @@ with st.sidebar:
     mem["default_grade"] = st.text_input("Khối mặc định", value=mem.get("default_grade", "6"))
 
     if st.button("💾 Lưu vào bộ nhớ", use_container_width=True):
-        if GITHUB_TOKEN and save_memory(mem):
-            st.success("✅ Đã lưu")
+        ok, msg = save_memory(mem)
+        if ok:
+            st.success("✅ " + msg)
+        else:
+            st.error("❌ " + msg)
 
     st.divider()
     st.write("Mẫu: " + str(len(st.session_state["templates"])) + " file")
@@ -419,13 +490,15 @@ with tab_up:
     st.info("💡 **MẪU** = định dạng bài soạn (bảng 2 cột). **NGUỒN** = nội dung SGK.")
     up_type = st.radio("Loại", ["Mẫu (định dạng)", "Nguồn (nội dung)"], horizontal=True)
     up_name = st.text_input("Tên file", placeholder="mau_bai_soan")
-    up_files = st.file_uploader("Chọn file",
-                                 type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc", "png", "jpg"],
-                                 accept_multiple_files=True, key="up_files")
+    up_files = st.file_uploader(
+        "Chọn file (docx / pdf / xlsx / csv / txt / ảnh)",
+        type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc", "png", "jpg", "jpeg"],
+        accept_multiple_files=True, key="up_files",
+    )
     up_paste = st.text_area("Hoặc dán nội dung", height=120, key="up_paste")
 
     if up_files:
-        st.markdown("**📋 Trạng thái:**")
+        st.markdown("**📋 Trạng thái file:**")
         for f in up_files:
             nm, txt, sz = read_file(f)
             if sz == 0 or txt.startswith("[Lỗi") or txt.startswith("[File .doc"):
@@ -436,45 +509,111 @@ with tab_up:
                 st.write("✅ " + nm + ": " + str(sz) + " ký tự")
 
     if st.button("💾 Lưu lên GitHub", type="primary"):
-        if not GITHUB_TOKEN:
-            st.error("Cần GITHUB_TOKEN.")
+        ok0, msg0 = gh_test()
+        if not ok0:
+            st.error("❌ Lỗi kết nối: " + msg0)
+            st.info("Kiểm tra GITHUB_TOKEN, GITHUB_REPO trong Secrets")
         else:
+            st.success("✅ " + msg0)
             parts = []
             if up_paste.strip():
                 parts.append(up_paste.strip())
             for f in (up_files or []):
                 _, txt, _ = read_file(f)
                 parts.append("--- " + f.name + " ---\n" + txt)
-            if parts:
+
+            if not parts:
+                st.warning("Không có nội dung. Hãy chọn file hoặc dán text.")
+            else:
                 full = "\n\n".join(parts)
-                safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", up_name.strip())[:40] or "file"
+                safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", up_name.strip())[:40]
+                if not safe:
+                    safe = "file_" + datetime.now().strftime("%Y%m%d_%H%M%S")
                 folder = "templates" if "Mẫu" in up_type else "sources"
-                if gh_save(f"data/{folder}/{safe}.md", full, f"Upload {safe}"):
-                    st.success("✅ Đã lưu")
+                path = f"data/{folder}/{safe}.md"
+
+                with st.spinner("💾 Đang lưu..."):
+                    ok, msg = gh_save(path, full, f"Upload {safe}")
+
+                if ok:
+                    st.success("✅ " + msg)
+                    st.info("Đã lưu " + str(len(full)) + " ký tự")
                     st.session_state["templates"] = load_templates()
                     st.session_state["sources"] = load_sources()
+                    st.rerun()
+                else:
+                    st.error("❌ Lỗi: " + msg)
 
 with tab_kho:
-    st.subheader("📐 Mẫu")
-    for n in st.session_state["templates"]:
-        st.write("- " + n)
+    st.subheader("📐 Mẫu đã lưu")
+    if st.session_state["templates"]:
+        for name in list(st.session_state["templates"].keys()):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                with st.expander("📄 " + name):
+                    content = st.session_state["templates"][name]
+                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
+                    st.text(content[:2000])
+            with col2:
+                if st.button("🗑️", key="del_tpl_" + name, help="Xóa mẫu này"):
+                    with st.spinner("Đang xóa..."):
+                        ok, msg = gh_delete("data/templates/" + name)
+                    if ok:
+                        st.success(msg)
+                        st.session_state["templates"] = load_templates()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    else:
+        st.info("Chưa có mẫu. Upload ở tab bên trái.")
+
+    if st.session_state["templates"]:
+        if st.button("🗑️ Xóa TẤT CẢ mẫu", key="del_all_tpl"):
+            for name in list(st.session_state["templates"].keys()):
+                gh_delete("data/templates/" + name)
+            st.session_state["templates"] = load_templates()
+            st.success("Đã xóa tất cả mẫu.")
+            st.rerun()
+
     st.divider()
-    st.subheader("📚 Nguồn")
-    for n in st.session_state["sources"]:
-        st.write("- " + n)
+    st.subheader("📚 Nguồn đã lưu")
+    if st.session_state["sources"]:
+        for name in list(st.session_state["sources"].keys()):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                with st.expander("📄 " + name):
+                    content = st.session_state["sources"][name]
+                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
+                    st.text(content[:2000])
+            with col2:
+                if st.button("🗑️", key="del_src_" + name, help="Xóa nguồn này"):
+                    with st.spinner("Đang xóa..."):
+                        ok, msg = gh_delete("data/sources/" + name)
+                    if ok:
+                        st.success(msg)
+                        st.session_state["sources"] = load_sources()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+    else:
+        st.info("Chưa có nguồn. Upload ở tab bên trái.")
+
+    if st.session_state["sources"]:
+        if st.button("🗑️ Xóa TẤT CẢ nguồn", key="del_all_src"):
+            for name in list(st.session_state["sources"].keys()):
+                gh_delete("data/sources/" + name)
+            st.session_state["sources"] = load_sources()
+            st.success("Đã xóa tất cả nguồn.")
+            st.rerun()
 
 
-# ============ PROMPT XÂY DỰNG BÀI SOẠN ============
+# ============ PROMPT ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
-
-    # Lấy mẫu (định dạng)
     tpl_text = ""
     for f in plan.get("template_files", []):
         if f in st.session_state["templates"]:
             tpl_text += "\n=== FILE MẪU (ĐỊNH DẠNG) ===\n" + st.session_state["templates"][f][:15000]
-
-    # Lấy nguồn (nội dung SGK)
     src_text = ""
     for f in plan.get("source_files", []):
         if f in st.session_state["sources"]:
@@ -520,7 +659,7 @@ def build_exec_prompt(plan):
     return prompt
 
 
-# ============ XỬ LÝ WORD ============
+# ============ WORD HELPERS ============
 def fix_math(text):
     text = re.sub(r"\^2\b", "²", text)
     text = re.sub(r"\^3\b", "³", text)
@@ -601,7 +740,6 @@ def write_content_to_doc(d, content):
         i += 1
 
 
-# ============ TẠO FILE WORD ============
 def make_doc(title, body):
     d = Document()
     s = d.sections[0]
@@ -624,24 +762,22 @@ def make_doc(title, body):
     return b.getvalue()
 
 
-# ============ PHIẾU BÁO GIẢNG (TRANG ĐẦU) ============
+# ============ PHIẾU BÁO GIẢNG ============
 def add_phieu_bao_giang(doc, lich, tuan_start):
-    """Thêm phiếu báo giảng vào đầu file Word."""
     mem = st.session_state.get("memory", {})
-
-    # Tiêu đề
     h = doc.add_heading("PHIẾU BÁO GIẢNG", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Thông tin
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run("Trường: ").bold = True
     p.add_run(mem.get("school", "..."))
+
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run("Giáo viên: ").bold = True
     p.add_run(mem.get("teacher_name", "..."))
+
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run("Tuần: ").bold = True
@@ -653,7 +789,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
 
     doc.add_paragraph()
 
-    # Bảng phiếu báo giảng
     table = doc.add_table(rows=1, cols=6)
     table.style = "Table Grid"
     hdr = table.rows[0].cells
@@ -674,12 +809,16 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
     doc.add_paragraph()
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p.add_run("Ngày " + datetime.now().strftime("%d") + " tháng " + datetime.now().strftime("%m") + " năm " + datetime.now().strftime("%Y"))
+    now = datetime.now()
+    p.add_run("Ngày " + now.strftime("%d") + " tháng " + now.strftime("%m") + " năm " + now.strftime("%Y"))
+
     p2 = doc.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p2.add_run("Giáo viên").bold = True
+
     doc.add_paragraph()
     doc.add_paragraph()
+
     p3 = doc.add_paragraph()
     p3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p3.add_run(mem.get("teacher_name", "..."))
@@ -718,8 +857,7 @@ if run and cmd.strip():
         if result:
             st.session_state["draft"] = result
             st.session_state["last_topic"] = cmd
-            if GITHUB_TOKEN:
-                save_history("Soạn bài", cmd, result)
+            save_history("Soạn bài", cmd, result)
 
 if st.session_state.get("draft"):
     st.divider()
@@ -945,7 +1083,6 @@ if st.session_state.get("lich_bao_giang"):
                     + " | " + r["ten_bai"]
                     + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
 
-    # Nút soạn cả tuần (có phiếu báo giảng ở trang đầu)
     if st.button("🚀 2. Soạn cả tuần (có Phiếu báo giảng ở trang đầu)",
                  type="primary", use_container_width=True):
         if not available_providers:
@@ -1007,7 +1144,6 @@ if st.session_state.get("weekly_results"):
         d.styles["Normal"].font.name = "Times New Roman"
         d.styles["Normal"].font.size = Pt(12)
 
-        # === TRANG 1: PHIẾU BÁO GIẢNG ===
         if lich:
             add_phieu_bao_giang(d, lich, st.session_state["start_date_val"])
         else:
@@ -1016,7 +1152,6 @@ if st.session_state.get("weekly_results"):
             d.add_paragraph("Trường: " + mem.get("school", ""))
             d.add_paragraph("Giáo viên: " + mem.get("teacher_name", ""))
 
-        # === CÁC TRANG SAU: BÀI SOẠN ===
         for idx, r in enumerate(results):
             d.add_page_break()
             d.add_heading("BÀI " + str(idx + 1) + ": " + r.get("ten_bai", ""), 1)
