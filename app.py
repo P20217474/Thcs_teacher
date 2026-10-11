@@ -1,11 +1,12 @@
 """
-AGENT TRỢ LÝ GIÁO VIÊN THCS AI — BẢN 2.0 (2 TÙY CHỌN RÕ RÀNG)
-- Tùy chọn MẪU: định dạng trình bày
-- Tùy chọn NGUỒN: nội dung tài liệu
-- AI bám mẫu + lấy nội dung từ nguồn
+AGENT TRỢ LÝ GIÁO VIÊN THCS AI — BẢN 2.1
+- Tự động đọc GEMINI_API_KEY từ Streamlit Secrets
+- 2 tùy chọn rõ ràng: MẪU (định dạng) + NGUỒN (nội dung)
+- Không cần dán API key mỗi lần đăng nhập
 """
 import subprocess
 import sys
+import os
 
 def _ensure(pkg, mod=None):
     mod = mod or pkg
@@ -38,9 +39,22 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Trợ lý Giáo viên THCS AI")
-st.caption("Bản 2.0 • 2 tùy chọn: MẪU (định dạng) + NGUỒN (nội dung) • AI • Xuất Word")
+st.caption("Bản 2.1 • MẪU + NGUỒN • AI tự động • Xuất Word")
 
-# SESSION STATE
+
+# ============ ĐỌC API KEY TỪ SECRETS HOẶC ENV ============
+def get_default_api_key() -> str:
+    # Ưu tiên: Streamlit Secrets → biến môi trường
+    try:
+        key = st.secrets.get("GEMINI_API_KEY", "")
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.environ.get("GEMINI_API_KEY", "")
+
+
+# ============ SESSION STATE ============
 for k, v in {
     "draft": "",
     "draft_title": "",
@@ -48,6 +62,7 @@ for k, v in {
     "source_text": "",
     "template_names": [],
     "source_names": [],
+    "user_api_key": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -71,12 +86,11 @@ def read_pdf(data: bytes) -> str:
         return f"[Lỗi pdf: {e}]"
 
 def read_file(file) -> tuple:
-    """Trả về (tên, nội dung, kích thước)"""
     if file is None:
         return ("", "", 0)
     data = file.read()
     if not data:
-        return (file.name, f"[File {file.name} rỗng — kiểm tra lại file gốc]", 0)
+        return (file.name, f"[File {file.name} rỗng]", 0)
     name = file.name.lower()
     if name.endswith(".docx"):
         text = read_docx(data)
@@ -85,19 +99,41 @@ def read_file(file) -> tuple:
     elif name.endswith((".txt", ".md")):
         text = data.decode("utf-8", errors="ignore")
     else:
-        text = f"[Không hỗ trợ định dạng {file.name}]"
+        text = f"[Không hỗ trợ {file.name}]"
     return (file.name, text, len(text))
 
 
-# ============ SIDEBAR: CẤU HÌNH + THÔNG TIN ============
+# ============ SIDEBAR ============
 with st.sidebar:
     st.header("⚙️ Cấu hình AI")
-    api_key = st.text_input(
-        "Google Gemini API Key",
-        type="password",
-        help="Lấy miễn phí tại aistudio.google.com/app/apikey",
-    )
-    use_ai = st.checkbox("Dùng AI để sinh nội dung", value=bool(api_key))
+
+    # Lấy key mặc định từ Secrets/Env
+    default_key = get_default_api_key()
+
+    if default_key:
+        # Đã có key từ Secrets → không cần nhập, chỉ hiển thị trạng thái
+        st.success("✅ Đã có API Key từ Secrets")
+        api_key = default_key
+        use_ai = st.checkbox("Dùng AI để sinh nội dung", value=True)
+        with st.expander("🔄 Đổi API Key khác"):
+            override = st.text_input(
+                "Nhập key mới (bỏ trống để dùng key mặc định)",
+                type="password",
+                key="override_key",
+            )
+            if override.strip():
+                api_key = override.strip()
+                st.caption("Đang dùng key tạm thời.")
+    else:
+        # Chưa có key → cho nhập tay
+        api_key = st.text_input(
+            "Google Gemini API Key",
+            type="password",
+            help="Lấy miễn phí tại aistudio.google.com/app/apikey",
+            key="manual_key",
+        )
+        use_ai = st.checkbox("Dùng AI để sinh nội dung", value=bool(api_key))
+        st.caption("💡 Có thể cài đặt key vĩnh viễn trong Settings → Secrets.")
 
     st.divider()
     st.header("📋 Thông tin")
@@ -126,19 +162,18 @@ with st.sidebar:
     period = st.text_input("Thời lượng", placeholder="Ví dụ: 1 tiết / 2 tiết")
 
 
-# ============ 2 TAB RÕ RÀNG: MẪU + NGUỒN ============
+# ============ 3 TAB: MẪU / NGUỒN / XEM TRƯỚC ============
 tab_mau, tab_nguon, tab_xem = st.tabs([
-    "📐 TÙY CHỌN MẪU (định dạng trình bày)",
-    "📚 TÙY CHỌN NGUỒN (nội dung tài liệu)",
+    "📐 TÙY CHỌN MẪU (định dạng)",
+    "📚 TÙY CHỌN NGUỒN (nội dung)",
     "👁️ XEM TRƯỚC ĐÃ NẠP",
 ])
 
-# ---------- TAB MẪU ----------
 with tab_mau:
     st.markdown("""
-**MẪU dùng để:** quy định **cấu trúc, thứ tự mục, cách trình bày** của tài liệu.
+**MẪU dùng để:** quy định **cấu trúc, thứ tự mục, cách trình bày**.
 Ví dụ: giáo án mẫu của trường, đề kiểm tra mẫu, phiếu học tập mẫu...
-AI sẽ **bám sát cấu trúc này** khi soạn.
+AI sẽ **bám sát cấu trúc này**.
 """)
     tpl_files = st.file_uploader(
         "📎 Nạp 1 hoặc nhiều file MẪU (docx / pdf / txt)",
@@ -147,9 +182,9 @@ AI sẽ **bám sát cấu trúc này** khi soạn.
         key="tpl_uploader",
     )
     tpl_paste = st.text_area(
-        "📝 Hoặc dán mẫu trực tiếp vào đây",
+        "📝 Hoặc dán mẫu trực tiếp",
         height=140,
-        placeholder="Dán nội dung mẫu (giáo án, đề, phiếu...) vào đây...",
+        placeholder="Dán nội dung mẫu vào đây...",
         key="tpl_paste",
     )
     if st.button("🗑️ Xóa mẫu đã nạp", key="clear_tpl"):
@@ -157,11 +192,10 @@ AI sẽ **bám sát cấu trúc này** khi soạn.
         st.session_state["template_names"] = []
         st.rerun()
 
-# ---------- TAB NGUỒN ----------
 with tab_nguon:
     st.markdown("""
 **NGUỒN dùng để:** chứa **kiến thức, số liệu, dữ kiện** để AI lấy nội dung.
-Ví dụ: bài học SGK, tài liệu tham khảo, số liệu thống kê, văn bản gốc...
+Ví dụ: bài học SGK, tài liệu tham khảo, số liệu thống kê...
 AI **chỉ được lấy nội dung từ nguồn**, không bịa thêm.
 """)
     src_files = st.file_uploader(
@@ -171,9 +205,9 @@ AI **chỉ được lấy nội dung từ nguồn**, không bịa thêm.
         key="src_uploader",
     )
     src_paste = st.text_area(
-        "📝 Hoặc dán nội dung nguồn trực tiếp vào đây",
+        "📝 Hoặc dán nội dung nguồn trực tiếp",
         height=140,
-        placeholder="Dán kiến thức, số liệu, dữ kiện vào đây...",
+        placeholder="Dán kiến thức, số liệu, dữ kiện...",
         key="src_paste",
     )
     if st.button("🗑️ Xóa nguồn đã nạp", key="clear_src"):
@@ -181,8 +215,8 @@ AI **chỉ được lấy nội dung từ nguồn**, không bịa thêm.
         st.session_state["source_names"] = []
         st.rerun()
 
-# ---------- XỬ LÝ NỘI DUNG ĐÃ NẠP ----------
-# Ưu tiên dùng nội dung mới nạp (file + paste), nếu trống thì dùng session_state (đã nạp trước)
+
+# ============ XỬ LÝ NỘI DUNG ĐÃ NẠP ============
 def collect_text(files, paste, store_key, names_key):
     parts = []
     names = []
@@ -203,7 +237,7 @@ def collect_text(files, paste, store_key, names_key):
 template_text, template_names = collect_text(tpl_files, tpl_paste, "template_text", "template_names")
 source_text, source_names = collect_text(src_files, src_paste, "source_text", "source_names")
 
-# ---------- TAB XEM TRƯỚC ----------
+
 with tab_xem:
     st.subheader("📐 MẪU đã nạp")
     if template_names:
@@ -232,12 +266,14 @@ def call_gemini(prompt: str, key: str) -> str:
     import google.generativeai as genai
     genai.configure(api_key=key)
     last_err = None
+    # Thử lần lượt nhiều model — model nào chạy được thì dùng
     for model_name in [
         "gemini-3.8-flash",
         "gemini-flash-latest",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
     ]:
         try:
             model = genai.GenerativeModel(model_name)
@@ -245,6 +281,7 @@ def call_gemini(prompt: str, key: str) -> str:
             return resp.text
         except Exception as e:
             last_err = e
+            continue
     raise last_err
 
 
@@ -252,24 +289,16 @@ def build_prompt() -> str:
     t = topic.strip() or "[Chưa có tên]"
 
     tpl_block = f"""
-╔══════════════════════════════════════════╗
-║  FILE MẪU (BẮT BUỘC bám theo cấu trúc)  ║
-╚══════════════════════════════════════════╝
+=== FILE MẪU (BẮT BUỘC bám theo cấu trúc) ===
 {template_text[:12000]}
-═════════════ HẾT MẪU ═════════════
-""" if template_text else """
-(Không có file mẫu — dùng cấu trúc chuẩn GDPT 2018.)
-"""
+=== HẾT MẪU ===
+""" if template_text else "(Không có mẫu — dùng cấu trúc chuẩn GDPT 2018.)"
 
     src_block = f"""
-╔══════════════════════════════════════════╗
-║  NGUỒN TÀI LIỆU (chỉ lấy nội dung ở đây) ║
-╚══════════════════════════════════════════╝
+=== NGUỒN TÀI LIỆU (chỉ lấy nội dung từ đây) ===
 {source_text[:20000]}
-═════════════ HẾT NGUỒN ═════════════
-""" if source_text else """
-(Không có nguồn — dùng kiến thức chuẩn môn học.)
-"""
+=== HẾT NGUỒN ===
+""" if source_text else "(Không có nguồn — dùng kiến thức chuẩn môn học.)"
 
     return f"""Bạn là trợ lý chuyên môn cho giáo viên THCS Việt Nam.
 
@@ -284,9 +313,9 @@ YÊU CẦU RIÊNG: {details or 'Không có'}
 {src_block}
 
 QUY TẮC BẮT BUỘC:
-1. Nếu có FILE MẪU: giữ đúng cấu trúc, thứ tự mục, cách đánh số, cách trình bày của mẫu. Không tự thêm/bớt mục.
-2. Nếu có NGUỒN TÀI LIỆU: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.
-3. Nếu nguồn thiếu: ghi rõ [Cần bổ sung: ...] thay vì tự bịa.
+1. Nếu có FILE MẪU: giữ đúng cấu trúc, thứ tự mục, cách đánh số của mẫu. Không thêm/bớt mục.
+2. Nếu có NGUỒN: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.
+3. Nếu nguồn thiếu: ghi rõ [Cần bổ sung: ...].
 4. Viết tiếng Việt, văn phong sư phạm, cụ thể, dùng được ngay.
 5. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.
 6. Chỉ xuất nội dung tài liệu, không thêm lời chào.
@@ -313,8 +342,8 @@ def generate_local() -> str:
 
 def generate() -> str:
     if use_ai:
-        if not api_key.strip():
-            st.error("Chưa nhập API Key.")
+        if not api_key or not api_key.strip():
+            st.error("Chưa có API Key. Vui lòng nhập hoặc cài trong Secrets.")
             return ""
         try:
             with st.spinner("🤖 AI đang sinh nội dung..."):
@@ -406,26 +435,14 @@ if st.session_state["draft"]:
             st.session_state["draft_title"] = ""
             st.rerun()
 
-with st.expander("📖 Hướng dẫn sử dụng 2 tùy chọn"):
+with st.expander("📖 Hướng dẫn cài API Key vĩnh viễn (1 lần duy nhất)"):
     st.markdown("""
-### 📐 TÙY CHỌN MẪU (định dạng)
-- Dùng khi bạn có **file mẫu** quy định cấu trúc (giáo án mẫu, đề mẫu...)
-- AI sẽ **giữ đúng thứ tự mục, cách trình bày** của mẫu
-- Nạp **nhiều file** cùng lúc để gộp nhiều mẫu
+### Bước 1: Lấy API Key Gemini miễn phí
+1. Mở `aistudio.google.com/app/apikey`
+2. Đăng nhập Google → **Create API key** → **Copy**
 
-### 📚 TÙY CHỌN NGUỒN (nội dung)
-- Dùng khi bạn có **tài liệu chứa nội dung** (SGK, bài học, số liệu...)
-- AI **chỉ lấy nội dung từ nguồn**, không bịa
-- Nếu nguồn thiếu, AI ghi `[Cần bổ sung: ...]`
-
-### 🎯 Kết hợp cả hai
-- MẪU → định dạng trình bày
-- NGUỒN → nội dung kiến thức
-- AI → sinh tài liệu bám mẫu + lấy nội dung từ nguồn
-
-### 🔑 Lấy API Key Gemini miễn phí
-1. Vào `aistudio.google.com/app/apikey`
-2. Đăng nhập Google → Create API key → Copy
-3. Dán vào ô sidebar
-4. Tick **"Dùng AI để sinh nội dung"**
-""")
+### Bước 2: Cài vào Streamlit Secrets
+1. Mở app Streamlit của bạn
+2. Bấm **⋮** (góc dưới phải) → **Settings**
+3. Chọn tab **Secrets**
+4. Dán dòng sau (thay bằng key của bạn):
