@@ -36,12 +36,11 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Tro ly Giao vien THCS AI")
-st.caption("Ban 2.2 • MAU + NGUON • AI tu dong • Xuat Word")
+st.caption("Ban 2.3 • MAU + NGUON • Ky hieu toan Unicode • Xuat Word")
 
 
 # ============ ĐỌC CẤU HÌNH TỪ SECRETS ============
 def cfg(key, default=""):
-    """Đọc giá trị từ Secrets, nếu không có thì trả về default."""
     try:
         val = st.secrets.get(key, default)
         return val if val else default
@@ -245,6 +244,8 @@ with tab_xem:
         for n in template_names:
             st.write("- " + n)
         st.caption("Tổng: " + str(len(template_text)) + " ký tự")
+        with st.expander("Xem nội dung mẫu"):
+            st.text(template_text[:3000])
     else:
         st.info("Chưa nạp mẫu.")
     st.divider()
@@ -253,6 +254,8 @@ with tab_xem:
         for n in source_names:
             st.write("- " + n)
         st.caption("Tổng: " + str(len(source_text)) + " ký tự")
+        with st.expander("Xem nội dung nguồn"):
+            st.text(source_text[:3000])
     else:
         st.info("Chưa nạp nguồn.")
 
@@ -282,14 +285,16 @@ def call_gemini(prompt, key):
 
 def build_prompt():
     t = topic.strip() or "[Chua co ten]"
+
     if template_text:
         tpl_block = (
-            "=== FILE MAU (BAT BUOC bam theo) ===\n"
+            "=== FILE MAU (BAT BUOC SAO CHEP NGUYEN CAU TRUC) ===\n"
             + template_text[:12000]
             + "\n=== HET MAU ==="
         )
     else:
         tpl_block = "(Khong co mau - dung cau truc chuan GDPT 2018.)"
+
     if source_text:
         src_block = (
             "=== NGUON TAI LIEU (chi lay noi dung tu day) ===\n"
@@ -306,13 +311,32 @@ def build_prompt():
     prompt += "THOI LUONG: " + (period or "Chua xac dinh") + "\n"
     prompt += "YEU CAU RIENG: " + (details or "Khong co") + "\n\n"
     prompt += tpl_block + "\n\n" + src_block + "\n\n"
-    prompt += "QUY TAC BAT BUOC:\n"
-    prompt += "1. Neu co FILE MAU: giu dung cau truc, thu tu muc, cach danh so.\n"
-    prompt += "2. Neu co NGUON: kien thuc, so lieu phai lay tu nguon. KHONG bia.\n"
-    prompt += "3. Neu nguon thieu: ghi ro [Can bo sung: ...].\n"
-    prompt += "4. Viet tieng Viet, van phong su pham, cu the, dung duoc ngay.\n"
-    prompt += "5. Markdown: '# ' cap 1, '## ' cap 2, '### ' cap 3, '- ' bullet, '1. ' so.\n"
-    prompt += "6. Chi xuat noi dung tai lieu, khong them loi chao.\n"
+
+    prompt += "QUY TAC BAT BUOC (phai tuan thu tuyet doi):\n"
+    prompt += "1. NEU CO FILE MAU: phai SAO CHEP NGUYEN cau truc cua mau:\n"
+    prompt += "   - Giu DUNG thu tu cac muc (I, II, III... hoac 1, 2, 3...)\n"
+    prompt += "   - Giu DUNG ten muc, tieu de nhu trong mau\n"
+    prompt += "   - Giu DUNG cach danh so, cach trinh bay, vi tri cac muc\n"
+    prompt += "   - CHI THAY phan noi dung ben trong, KHONG doi cau truc\n"
+    prompt += "   - Neu mau co muc nao thi phai co muc do, khong tu y them/bot\n"
+    prompt += "2. NEU CO NGUON: kien thuc, so lieu phai lay tu nguon. KHONG bia.\n"
+    prompt += "3. NEU NGUON THIEU: ghi ro [Can bo sung: ...].\n"
+    prompt += "4. KY HIEU TOAN HOC - BAT BUOC dung Unicode dep:\n"
+    prompt += "   - Luy thua: x², x³, aⁿ (KHONG viet x^2)\n"
+    prompt += "   - Chi so duoi: H₂O, CO₂, a₁, a₂ (KHONG viet H_2O)\n"
+    prompt += "   - Can bac 2: √x, √(a+b) (KHONG viet sqrt(x))\n"
+    prompt += "   - Phan so: viet dang 1/2, 3/4 (KHONG viet \\frac{1}{2})\n"
+    prompt += "   - Nhan chia: × ÷ (KHONG viet * /)\n"
+    prompt += "   - So sanh: ≤ ≥ ≠ ≈ ≡ (KHONG viet <= >= !=)\n"
+    prompt += "   - Tap hop: ∈ ∉ ⊂ ⊃ ∪ ∩ ∅\n"
+    prompt += "   - Hy Lap: α β γ δ π θ Δ Σ Ω\n"
+    prompt += "   - Mui ten: → ⇒ ↔ ⇔\n"
+    prompt += "   - Do: ° (vi du 90°, 45°)\n"
+    prompt += "   - TUYET DOI KHONG dung LaTeX: khong dung $...$, \\frac, \\sqrt, ^, _\n"
+    prompt += "5. Viet tieng Viet CO DAU day du, van phong su pham, cu the, dung ngay.\n"
+    prompt += "6. Markdown: '# ' cap 1, '## ' cap 2, '### ' cap 3, '- ' bullet, '1. ' so.\n"
+    prompt += "7. Chi xuat noi dung tai lieu, KHONG them loi chao, KHONG giai thich.\n"
+    prompt += "8. KHONG dung bang markdown (|...|) tru khi mau goc co bang.\n"
     return prompt
 
 
@@ -348,8 +372,49 @@ def generate():
     return generate_local()
 
 
+# ============ CHUYỂN KÝ HIỆU TOÁN ============
+def fix_math_symbols(text: str) -> str:
+    """Chuyển các ký hiệu toán học thô thành Unicode đẹp."""
+    # Luy thua
+    text = re.sub(r"\^2\b", "²", text)
+    text = re.sub(r"\^3\b", "³", text)
+    text = re.sub(r"\^4\b", "⁴", text)
+    text = re.sub(r"\^5\b", "⁵", text)
+    text = re.sub(r"\^0\b", "⁰", text)
+    text = re.sub(r"\^1\b", "¹", text)
+    text = re.sub(r"\^n\b", "ⁿ", text)
+    # Chi so duoi
+    text = re.sub(r"_2\b", "₂", text)
+    text = re.sub(r"_3\b", "₃", text)
+    text = re.sub(r"_1\b", "₁", text)
+    text = re.sub(r"_0\b", "₀", text)
+    # Can bac 2
+    text = text.replace("sqrt(", "√(")
+    text = text.replace("\\sqrt{", "√")
+    # Ky hieu toan hoc
+    text = text.replace("\\times", "×").replace("\\div", "÷")
+    text = text.replace("\\leq", "≤").replace("\\geq", "≥")
+    text = text.replace("\\neq", "≠").replace("\\approx", "≈")
+    text = text.replace("\\in", "∈").replace("\\notin", "∉")
+    text = text.replace("\\subset", "⊂").replace("\\cup", "∪")
+    text = text.replace("\\cap", "∩").replace("\\emptyset", "∅")
+    text = text.replace("\\pi", "π").replace("\\alpha", "α")
+    text = text.replace("\\beta", "β").replace("\\gamma", "γ")
+    text = text.replace("\\Delta", "Δ").replace("\\theta", "θ")
+    text = text.replace("\\rightarrow", "→").replace("\\to", "→")
+    text = text.replace("\\Rightarrow", "⇒")
+    # Phan so thong dung
+    text = text.replace("\\frac{1}{2}", "½").replace("\\frac{1}{3}", "⅓")
+    text = text.replace("\\frac{1}{4}", "¼").replace("\\frac{3}{4}", "¾")
+    text = re.sub(r"\\frac\{([^}]+)\}\{([^}]+)\}", r"(\1)/(\2)", text)
+    # Bo dau $ bao quanh cong thuc
+    text = re.sub(r"\$([^$]+)\$", r"\1", text)
+    return text
+
+
 # ============ TẠO FILE WORD ============
 def make_doc(title, body):
+    body = fix_math_symbols(body)
     d = Document()
     s = d.sections[0]
     s.top_margin = Inches(0.7)
@@ -461,3 +526,8 @@ with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
     )
     st.write("**Bước 4:** Bấm **Save** → **Reboot**")
     st.write("Từ đó mở app là có sẵn tất cả thông tin, không cần nhập lại.")
+    st.divider()
+    st.write("**MẸO:** Nếu AI trình bày chưa đúng mẫu, hãy:")
+    st.write("- Nạp file mẫu NGẮN, RÕ RÀNG (dưới 10.000 ký tự)")
+    st.write("- Xem tab 'XEM TRƯỚC ĐÃ NẠP' để kiểm tra file đã đọc đúng chưa")
+    st.write("- Nếu file mẫu có bảng biểu phức tạp, AI có thể không xử lý tốt")
