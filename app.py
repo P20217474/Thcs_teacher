@@ -50,7 +50,6 @@ st.title("🧠 Trợ lý Giáo viên THCS")
 st.caption("Bộ não tự động • Đọc ảnh SGK • Lịch báo giảng theo tuần • Xuất Word")
 
 
-# ============ CẤU HÌNH ============
 def cfg(key, default=""):
     try:
         val = st.secrets.get(key, default)
@@ -194,24 +193,30 @@ def save_memory(memory):
     return gh_save("data/memory.json", json.dumps(memory, ensure_ascii=False, indent=2), "Update memory")
 
 
-def load_templates():
-    files = gh_list("data/templates")
+def load_folder(folder):
+    files = gh_list(f"data/{folder}")
     out = {}
     for f in files:
-        c, _ = gh_get(f"data/templates/{f}")
+        c, _ = gh_get(f"data/{folder}/{f}")
         if c:
             out[f] = c
     return out
+
+
+def load_templates():
+    return load_folder("templates")
 
 
 def load_sources():
-    files = gh_list("data/sources")
-    out = {}
-    for f in files:
-        c, _ = gh_get(f"data/sources/{f}")
-        if c:
-            out[f] = c
-    return out
+    return load_folder("sources")
+
+
+def load_ppct():
+    return load_folder("ppct")
+
+
+def load_tkb():
+    return load_folder("tkb")
 
 
 def save_history(task, topic, content):
@@ -222,10 +227,10 @@ def save_history(task, topic, content):
     return gh_save(fname, md, f"History {topic}")
 
 
-# ============ OCR ẢNH BẰNG GEMINI VISION ============
+# ============ OCR ẢNH ============
 def ocr_image_with_gemini(data, fname):
     if not GEMINI_KEY:
-        return "[" + fname + ": cần GEMINI_API_KEY để đọc ảnh]"
+        return "[" + fname + ": cần GEMINI_API_KEY]"
     if not HAS_GEMINI_VISION:
         return "[" + fname + ": chưa cài google-generativeai]"
     if not HAS_PIL:
@@ -239,11 +244,10 @@ def ocr_image_with_gemini(data, fname):
             try:
                 model = genai_vision.GenerativeModel(model_name)
                 prompt = (
-                    "Đây là ảnh trang sách giáo khoa hoặc tài liệu dạy học. "
-                    "Hãy đọc TOÀN BỘ chữ có trong ảnh và trả về chính xác nội dung văn bản. "
-                    "Giữ nguyên cấu trúc: tiêu đề, số thứ tự, đề mục, công thức toán học. "
-                    "Với công thức toán, dùng ký hiệu Unicode: x², √x, ≤, ≥, ∈, π... "
-                    "Chỉ trả về nội dung text, không thêm lời giải thích hay mô tả ảnh."
+                    "Đây là ảnh trang sách giáo khoa. Hãy đọc TOÀN BỘ chữ trong ảnh "
+                    "và trả về chính xác nội dung văn bản. Giữ nguyên cấu trúc: tiêu đề, "
+                    "số thứ tự, đề mục, công thức toán. Với toán, dùng Unicode: x², √x, ≤, π. "
+                    "Chỉ trả về nội dung text, không thêm mô tả."
                 )
                 response = model.generate_content([prompt, img])
                 text = response.text.strip()
@@ -383,7 +387,7 @@ def read_file(file, use_ocr=True):
     try:
         data = file.read()
     except Exception as e:
-        return (file.name, "[Lỗi đọc file: " + str(e) + "]", 0)
+        return (file.name, "[Lỗi: " + str(e) + "]", 0)
     if not data:
         return (file.name, "[File rỗng]", 0)
 
@@ -438,6 +442,10 @@ if "templates" not in st.session_state:
     st.session_state["templates"] = load_templates()
 if "sources" not in st.session_state:
     st.session_state["sources"] = load_sources()
+if "ppct" not in st.session_state:
+    st.session_state["ppct"] = load_ppct()
+if "tkb" not in st.session_state:
+    st.session_state["tkb"] = load_tkb()
 if "draft" not in st.session_state:
     st.session_state["draft"] = ""
 if "last_topic" not in st.session_state:
@@ -487,9 +495,13 @@ with st.sidebar:
     st.divider()
     st.write("Mẫu: " + str(len(st.session_state["templates"])) + " file")
     st.write("Nguồn: " + str(len(st.session_state["sources"])) + " file")
+    st.write("PPCT: " + str(len(st.session_state["ppct"])) + " file")
+    st.write("TKB: " + str(len(st.session_state["tkb"])) + " file")
     if st.button("🔄 Tải lại", use_container_width=True):
         st.session_state["templates"] = load_templates()
         st.session_state["sources"] = load_sources()
+        st.session_state["ppct"] = load_ppct()
+        st.session_state["tkb"] = load_tkb()
         st.rerun()
     st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
 
@@ -523,11 +535,15 @@ def call_ai(prompt, system=""):
 
 
 # ============ UPLOAD ============
-tab_up, tab_kho = st.tabs(["📤 Upload mẫu/nguồn", "📂 Kho tri thức"])
+tab_up, tab_kho = st.tabs(["📤 Upload mẫu/nguồn/PPCT/TKB", "📂 Kho tri thức"])
 
 with tab_up:
-    st.info("💡 MẪU = định dạng bài soạn. NGUỒN = nội dung SGK. Ảnh sẽ được Gemini Vision đọc.")
-    up_type = st.radio("Loại", ["Mẫu (định dạng)", "Nguồn (nội dung)"], horizontal=True)
+    st.info("💡 MẪU = định dạng bài soạn. NGUỒN = nội dung SGK. PPCT/TKB = lịch dạy. Ảnh sẽ được Gemini Vision đọc.")
+    up_type = st.radio(
+        "Loại",
+        ["Mẫu (định dạng)", "Nguồn (nội dung)", "PPCT", "TKB"],
+        horizontal=True,
+    )
     up_name = st.text_input("Tên file", placeholder="toan6_tuan6")
     up_files = st.file_uploader(
         "Chọn file",
@@ -576,7 +592,14 @@ with tab_up:
                 safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", up_name.strip())[:40]
                 if not safe:
                     safe = "file_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-                folder = "templates" if "Mẫu" in up_type else "sources"
+                if "Mẫu" in up_type:
+                    folder = "templates"
+                elif "PPCT" in up_type:
+                    folder = "ppct"
+                elif "TKB" in up_type:
+                    folder = "tkb"
+                else:
+                    folder = "sources"
                 path = f"data/{folder}/{safe}.md"
                 with st.spinner("💾 Đang lưu..."):
                     ok, msg = gh_save(path, full, f"Upload {safe}")
@@ -584,6 +607,8 @@ with tab_up:
                     st.success("✅ " + msg)
                     st.session_state["templates"] = load_templates()
                     st.session_state["sources"] = load_sources()
+                    st.session_state["ppct"] = load_ppct()
+                    st.session_state["tkb"] = load_tkb()
                     st.rerun()
                 else:
                     st.error("❌ " + msg)
@@ -607,7 +632,6 @@ with tab_kho:
                         st.rerun()
     else:
         st.info("Chưa có mẫu.")
-
     if st.session_state["templates"]:
         if st.button("🗑️ Xóa TẤT CẢ mẫu", key="del_all_tpl"):
             for name in list(st.session_state["templates"].keys()):
@@ -634,12 +658,63 @@ with tab_kho:
                         st.rerun()
     else:
         st.info("Chưa có nguồn.")
-
     if st.session_state["sources"]:
         if st.button("🗑️ Xóa TẤT CẢ nguồn", key="del_all_src"):
             for name in list(st.session_state["sources"].keys()):
                 gh_delete("data/sources/" + name)
             st.session_state["sources"] = load_sources()
+            st.rerun()
+
+    st.divider()
+    st.subheader("📗 PPCT đã lưu")
+    if st.session_state["ppct"]:
+        for name in list(st.session_state["ppct"].keys()):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                with st.expander("📄 " + name):
+                    content = st.session_state["ppct"][name]
+                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
+                    st.text(content[:2000])
+            with col2:
+                if st.button("🗑️", key="del_ppct_" + name):
+                    with st.spinner("Đang xóa..."):
+                        ok, msg = gh_delete("data/ppct/" + name)
+                    if ok:
+                        st.session_state["ppct"] = load_ppct()
+                        st.rerun()
+    else:
+        st.info("Chưa có PPCT.")
+    if st.session_state["ppct"]:
+        if st.button("🗑️ Xóa TẤT CẢ PPCT", key="del_all_ppct"):
+            for name in list(st.session_state["ppct"].keys()):
+                gh_delete("data/ppct/" + name)
+            st.session_state["ppct"] = load_ppct()
+            st.rerun()
+
+    st.divider()
+    st.subheader("📘 TKB đã lưu")
+    if st.session_state["tkb"]:
+        for name in list(st.session_state["tkb"].keys()):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                with st.expander("📄 " + name):
+                    content = st.session_state["tkb"][name]
+                    st.caption("Kích thước: " + str(len(content)) + " ký tự")
+                    st.text(content[:2000])
+            with col2:
+                if st.button("🗑️", key="del_tkb_" + name):
+                    with st.spinner("Đang xóa..."):
+                        ok, msg = gh_delete("data/tkb/" + name)
+                    if ok:
+                        st.session_state["tkb"] = load_tkb()
+                        st.rerun()
+    else:
+        st.info("Chưa có TKB.")
+    if st.session_state["tkb"]:
+        if st.button("🗑️ Xóa TẤT CẢ TKB", key="del_all_tkb"):
+            for name in list(st.session_state["tkb"].keys()):
+                gh_delete("data/tkb/" + name)
+            st.session_state["tkb"] = load_tkb()
             st.rerun()
 
 
@@ -649,40 +724,31 @@ def build_exec_prompt(plan):
     tpl_text = ""
     for f in plan.get("template_files", []):
         if f in st.session_state["templates"]:
-            tpl_text += "\n=== FILE MẪU (ĐỊNH DẠNG) ===\n" + st.session_state["templates"][f][:15000]
+            tpl_text += "\n=== FILE MẪU ===\n" + st.session_state["templates"][f][:15000]
     src_text = ""
     for f in plan.get("source_files", []):
         if f in st.session_state["sources"]:
             src_text += "\n=== NGUỒN NỘI DUNG (SGK) ===\n" + st.session_state["sources"][f][:25000]
 
     prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n\n"
-    prompt += "NGUYÊN TẮC BẮT BUỘC:\n"
-    prompt += "- NỘI DUNG bài soạn: LẤY TỪ NGUỒN SÁCH GIÁO KHOA (nếu có). KHÔNG bịa.\n"
-    prompt += "- ĐỊNH DẠNG bài soạn: BÁM THEO FILE MẪU (nếu có).\n\n"
-    prompt += "THÔNG TIN:\n"
+    prompt += "NGUYÊN TẮC:\n"
+    prompt += "- NỘI DUNG: LẤY TỪ NGUỒN SGK. KHÔNG bịa.\n"
+    prompt += "- ĐỊNH DẠNG: BÁM THEO FILE MẪU.\n\n"
     prompt += "GV: " + mem.get("teacher_name", "") + " | Trường: " + mem.get("school", "") + "\n"
     prompt += "Môn: " + plan.get("subject", "") + " | Khối: " + plan.get("grade", "") + "\n"
     prompt += "Tên bài: " + plan.get("topic", "") + "\n"
-    prompt += "Thời lượng: " + (plan.get("period") or "Chưa xác định") + "\n\n"
+    prompt += "Thời lượng: " + (plan.get("period") or "") + "\n\n"
     if tpl_text:
         prompt += tpl_text + "\n"
     if src_text:
         prompt += src_text + "\n"
-
-    prompt += "YÊU CẦU NỘI DUNG:\n"
-    prompt += "1. Kiến thức, số liệu, ví dụ: PHẢI LẤY TỪ NGUỒN SGK.\n"
-    prompt += "2. Nếu nguồn thiếu: ghi [Cần bổ sung: ...]. KHÔNG bịa.\n"
-    prompt += "3. Chi tiết, cụ thể, dùng được ngay. Tối thiểu 1500 từ.\n"
-    prompt += "4. Mỗi hoạt động dạy học phải có: mục tiêu, cách tổ chức, sản phẩm.\n\n"
-    prompt += "YÊU CẦU ĐỊNH DẠNG (BÁM THEO MẪU):\n"
-    prompt += "5. Nếu mẫu có mục nào → bài soạn phải có mục đó, đúng thứ tự.\n"
-    prompt += "6. Bảng hoạt động dạy học: ĐÚNG 2 CỘT:\n"
-    prompt += "   | Hoạt động của GV và HS | Sản phẩm |\n"
-    prompt += "   |---|---|\n"
-    prompt += "7. Trong ô: dùng <br> xuống dòng, **bold** in đậm.\n\n"
-    prompt += "KÝ HIỆU TOÁN: x², x³, √x, H₂O, ≤, ≥, ≠, ∈, π, ° (KHÔNG LaTeX).\n"
-    prompt += "MARKDOWN: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
-    prompt += "Tiếng Việt có dấu đầy đủ.\n"
+    prompt += "YÊU CẦU:\n"
+    prompt += "1. Chi tiết, tối thiểu 1500 từ.\n"
+    prompt += "2. Mỗi hoạt động: mục tiêu, tổ chức, sản phẩm.\n"
+    prompt += "3. Bảng hoạt động ĐÚNG 2 CỘT: | Hoạt động của GV và HS | Sản phẩm |\n"
+    prompt += "4. <br> xuống dòng, **bold** in đậm.\n"
+    prompt += "5. Ký hiệu toán Unicode: x², √x, ≤, π.\n"
+    prompt += "6. Markdown: '# ', '## ', '### ', '- ', '1. '.\n"
     return prompt
 
 
@@ -906,6 +972,17 @@ if st.session_state.get("draft"):
 st.divider()
 st.subheader("📅 1. Tạo lịch báo giảng từ TKB + PPCT")
 
+# Chọn PPCT/TKB đã lưu
+st.markdown("**Chọn từ kho đã lưu:**")
+col_ppct, col_tkb = st.columns(2)
+with col_ppct:
+    ppct_options = ["(Không dùng)"] + list(st.session_state["ppct"].keys())
+    selected_ppct = st.selectbox("📗 PPCT đã lưu:", ppct_options, key="sel_ppct")
+with col_tkb:
+    tkb_options = ["(Không dùng)"] + list(st.session_state["tkb"].keys())
+    selected_tkb = st.selectbox("📘 TKB đã lưu:", tkb_options, key="sel_tkb")
+
+st.markdown("**Hoặc upload / dán:**")
 tkb_file = st.file_uploader("📘 Upload file TKB", type=["pdf", "docx", "xlsx", "xls", "csv", "txt"], key="tkb_file")
 tkb_manual = st.text_area("Hoặc dán TKB", height=100, key="tkb_manual")
 ppct_file = st.file_uploader("📗 Upload file PPCT", type=["pdf", "docx", "xlsx", "xls", "csv", "txt"], key="ppct_file")
@@ -916,7 +993,6 @@ start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
 st.session_state["start_date_val"] = start_date
 
 
-# --- Hàm xử lý AI ---
 def ai_extract_tkb(raw):
     system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
     prompt = "Doc TKB sau, chuyen thanh moi dong: Thu | Tiet | Lop | Mon\n\nNOI DUNG:\n"
@@ -929,32 +1005,28 @@ def ai_extract_tkb(raw):
 
 
 def ai_extract_ppct(raw):
-    """AI đọc PPCT — QUAN TRỌNG: điền tuần cho các dòng merge."""
     system = "Bạn là trợ lý đọc bảng. Chỉ trả về text theo format, không giải thích."
     prompt = """Đọc bảng PHÂN PHỐI CHƯƠNG TRÌNH sau. Bảng có 5 cột:
 STT | Bài học | Số tiết | Thời điểm | Ghi chú
 
 Cột "Thời điểm" chứa mốc tuần và ngày tháng, ví dụ:
 "Tuần: 1 (7/09/2026 - 13/09/2026)"
-"Tuần: 2 (14/09/2026 - 20/09/2026)"
 
 QUAN TRỌNG: Cột "Thời điểm" thường bị GỘP Ô (merge cell) — nghĩa là
 nhiều bài liên tiếp dùng chung 1 tuần. Trong file gốc, ô này chỉ xuất hiện
 1 lần ở đầu nhóm, các dòng sau để trống.
 
-Nhiệm vụ của bạn: ĐIỀN tuần cho TẤT CẢ các bài, kể cả khi ô trống.
+Nhiệm vụ: ĐIỀN tuần cho TẤT CẢ các bài, kể cả khi ô trống.
 
-Trả về MỖI BÀI 1 DÒNG theo format CHÍNH XÁC:
+Trả về MỖI BÀI 1 DÒNG format:
 STT | Tên bài | Số tiết | Tuần | Ngày bắt đầu | Ngày kết thúc
 
 Ví dụ ĐÚNG:
 1 | Bài 1. Tập hợp | 1 | 1 | 07/09/2026 | 13/09/2026
 2 | Bài 2. Cách ghi số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
-3 | Bài 3. Thứ tự trong tập hợp số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
-4 | Bài 4. Phép cộng và phép trừ số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
 5 | Bài 5. Phép nhân và phép chia số tự nhiên (Tiết 1) | 1 | 2 | 14/09/2026 | 20/09/2026
 
-CHỈ trả về các dòng theo format trên. KHÔNG giải thích. KHÔNG thêm header.
+CHỈ trả về các dòng theo format. KHÔNG giải thích. KHÔNG thêm header.
 
 NỘI DUNG PPCT:
 """ + raw[:15000]
@@ -1020,7 +1092,6 @@ def parse_tkb(text):
 
 
 def parse_ppct(text):
-    """Parse PPCT format: STT | Tên bài | Số tiết | Tuần | Ngày BĐ | Ngày KT."""
     result = []
     for line in text.strip().splitlines():
         line = line.strip()
@@ -1069,7 +1140,6 @@ def parse_ppct(text):
 
 
 def find_week_ppct(ppct, target_date):
-    """Tìm các bài trong PPCT thuộc tuần chứa target_date."""
     for bai in ppct:
         if bai.get("tuan_start") and bai.get("tuan_end"):
             if bai["tuan_start"] <= target_date <= bai["tuan_end"]:
@@ -1083,17 +1153,33 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
     if not available_providers:
         st.error("Cần API key.")
     else:
+        # Ưu tiên: file upload > dán > dropdown đã chọn > file đầu tiên đã lưu
         tkb_raw = tkb_manual.strip()
         if tkb_file:
             _, text, _ = read_file(tkb_file, use_ocr=False)
             tkb_raw = text
+        elif not tkb_raw and selected_tkb != "(Không dùng)":
+            tkb_raw = st.session_state["tkb"][selected_tkb]
+            st.info("📘 Dùng TKB: " + selected_tkb)
+        elif not tkb_raw and st.session_state["tkb"]:
+            first = list(st.session_state["tkb"].keys())[0]
+            tkb_raw = st.session_state["tkb"][first]
+            st.info("📘 Dùng TKB đã lưu: " + first)
+
         ppct_raw = ppct_manual.strip()
         if ppct_file:
             _, text, _ = read_file(ppct_file, use_ocr=False)
             ppct_raw = text
+        elif not ppct_raw and selected_ppct != "(Không dùng)":
+            ppct_raw = st.session_state["ppct"][selected_ppct]
+            st.info("📗 Dùng PPCT: " + selected_ppct)
+        elif not ppct_raw and st.session_state["ppct"]:
+            first = list(st.session_state["ppct"].keys())[0]
+            ppct_raw = st.session_state["ppct"][first]
+            st.info("📗 Dùng PPCT đã lưu: " + first)
 
         if not tkb_raw or not ppct_raw:
-            st.error("Cần TKB và PPCT.")
+            st.error("Cần TKB và PPCT (upload, dán, hoặc chọn từ kho).")
         else:
             tkb_auto = auto_fix_tkb(tkb_raw)
             if tkb_auto and "|" in tkb_auto and len(tkb_auto.splitlines()[0].split("|")) >= 4:
