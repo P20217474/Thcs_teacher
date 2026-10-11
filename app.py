@@ -22,6 +22,7 @@ _ensure("pypdf", "pypdf")
 import streamlit as st
 from docx import Document
 from docx.shared import Pt, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
 import re
 import csv
@@ -38,16 +39,12 @@ try:
 except Exception:
     HAS_PIL = False
 
-st.set_page_config(
-    page_title="Trợ lý Giáo viên THCS",
-    page_icon="🧠",
-    layout="wide",
-)
-
+st.set_page_config(page_title="Trợ lý Giáo viên THCS", page_icon="🧠", layout="wide")
 st.title("🧠 Trợ lý Giáo viên THCS")
-st.caption("Bộ não tự động • Lịch báo giảng • Soạn hàng loạt • Xuất Word")
+st.caption("Bộ não tự động • Lịch báo giảng • Soạn tuần • Xuất Word")
 
 
+# ============ CẤU HÌNH ============
 def cfg(key, default=""):
     try:
         val = st.secrets.get(key, default)
@@ -62,11 +59,9 @@ PROVIDER_KEYS = {
     "OPENROUTER_API_KEY": cfg("OPENROUTER_API_KEY", ""),
     "NVIDIA_API_KEY": cfg("NVIDIA_API_KEY", ""),
 }
-
 for _k, _v in PROVIDER_KEYS.items():
     if _v:
         os.environ[_k] = _v
-
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 
 PREFERRED_MODELS = {
@@ -81,6 +76,7 @@ GITHUB_REPO = cfg("GITHUB_REPO", "P20217474/Thcs_teacher")
 GITHUB_BRANCH = cfg("GITHUB_BRANCH", "main")
 
 
+# ============ GITHUB API ============
 def gh_api(method, path, data=None):
     if not GITHUB_TOKEN:
         return None
@@ -129,6 +125,7 @@ def gh_list(folder):
     return [item["name"] for item in res if item["type"] == "file"]
 
 
+# ============ BỘ NHỚ ============
 def load_memory():
     content, _ = gh_get("data/memory.json")
     if content:
@@ -172,124 +169,199 @@ def save_history(task, topic, content):
     return gh_save(fname, md, f"History {topic}")
 
 
-def load_skills():
-    c, _ = gh_get("data/skills/README.md")
-    return c or ""
-
-
-def read_docx(data):
+# ============ ĐỌC FILE AN TOÀN ============
+def _read_docx_safe(data):
     try:
         d = Document(io.BytesIO(data))
-        out = [p.text for p in d.paragraphs if p.text.strip()]
+        out = []
+        for p in d.paragraphs:
+            if p.text.strip():
+                out.append(p.text)
         for t in d.tables:
             out.append("")
             for row in t.rows:
-                out.append("| " + " | ".join(c.text.strip() for c in row.cells) + " |")
+                cells = [c.text.strip() for c in row.cells]
+                out.append("| " + " | ".join(cells) + " |")
+            out.append("")
         return "\n".join(out)
     except Exception as e:
-        return "[Loi docx: " + str(e) + "]"
+        return "[Lỗi đọc docx: " + str(e) + "]"
 
 
-def read_pdf(data):
+def _read_doc_old(data):
+    return "[File .doc cũ. Mở bằng Word/WPS → Save As .docx → upload lại.]"
+
+
+def _read_pdf_safe(data):
     if not HAS_PYPDF:
-        return "[Chua cai pypdf]"
+        return "[Chưa cài pypdf]"
     try:
         reader = PdfReader(io.BytesIO(data))
-        texts = [(p.extract_text() or "") for p in reader.pages]
-        full = "\n".join(t for t in texts if t.strip())
-        if len(full) < 100:
-            return "[PDF scan, khong co text]" + full
+        if len(reader.pages) == 0:
+            return "[PDF rỗng]"
+        texts = []
+        for page in reader.pages:
+            try:
+                t = page.extract_text() or ""
+                if t.strip():
+                    texts.append(t)
+            except Exception:
+                continue
+        full = "\n".join(texts)
+        if len(full.strip()) < 50:
+            return "[PDF scan, không có text. Dùng Google Drive OCR hoặc dán trực tiếp.]\n" + full
         return full
     except Exception as e:
-        return "[Loi pdf: " + str(e) + "]"
+        return "[Lỗi đọc pdf: " + str(e) + "]"
 
 
-def read_csv_text(data):
-    try:
-        text = data.decode("utf-8", errors="ignore")
-        rows = list(csv.reader(io.StringIO(text)))
-        if not rows:
-            return "[CSV rong]"
-        out = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * len(rows[0])]
-        for row in rows[1:]:
-            row = (row + [""] * len(rows[0]))[:len(rows[0])]
-            out.append("| " + " | ".join(row) + " |")
-        return "\n".join(out)
-    except Exception as e:
-        return "[Loi csv: " + str(e) + "]"
-
-
-def read_excel(data):
+def _read_excel_safe(data):
     try:
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
         out = []
-        for sheet in wb.sheetnames:
-            ws = wb[sheet]
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
             rows = []
             for row in ws.iter_rows(values_only=True):
                 rows.append([str(c) if c is not None else "" for c in row])
             if not rows:
                 continue
+            rows = [r for r in rows if any(c.strip() for c in r)]
+            if not rows:
+                continue
+            max_cols = max(len(r) for r in rows)
+            rows = [r + [""] * (max_cols - len(r)) for r in rows]
+            out.append("### Sheet: " + sheet_name)
             out.append("| " + " | ".join(rows[0]) + " |")
-            out.append("|" + "---|" * len(rows[0]))
+            out.append("|" + "---|" * max_cols)
             for r in rows[1:]:
                 out.append("| " + " | ".join(r) + " |")
+            out.append("")
         return "\n".join(out)
     except Exception as e:
-        return "[Loi Excel: " + str(e) + "]"
+        return "[Lỗi đọc Excel: " + str(e) + "]"
+
+
+def _read_csv_safe(data):
+    try:
+        text = None
+        for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1258"]:
+            try:
+                text = data.decode(enc)
+                break
+            except Exception:
+                continue
+        if text is None:
+            text = data.decode("utf-8", errors="ignore")
+        sample = text[:2000]
+        delimiter = ","
+        if sample.count("|") > sample.count(","):
+            delimiter = "|"
+        elif sample.count(";") > sample.count(","):
+            delimiter = ";"
+        elif sample.count("\t") > sample.count(","):
+            delimiter = "\t"
+        rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+        if not rows:
+            return "[CSV rỗng]"
+        max_cols = max(len(r) for r in rows)
+        rows = [r + [""] * (max_cols - len(r)) for r in rows]
+        out = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * max_cols]
+        for row in rows[1:]:
+            out.append("| " + " | ".join(row) + " |")
+        return "\n".join(out)
+    except Exception as e:
+        return "[Lỗi đọc csv: " + str(e) + "]"
+
+
+def _read_txt_safe(data):
+    for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1258"]:
+        try:
+            return data.decode(enc)
+        except Exception:
+            continue
+    return data.decode("utf-8", errors="ignore")
+
+
+def _read_image_info(data, fname):
+    try:
+        img = Image.open(io.BytesIO(data))
+        return "[" + fname + ": ảnh " + str(img.size[0]) + "x" + str(img.size[1]) + " px. Cần OCR.]"
+    except Exception as e:
+        return "[Lỗi ảnh " + fname + ": " + str(e) + "]"
 
 
 def read_file(file):
     if file is None:
         return ("", "", 0)
-    data = file.read()
+    try:
+        data = file.read()
+    except Exception as e:
+        return (file.name, "[Lỗi đọc file: " + str(e) + "]", 0)
     if not data:
-        return (file.name, "[File rong]", 0)
-    n = file.name.lower()
-    if n.endswith(".docx"):
-        text = read_docx(data)
-    elif n.endswith(".pdf"):
-        text = read_pdf(data)
-    elif n.endswith(".csv"):
-        text = read_csv_text(data)
-    elif n.endswith((".xlsx", ".xls")):
-        text = read_excel(data)
-    elif n.endswith((".txt", ".md", ".log")):
-        text = data.decode("utf-8", errors="ignore")
-    elif n.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-        text = "[" + file.name + ": anh, can OCR]"
+        return (file.name, "[File rỗng]", 0)
+
+    name = file.name
+    nl = name.lower()
+    magic = data[:8]
+    text = ""
+
+    if magic[:4] == b"%PDF":
+        text = _read_pdf_safe(data)
+    elif magic[:4] == b"PK\x03\x04":
+        if nl.endswith((".xlsx", ".xlsm")):
+            text = _read_excel_safe(data)
+        else:
+            text = _read_docx_safe(data)
+    elif magic[:4] == b"\xd0\xcf\x11\xe0":
+        text = _read_doc_old(data)
     else:
-        text = "[Dinh dang chua ho tro]"
-    return (file.name, text, len(text))
+        if nl.endswith(".docx"):
+            text = _read_docx_safe(data)
+        elif nl.endswith(".doc"):
+            text = _read_doc_old(data)
+        elif nl.endswith(".pdf"):
+            text = _read_pdf_safe(data)
+        elif nl.endswith((".xlsx", ".xls", ".xlsm")):
+            text = _read_excel_safe(data)
+        elif nl.endswith(".csv"):
+            text = _read_csv_safe(data)
+        elif nl.endswith((".txt", ".md", ".log", ".json")):
+            text = _read_txt_safe(data)
+        elif nl.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+            text = _read_image_info(data, name)
+        else:
+            try:
+                decoded = _read_txt_safe(data)
+                printable = sum(1 for c in decoded[:500] if c.isprintable() or c in "\n\r\t")
+                text = decoded if printable / max(len(decoded[:500]), 1) > 0.8 else "[Định dạng không hỗ trợ]"
+            except Exception:
+                text = "[Không đọc được file]"
+    return (name, text, len(text))
 
 
-if "memory" not in st.session_state:
-    st.session_state["memory"] = load_memory() if GITHUB_TOKEN else {}
-if "templates" not in st.session_state:
-    st.session_state["templates"] = load_templates() if GITHUB_TOKEN else {}
-if "sources" not in st.session_state:
-    st.session_state["sources"] = load_sources() if GITHUB_TOKEN else {}
-if "skills" not in st.session_state:
-    st.session_state["skills"] = load_skills() if GITHUB_TOKEN else ""
-if "draft" not in st.session_state:
-    st.session_state["draft"] = ""
-if "last_topic" not in st.session_state:
-    st.session_state["last_topic"] = ""
-if "weekly_results" not in st.session_state:
-    st.session_state["weekly_results"] = []
-if "lich_bao_giang" not in st.session_state:
-    st.session_state["lich_bao_giang"] = []
-if "start_date_val" not in st.session_state:
-    st.session_state["start_date_val"] = datetime.now().date()
+# ============ SESSION STATE ============
+for _k, _v in {
+    "memory": load_memory() if GITHUB_TOKEN else {},
+    "templates": load_templates() if GITHUB_TOKEN else {},
+    "sources": load_sources() if GITHUB_TOKEN else {},
+    "draft": "",
+    "last_topic": "",
+    "weekly_results": [],
+    "lich_bao_giang": [],
+    "start_date_val": datetime.now().date(),
+}.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
 
 
+# ============ SIDEBAR ============
 with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
-
     if GITHUB_TOKEN:
-        st.success("💾 Bộ nhớ vĩnh viễn đang bật")
+        st.success("💾 Bộ nhớ vĩnh viễn")
     else:
         st.warning("⚠️ Chưa có GITHUB_TOKEN")
 
@@ -301,23 +373,18 @@ with st.sidebar:
     if st.button("💾 Lưu vào bộ nhớ", use_container_width=True):
         if GITHUB_TOKEN and save_memory(mem):
             st.success("✅ Đã lưu")
-        elif not GITHUB_TOKEN:
-            st.warning("Chưa có GITHUB_TOKEN")
 
     st.divider()
-    st.subheader("📚 Kho tri thức")
     st.write("Mẫu: " + str(len(st.session_state["templates"])) + " file")
     st.write("Nguồn: " + str(len(st.session_state["sources"])) + " file")
-
     if st.button("🔄 Tải lại", use_container_width=True):
         st.session_state["templates"] = load_templates()
         st.session_state["sources"] = load_sources()
         st.rerun()
-
-    st.divider()
     st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
 
 
+# ============ GỌI AI ============
 def call_ai(prompt, system=""):
     import freelm
     llm = freelm.FreeLLM.from_env()
@@ -345,23 +412,32 @@ def call_ai(prompt, system=""):
         raise e
 
 
+# ============ UPLOAD ============
 tab_up, tab_kho = st.tabs(["📤 Upload mẫu/nguồn", "📂 Kho tri thức"])
 
 with tab_up:
-    st.markdown("**MẪU** (định dạng) và **NGUỒN** (nội dung) — đều tùy chọn.")
+    st.info("💡 **MẪU** = định dạng bài soạn (bảng 2 cột). **NGUỒN** = nội dung SGK.")
     up_type = st.radio("Loại", ["Mẫu (định dạng)", "Nguồn (nội dung)"], horizontal=True)
-    up_name = st.text_input("Tên file (không cần đuôi)", placeholder="giao_an_toan6")
-    up_files = st.file_uploader(
-        "Chọn file",
-        type=["docx", "pdf", "txt", "md", "csv", "xlsx"],
-        accept_multiple_files=True,
-        key="up_files",
-    )
+    up_name = st.text_input("Tên file", placeholder="mau_bai_soan")
+    up_files = st.file_uploader("Chọn file",
+                                 type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc", "png", "jpg"],
+                                 accept_multiple_files=True, key="up_files")
     up_paste = st.text_area("Hoặc dán nội dung", height=120, key="up_paste")
+
+    if up_files:
+        st.markdown("**📋 Trạng thái:**")
+        for f in up_files:
+            nm, txt, sz = read_file(f)
+            if sz == 0 or txt.startswith("[Lỗi") or txt.startswith("[File .doc"):
+                st.write("⚠️ " + nm + ": " + txt[:80])
+            elif sz < 200:
+                st.write("⚠️ " + nm + ": " + str(sz) + " ký tự (có thể lỗi)")
+            else:
+                st.write("✅ " + nm + ": " + str(sz) + " ký tự")
 
     if st.button("💾 Lưu lên GitHub", type="primary"):
         if not GITHUB_TOKEN:
-            st.error("Cần GITHUB_TOKEN để lưu.")
+            st.error("Cần GITHUB_TOKEN.")
         else:
             parts = []
             if up_paste.strip():
@@ -369,98 +445,82 @@ with tab_up:
             for f in (up_files or []):
                 _, txt, _ = read_file(f)
                 parts.append("--- " + f.name + " ---\n" + txt)
-            if not parts:
-                st.warning("Không có nội dung.")
-            else:
+            if parts:
                 full = "\n\n".join(parts)
                 safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", up_name.strip())[:40] or "file"
                 folder = "templates" if "Mẫu" in up_type else "sources"
-                path = f"data/{folder}/{safe}.md"
-                if gh_save(path, full, f"Upload {safe}"):
-                    st.success("✅ Đã lưu: " + path)
+                if gh_save(f"data/{folder}/{safe}.md", full, f"Upload {safe}"):
+                    st.success("✅ Đã lưu")
                     st.session_state["templates"] = load_templates()
                     st.session_state["sources"] = load_sources()
-                else:
-                    st.error("❌ Lỗi lưu GitHub.")
 
 with tab_kho:
     st.subheader("📐 Mẫu")
-    if st.session_state["templates"]:
-        for name in st.session_state["templates"]:
-            st.write("- " + name)
-    else:
-        st.info("Chưa có mẫu.")
+    for n in st.session_state["templates"]:
+        st.write("- " + n)
     st.divider()
     st.subheader("📚 Nguồn")
-    if st.session_state["sources"]:
-        for name in st.session_state["sources"]:
-            st.write("- " + name)
-    else:
-        st.info("Chưa có nguồn.")
+    for n in st.session_state["sources"]:
+        st.write("- " + n)
 
 
-def analyze_command(cmd):
-    mem = st.session_state["memory"]
-    tpl_list = list(st.session_state["templates"].keys())
-    src_list = list(st.session_state["sources"].keys())
-    system = "Ban la bo nao phan tich lenh. Tra ve CHI JSON."
-    prompt = 'Phan tich lenh sau, tra ve JSON:\n{"task":"","subject":"","grade":"","topic":"","period":"","template_files":[],"source_files":[]}\n\n'
-    prompt += "LENH: " + cmd + "\n"
-    prompt += "GV: " + mem.get("teacher_name", "") + "\n"
-    prompt += "Mon mac dinh: " + mem.get("default_subject", "Toan") + "\n"
-    prompt += "Khoi mac dinh: " + mem.get("default_grade", "6") + "\n"
-    prompt += "Mau co: " + str(tpl_list) + "\n"
-    prompt += "Nguon co: " + str(src_list) + "\n"
-    try:
-        result = call_ai(prompt, system)
-        m = re.search(r"\{[\s\S]*\}", result)
-        if m:
-            return json.loads(m.group(0))
-    except Exception:
-        pass
-    low = cmd.lower()
-    return {
-        "task": "Soan ke hoach bai day" if "giao an" in low else "Soan noi dung theo yeu cau rieng",
-        "subject": mem.get("default_subject", "Toan"),
-        "grade": mem.get("default_grade", "6"),
-        "topic": cmd,
-        "period": "",
-        "template_files": tpl_list[:1],
-        "source_files": src_list[:1],
-    }
-
-
+# ============ PROMPT XÂY DỰNG BÀI SOẠN ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
+
+    # Lấy mẫu (định dạng)
     tpl_text = ""
     for f in plan.get("template_files", []):
         if f in st.session_state["templates"]:
-            tpl_text += "\n=== MAU: " + f + " ===\n" + st.session_state["templates"][f][:15000]
+            tpl_text += "\n=== FILE MẪU (ĐỊNH DẠNG) ===\n" + st.session_state["templates"][f][:15000]
+
+    # Lấy nguồn (nội dung SGK)
     src_text = ""
     for f in plan.get("source_files", []):
         if f in st.session_state["sources"]:
-            src_text += "\n=== NGUON: " + f + " ===\n" + st.session_state["sources"][f][:25000]
-    prompt = "Ban la tro ly chuyen mon cho giao vien THCS Viet Nam.\n\n"
-    prompt += "GV: " + mem.get("teacher_name", "") + " | Truong: " + mem.get("school", "") + "\n"
-    prompt += "NHIEM VU: " + plan.get("task", "") + "\n"
-    prompt += "MON: " + plan.get("subject", "") + " | KHOI: " + plan.get("grade", "") + "\n"
-    prompt += "CHU DE: " + plan.get("topic", "") + "\n"
-    prompt += "THOI LUONG: " + (plan.get("period") or "Chua xac dinh") + "\n\n"
+            src_text += "\n=== NGUỒN NỘI DUNG (SGK) ===\n" + st.session_state["sources"][f][:25000]
+
+    prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n\n"
+    prompt += "NGUYÊN TẮC BẮT BUỘC:\n"
+    prompt += "- NỘI DUNG bài soạn: LẤY TỪ NGUỒN SÁCH GIÁO KHOA (nếu có). KHÔNG bịa.\n"
+    prompt += "- ĐỊNH DẠNG bài soạn: BÁM THEO FILE MẪU (nếu có).\n\n"
+    prompt += "THÔNG TIN:\n"
+    prompt += "GV: " + mem.get("teacher_name", "") + " | Trường: " + mem.get("school", "") + "\n"
+    prompt += "Môn: " + plan.get("subject", "") + " | Khối: " + plan.get("grade", "") + "\n"
+    prompt += "Tên bài: " + plan.get("topic", "") + "\n"
+    prompt += "Thời lượng: " + (plan.get("period") or "Chưa xác định") + "\n\n"
+
     if tpl_text:
         prompt += tpl_text + "\n"
     if src_text:
         prompt += src_text + "\n"
-    prompt += "QUY TAC:\n"
-    prompt += "1. Bam sat mau (neu co).\n"
-    prompt += "2. Lay noi dung tu nguon (neu co), khong bia.\n"
-    prompt += "3. Chi tiet, cu the, toi thieu 1500 tu.\n"
-    prompt += "4. Bang markdown: | Cot 1 | Cot 2 |, dung <br> va **bold** trong o.\n"
-    prompt += "5. Ky hieu toan: x², √x, H₂O, ≤, ∈, π, ° (khong dung LaTeX).\n"
-    prompt += "6. Tieng Viet co dau.\n"
-    prompt += "7. Markdown: '# ', '## ', '### ', '- ', '1. '.\n"
+
+    prompt += "YÊU CẦU NỘI DUNG:\n"
+    prompt += "1. Kiến thức, số liệu, ví dụ: PHẢI LẤY TỪ NGUỒN SGK.\n"
+    prompt += "2. Nếu nguồn thiếu: ghi [Cần bổ sung: ...]. KHÔNG bịa.\n"
+    prompt += "3. Chi tiết, cụ thể, dùng được ngay. Tối thiểu 1500 từ.\n"
+    prompt += "4. Mỗi hoạt động dạy học phải có: mục tiêu, cách tổ chức, sản phẩm.\n\n"
+
+    prompt += "YÊU CẦU ĐỊNH DẠNG (BÁM THEO MẪU):\n"
+    prompt += "5. Nếu mẫu có mục nào → bài soạn phải có mục đó, đúng thứ tự.\n"
+    prompt += "6. Nếu mẫu dùng bảng → dùng bảng markdown tương ứng.\n"
+    prompt += "7. Bảng hoạt động dạy học: ĐÚNG 2 CỘT.\n"
+    prompt += "   | Hoạt động của GV và HS | Sản phẩm |\n"
+    prompt += "   |---|---|\n"
+    prompt += "8. Trong ô: dùng <br> xuống dòng, **bold** in đậm.\n\n"
+
+    prompt += "KÝ HIỆU TOÁN (dùng Unicode):\n"
+    prompt += "9. x², x³, √x, H₂O, ≤, ≥, ≠, ∈, π, °, α, β\n"
+    prompt += "10. KHÔNG dùng LaTeX ($...$, \\frac, \\sqrt).\n\n"
+
+    prompt += "ĐỊNH DẠNG MARKDOWN:\n"
+    prompt += "11. '# ' cấp 1, '## ' cấp 2, '### ' cấp 3\n"
+    prompt += "12. '- ' bullet, '1. ' số\n"
+    prompt += "13. Tiếng Việt có dấu đầy đủ.\n"
     return prompt
 
 
+# ============ XỬ LÝ WORD ============
 def fix_math(text):
     text = re.sub(r"\^2\b", "²", text)
     text = re.sub(r"\^3\b", "³", text)
@@ -541,6 +601,7 @@ def write_content_to_doc(d, content):
         i += 1
 
 
+# ============ TẠO FILE WORD ============
 def make_doc(title, body):
     d = Document()
     s = d.sections[0]
@@ -553,28 +614,83 @@ def make_doc(title, body):
     d.add_heading(title, 0)
     mem = st.session_state.get("memory", {})
     if mem.get("school"):
-        d.add_paragraph("Don vi: " + mem["school"])
+        d.add_paragraph("Đơn vị: " + mem["school"])
     if mem.get("teacher_name"):
-        d.add_paragraph("Nguoi thuc hien: " + mem["teacher_name"])
-    d.add_paragraph("Ngay tao: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
+        d.add_paragraph("Người thực hiện: " + mem["teacher_name"])
+    d.add_paragraph("Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
     write_content_to_doc(d, body)
     b = io.BytesIO()
     d.save(b)
     return b.getvalue()
 
 
+# ============ PHIẾU BÁO GIẢNG (TRANG ĐẦU) ============
+def add_phieu_bao_giang(doc, lich, tuan_start):
+    """Thêm phiếu báo giảng vào đầu file Word."""
+    mem = st.session_state.get("memory", {})
+
+    # Tiêu đề
+    h = doc.add_heading("PHIẾU BÁO GIẢNG", 0)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Thông tin
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run("Trường: ").bold = True
+    p.add_run(mem.get("school", "..."))
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run("Giáo viên: ").bold = True
+    p.add_run(mem.get("teacher_name", "..."))
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run("Tuần: ").bold = True
+    end_date = tuan_start + timedelta(days=6)
+    p.add_run(
+        "Từ ngày " + tuan_start.strftime("%d/%m/%Y")
+        + " đến ngày " + end_date.strftime("%d/%m/%Y")
+    )
+
+    doc.add_paragraph()
+
+    # Bảng phiếu báo giảng
+    table = doc.add_table(rows=1, cols=6)
+    table.style = "Table Grid"
+    hdr = table.rows[0].cells
+    for i, h_text in enumerate(["Thứ", "Ngày", "Tiết", "Lớp", "Tên bài dạy", "Ghi chú"]):
+        hdr[i].text = ""
+        run = hdr[i].paragraphs[0].add_run(h_text)
+        run.bold = True
+
+    for r in lich:
+        row = table.add_row().cells
+        row[0].text = r["thu"]
+        row[1].text = r["ngay"]
+        row[2].text = r["tiet"]
+        row[3].text = r["lop"]
+        row[4].text = r["ten_bai"]
+        row[5].text = ""
+
+    doc.add_paragraph()
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p.add_run("Ngày " + datetime.now().strftime("%d") + " tháng " + datetime.now().strftime("%m") + " năm " + datetime.now().strftime("%Y"))
+    p2 = doc.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p2.add_run("Giáo viên").bold = True
+    doc.add_paragraph()
+    doc.add_paragraph()
+    p3 = doc.add_paragraph()
+    p3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p3.add_run(mem.get("teacher_name", "..."))
+
+
+# ============ SOẠN 1 BÀI ============
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
-st.caption("Ví dụ: Soạn giáo án Toán 6 bài Ước chung lớn nhất, 2 tiết")
-
-cmd = st.text_area(
-    "Lệnh",
-    height=100,
-    placeholder="Soạn giáo án Toán 6 bài Ước chung lớn nhất...",
-    label_visibility="collapsed",
-    key="single_cmd",
-)
-
+cmd = st.text_area("Lệnh", height=100,
+                    placeholder="Soạn giáo án Toán 6 bài Ước chung lớn nhất...",
+                    label_visibility="collapsed", key="single_cmd")
 c1, c2 = st.columns([3, 1])
 with c1:
     run = st.button("▶️ Thực hiện", type="primary", use_container_width=True)
@@ -587,19 +703,23 @@ if run and cmd.strip():
     if not available_providers:
         st.error("Chưa có API key.")
     else:
-        with st.spinner("🧠 Phân tích lệnh..."):
-            plan = analyze_command(cmd)
-        with st.expander("📋 Kế hoạch", expanded=False):
-            st.json(plan)
         with st.spinner("🤖 Đang sinh nội dung..."):
-            prompt = build_exec_prompt(plan)
-            result = call_ai(prompt)
+            mem = st.session_state["memory"]
+            plan = {
+                "task": "Soạn kế hoạch bài dạy",
+                "subject": mem.get("default_subject", "Toan"),
+                "grade": mem.get("default_grade", "6"),
+                "topic": cmd,
+                "period": "",
+                "template_files": list(st.session_state["templates"].keys())[:1],
+                "source_files": list(st.session_state["sources"].keys())[:1],
+            }
+            result = call_ai(build_exec_prompt(plan))
         if result:
             st.session_state["draft"] = result
-            st.session_state["last_topic"] = plan.get("topic", "")
+            st.session_state["last_topic"] = cmd
             if GITHUB_TOKEN:
-                save_history(plan.get("task", ""), plan.get("topic", ""), result)
-
+                save_history("Soạn bài", cmd, result)
 
 if st.session_state.get("draft"):
     st.divider()
@@ -608,118 +728,70 @@ if st.session_state.get("draft"):
     safe_name = re.sub(r"[^A-Za-z0-9_\-]", "_", st.session_state.get("last_topic", "tai_lieu"))[:45] or "tai_lieu"
     d1, d2 = st.columns(2)
     with d1:
-        st.download_button(
-            "⬇️ Tải Word",
-            make_doc("Tài liệu", content),
-            file_name=safe_name + ".docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True,
-        )
+        st.download_button("⬇️ Tải Word", make_doc("Tài liệu", content),
+                           file_name=safe_name + ".docx",
+                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                           type="primary", use_container_width=True)
     with d2:
-        st.download_button(
-            "⬇️ Tải TXT",
-            content.encode("utf-8"),
-            file_name=safe_name + ".txt",
-            mime="text/plain",
-            use_container_width=True,
-        )
-    st.session_state["draft"] = st.text_area(
-        "Nội dung (có thể sửa)", content, height=500, key="edit_draft"
-    )
+        st.download_button("⬇️ Tải TXT", content.encode("utf-8"),
+                           file_name=safe_name + ".txt", mime="text/plain",
+                           use_container_width=True)
+    st.session_state["draft"] = st.text_area("Nội dung (có thể sửa)", content,
+                                              height=500, key="edit_draft")
 
 
+# ============ TẠO LỊCH BÁO GIẢNG ============
 st.divider()
-st.subheader("📅 Tạo lịch báo giảng từ TKB + PPCT")
-st.caption("Upload TKB và PPCT (PDF/DOCX/Excel) → AI tự đọc → tạo lịch báo giảng")
+st.subheader("📅 1. Tạo lịch báo giảng từ TKB + PPCT")
 
-with st.expander("📖 Hướng dẫn sử dụng", expanded=False):
-    st.markdown("""
-**Bước 1:** Upload **Thời khóa biểu** (TKB) — file PDF, DOCX hoặc Excel do trường cung cấp.
-
-**Bước 2:** Upload **Phân phối chương trình** (PPCT) — file PDF, DOCX hoặc Excel.
-
-**Bước 3:** Nhập **ngày bắt đầu tuần** (thứ 2 của tuần đó).
-
-**Bước 4:** Bấm **Tạo lịch báo giảng** — AI tự đọc file, trích xuất TKB và PPCT, ghép lại thành lịch.
-
-**Lưu ý:**
-- File PDF scan (ảnh) → cần OCR trước hoặc dán text thủ công
-- File Excel có nhiều sheet → AI sẽ đọc sheet đầu tiên
-- Nếu file phức tạp, có thể dán text thủ công vào ô bên dưới
-""")
-
-st.markdown("### 📘 1. Thời khóa biểu")
-tkb_file = st.file_uploader(
-    "Upload file TKB (PDF/DOCX/Excel)",
-    type=["pdf", "docx", "xlsx", "xls", "csv", "txt"],
-    key="tkb_file",
-)
-tkb_manual = st.text_area(
-    "Hoặc dán TKB trực tiếp (nếu file không đọc được)",
-    height=120,
-    placeholder="Thứ 2 | Tiết 1 | 6A | Toán\nThứ 2 | Tiết 3 | 6B | Toán\n...",
-    key="tkb_manual",
-)
-
-st.markdown("### 📗 2. Phân phối chương trình")
-ppct_file = st.file_uploader(
-    "Upload file PPCT (PDF/DOCX/Excel)",
-    type=["pdf", "docx", "xlsx", "xls", "csv", "txt"],
-    key="ppct_file",
-)
-ppct_manual = st.text_area(
-    "Hoặc dán PPCT trực tiếp",
-    height=120,
-    placeholder="Tiết 22 | Bài 11: Ước chung lớn nhất | 2 tiết\nTiết 24 | Bài 12: Bội chung nhỏ nhất | 2 tiết\n...",
-    key="ppct_manual",
-)
-
-st.markdown("### 📆 3. Ngày bắt đầu tuần")
-start_date = st.date_input(
-    "Chọn thứ 2 của tuần cần tạo lịch",
-    value=st.session_state["start_date_val"],
-    key="start_date_input",
-)
+tkb_file = st.file_uploader("📘 Upload file TKB", type=["pdf", "docx", "xlsx", "xls", "csv", "txt"], key="tkb_file")
+tkb_manual = st.text_area("Hoặc dán TKB", height=100, key="tkb_manual")
+ppct_file = st.file_uploader("📗 Upload file PPCT", type=["pdf", "docx", "xlsx", "xls", "csv", "txt"], key="ppct_file")
+ppct_manual = st.text_area("Hoặc dán PPCT", height=100, key="ppct_manual")
+start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
+                            value=st.session_state["start_date_val"],
+                            key="start_date_input")
 st.session_state["start_date_val"] = start_date
 
 
-def ai_extract_tkb(raw_text):
-    system = "Ban la tro ly doc bang. Tra ve CHI text theo format, khong giai thich."
-    prompt = "Doc thong tin Thoi khoa bieu sau, chuyen thanh format moi dong 1 tiet:\n"
-    prompt += "Thu | Tiet | Lop | Mon\n\n"
-    prompt += "Vi du:\nThu 2 | Tiet 1 | 6A | Toan\nThu 2 | Tiet 3 | 6B | Toan\n\n"
-    prompt += "NOI DUNG TKB:\n" + raw_text[:12000]
-    prompt += "\n\nCHI tra ve cac dong theo format tren."
+def ai_extract_tkb(raw):
+    system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
+    prompt = "Doc TKB sau, chuyen thanh moi dong: Thu | Tiet | Lop | Mon\n\nNOI DUNG:\n"
+    prompt += raw[:12000] + "\n\nCHI tra ve cac dong."
     try:
         result = call_ai(prompt, system)
-        lines = []
-        for line in result.splitlines():
-            line = line.strip()
-            if "|" in line and len(line.split("|")) >= 4:
-                lines.append(line)
-        return "\n".join(lines)
+        return "\n".join([l.strip() for l in result.splitlines() if "|" in l and len(l.split("|")) >= 4])
     except Exception:
         return ""
 
 
-def ai_extract_ppct(raw_text):
-    system = "Ban la tro ly doc bang. Tra ve CHI text theo format, khong giai thich."
-    prompt = "Doc thong tin Phan phoi chuong trinh sau, chuyen thanh format moi dong 1 bai:\n"
-    prompt += "Tiet bat dau | Ten bai | So tiet\n\n"
-    prompt += "Vi du:\nTiet 22 | Bai 11: Uoc chung lon nhat | 2 tiet\nTiet 24 | Bai 12: Boi chung nho nhat | 2 tiet\n\n"
-    prompt += "NOI DUNG PPCT:\n" + raw_text[:12000]
-    prompt += "\n\nCHI tra ve cac dong theo format tren."
+def ai_extract_ppct(raw):
+    system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
+    prompt = "Doc PPCT sau, chuyen thanh moi dong: Tiet | Ten bai | So tiet\n\nNOI DUNG:\n"
+    prompt += raw[:12000] + "\n\nCHI tra ve cac dong."
     try:
         result = call_ai(prompt, system)
-        lines = []
-        for line in result.splitlines():
-            line = line.strip()
-            if "|" in line and len(line.split("|")) >= 2:
-                lines.append(line)
-        return "\n".join(lines)
+        return "\n".join([l.strip() for l in result.splitlines() if "|" in l and len(l.split("|")) >= 2])
     except Exception:
         return ""
+
+
+def auto_fix_tkb(text):
+    fixed = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "|" in line:
+            fixed.append(line)
+            continue
+        m = re.match(r"^(\d)(\d)(6A\d+)(.+)$", line)
+        if m:
+            fixed.append("Thứ " + m.group(1) + " | Tiết " + m.group(2)
+                         + " | " + m.group(3) + " | " + m.group(4).strip())
+        else:
+            fixed.append(line)
+    return "\n".join(fixed)
 
 
 def parse_tkb(text):
@@ -732,15 +804,17 @@ def parse_tkb(text):
         if len(parts) < 4:
             continue
         thu = parts[0]
+        if not thu.lower().startswith("thứ"):
+            thu = "Thứ " + thu
+        tiet = parts[1]
+        if not tiet.lower().startswith("tiết"):
+            num = re.search(r"\d+", tiet)
+            tiet = "Tiết " + (num.group(0) if num else tiet)
         if thu not in result:
             result[thu] = []
-        result[thu].append({
-            "tiet": parts[1],
-            "lop": parts[2],
-            "mon": parts[3],
-        })
+        result[thu].append({"tiet": tiet, "lop": parts[2], "mon": parts[3]})
     for thu in result:
-        result[thu].sort(key=lambda x: x["tiet"])
+        result[thu].sort(key=lambda x: int(re.search(r"\d+", x["tiet"]).group(0)) if re.search(r"\d+", x["tiet"]) else 0)
     return result
 
 
@@ -758,58 +832,51 @@ def parse_ppct(text):
         so_tiet_str = parts[2] if len(parts) > 2 else "1 tiết"
         m = re.search(r"(\d+)", so_tiet_str)
         n_tiet = int(m.group(1)) if m else 1
-        result.append({
-            "tiet_bd": tiet_start,
-            "ten_bai": parts[1],
-            "so_tiet": n_tiet,
-            "so_tiet_str": so_tiet_str,
-        })
+        result.append({"tiet_bd": tiet_start, "ten_bai": parts[1], "so_tiet": n_tiet})
     result.sort(key=lambda x: x["tiet_bd"])
     return result
 
 
 if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_width=True):
     if not available_providers:
-        st.error("Cần có ít nhất 1 API key để AI đọc file.")
+        st.error("Cần API key.")
     else:
         tkb_raw = tkb_manual.strip()
         if tkb_file:
             _, text, _ = read_file(tkb_file)
             tkb_raw = text
-            st.info("📘 Đã đọc TKB: " + str(len(tkb_raw)) + " ký tự")
-
         ppct_raw = ppct_manual.strip()
         if ppct_file:
             _, text, _ = read_file(ppct_file)
             ppct_raw = text
-            st.info("📗 Đã đọc PPCT: " + str(len(ppct_raw)) + " ký tự")
 
         if not tkb_raw or not ppct_raw:
-            st.error("Cần có cả TKB và PPCT.")
+            st.error("Cần TKB và PPCT.")
         else:
-            with st.spinner("🧠 AI đang đọc TKB..."):
-                if tkb_raw and "|" in tkb_raw and len(tkb_raw.splitlines()[0].split("|")) >= 4:
-                    tkb_clean = tkb_raw
-                else:
+            tkb_auto = auto_fix_tkb(tkb_raw)
+            if tkb_auto and "|" in tkb_auto and len(tkb_auto.splitlines()[0].split("|")) >= 4:
+                tkb_clean = tkb_auto
+            else:
+                with st.spinner("🧠 AI đang đọc TKB..."):
                     tkb_clean = ai_extract_tkb(tkb_raw)
 
             with st.spinner("🧠 AI đang đọc PPCT..."):
-                if ppct_raw and "|" in ppct_raw and len(ppct_raw.splitlines()[0].split("|")) >= 2:
+                if ppct_raw and "|" in ppct_raw:
                     ppct_clean = ppct_raw
                 else:
                     ppct_clean = ai_extract_ppct(ppct_raw)
 
             with st.expander("📋 Xem kết quả AI trích xuất"):
-                st.markdown("**TKB đã chuẩn hóa:**")
+                st.markdown("**TKB:**")
                 st.code(tkb_clean)
-                st.markdown("**PPCT đã chuẩn hóa:**")
+                st.markdown("**PPCT:**")
                 st.code(ppct_clean)
 
             tkb = parse_tkb(tkb_clean)
             ppct = parse_ppct(ppct_clean)
 
             if not tkb or not ppct:
-                st.error("Không parse được TKB hoặc PPCT. Kiểm tra lại nội dung.")
+                st.error("Không parse được.")
             else:
                 days_map = {
                     "thứ 2": 0, "thu 2": 0, "thứ hai": 0, "2": 0,
@@ -819,17 +886,14 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                     "thứ 6": 4, "thu 6": 4, "thứ sáu": 4, "6": 4,
                     "thứ 7": 5, "thu 7": 5, "thứ bảy": 5, "7": 5,
                 }
-
                 all_slots = []
                 for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]:
                     for k in tkb:
                         if k.lower().startswith(thu.lower()[:5]):
                             for item in tkb[k]:
                                 all_slots.append({
-                                    "thu": k,
-                                    "tiet": item["tiet"],
-                                    "lop": item["lop"],
-                                    "mon": item["mon"],
+                                    "thu": k, "tiet": item["tiet"],
+                                    "lop": item["lop"], "mon": item["mon"],
                                 })
 
                 ppct_tiets = []
@@ -843,90 +907,47 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
 
                 lich = []
                 for idx, slot in enumerate(all_slots):
-                    if idx < len(ppct_tiets):
-                        tiet_info = ppct_tiets[idx]
-                        thu_lower = slot["thu"].lower()
-                        offset = 0
-                        for key in days_map:
-                            if key in thu_lower:
-                                offset = days_map[key]
-                                break
-                        ngay = start_date + timedelta(days=offset)
-                        lich.append({
-                            "thu": slot["thu"],
-                            "ngay": ngay.strftime("%d/%m/%Y"),
-                            "tiet": slot["tiet"],
-                            "lop": slot["lop"],
-                            "mon": slot["mon"],
-                            "ten_bai": tiet_info["ten_bai"],
-                            "tiet_trong_bai": tiet_info["tiet_trong_bai"],
-                            "tong_tiet": tiet_info["tong_tiet"],
-                        })
+                    if idx >= len(ppct_tiets):
+                        break
+                    tiet_info = ppct_tiets[idx]
+                    thu_lower = slot["thu"].lower()
+                    offset = 0
+                    for key in days_map:
+                        if key in thu_lower:
+                            offset = days_map[key]
+                            break
+                    ngay = start_date + timedelta(days=offset)
+                    lich.append({
+                        "thu": slot["thu"],
+                        "ngay": ngay.strftime("%d/%m/%Y"),
+                        "tiet": slot["tiet"],
+                        "lop": slot["lop"],
+                        "mon": slot["mon"],
+                        "ten_bai": tiet_info["ten_bai"],
+                        "tiet_trong_bai": tiet_info["tiet_trong_bai"],
+                        "tong_tiet": tiet_info["tong_tiet"],
+                    })
 
                 st.session_state["lich_bao_giang"] = lich
-                st.success("✅ Đã tạo lịch báo giảng: " + str(len(lich)) + " tiết")
+                st.success("✅ Đã tạo lịch: " + str(len(lich)) + " tiết")
 
 
+# ============ HIỂN THỊ LỊCH ============
 if st.session_state.get("lich_bao_giang"):
     lich = st.session_state["lich_bao_giang"]
     st.divider()
     st.subheader("📋 Lịch báo giảng — " + str(len(lich)) + " tiết")
-
     st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tên bài | Tiết |")
     st.markdown("|---|---|---|---|---|---|---|")
     for r in lich:
-        st.markdown(
-            "| " + r["thu"] + " | " + r["ngay"] + " | " + r["tiet"]
-            + " | " + r["lop"] + " | " + r["mon"]
-            + " | " + r["ten_bai"]
-            + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |"
-        )
+        st.markdown("| " + r["thu"] + " | " + r["ngay"] + " | " + r["tiet"]
+                    + " | " + r["lop"] + " | " + r["mon"]
+                    + " | " + r["ten_bai"]
+                    + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
 
-    if st.button("📄 Xuất lịch báo giảng ra Word", type="primary", use_container_width=True):
-        d = Document()
-        s = d.sections[0]
-        s.top_margin = Inches(0.7)
-        s.bottom_margin = Inches(0.7)
-        s.left_margin = Inches(0.8)
-        s.right_margin = Inches(0.8)
-        d.styles["Normal"].font.name = "Times New Roman"
-        d.styles["Normal"].font.size = Pt(12)
-
-        mem = st.session_state.get("memory", {})
-        d.add_heading("LỊCH BÁO GIẢNG TUẦN", 0)
-        if mem.get("school"):
-            d.add_paragraph("Đơn vị: " + mem["school"])
-        if mem.get("teacher_name"):
-            d.add_paragraph("Giáo viên: " + mem["teacher_name"])
-        d.add_paragraph("Tuần bắt đầu: " + st.session_state["start_date_val"].strftime("%d/%m/%Y"))
-
-        table = d.add_table(rows=1, cols=7)
-        table.style = "Table Grid"
-        hdr = table.rows[0].cells
-        for i, h in enumerate(["Thứ", "Ngày", "Tiết", "Lớp", "Môn", "Tên bài", "Tiết/Bài"]):
-            hdr[i].text = h
-        for r in lich:
-            row = table.add_row().cells
-            row[0].text = r["thu"]
-            row[1].text = r["ngay"]
-            row[2].text = r["tiet"]
-            row[3].text = r["lop"]
-            row[4].text = r["mon"]
-            row[5].text = r["ten_bai"]
-            row[6].text = str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"])
-
-        bio = io.BytesIO()
-        d.save(bio)
-        st.download_button(
-            "⬇️ Tải Word lịch báo giảng",
-            bio.getvalue(),
-            file_name="lich_bao_giang_" + st.session_state["start_date_val"].strftime("%Y%m%d") + ".docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True,
-        )
-
-    if st.button("🚀 Soạn hàng loạt các bài trong lịch này", type="primary", use_container_width=True):
+    # Nút soạn cả tuần (có phiếu báo giảng ở trang đầu)
+    if st.button("🚀 2. Soạn cả tuần (có Phiếu báo giảng ở trang đầu)",
+                 type="primary", use_container_width=True):
         if not available_providers:
             st.error("Chưa có API key.")
         else:
@@ -934,10 +955,7 @@ if st.session_state.get("lich_bao_giang"):
             status_text = st.empty()
             results = []
             for idx, r in enumerate(lich):
-                status_text.write(
-                    "⏳ Soạn bài " + str(idx + 1) + "/" + str(len(lich))
-                    + ": " + r["ten_bai"]
-                )
+                status_text.write("⏳ Soạn bài " + str(idx + 1) + "/" + str(len(lich)) + ": " + r["ten_bai"])
                 plan = {
                     "task": "Soạn kế hoạch bài dạy",
                     "subject": r["mon"],
@@ -948,8 +966,7 @@ if st.session_state.get("lich_bao_giang"):
                     "source_files": list(st.session_state["sources"].keys())[:1],
                 }
                 try:
-                    prompt = build_exec_prompt(plan)
-                    content = call_ai(prompt)
+                    content = call_ai(build_exec_prompt(plan))
                     results.append({
                         "thu": r["thu"] + " " + r["ngay"],
                         "ten_bai": r["ten_bai"],
@@ -966,19 +983,21 @@ if st.session_state.get("lich_bao_giang"):
                         "content": "[Lỗi: " + str(e) + "]",
                     })
                 progress.progress((idx + 1) / len(lich))
-
-            status_text.write("✅ Đã soạn xong " + str(len(results)) + " tiết!")
+            status_text.write("✅ Đã soạn " + str(len(results)) + " bài!")
             st.session_state["weekly_results"] = results
 
 
+# ============ XUẤT WORD TUẦN ============
 if st.session_state.get("weekly_results"):
     results = st.session_state["weekly_results"]
+    lich = st.session_state.get("lich_bao_giang", [])
     st.divider()
     st.subheader("📚 Kết quả tuần — " + str(len(results)) + " bài")
     for r in results:
         st.write("- " + r.get("thu", "") + " | " + r.get("ten_bai", ""))
 
-    if st.button("📄 Xuất 1 file Word gộp tất cả bài", type="primary", use_container_width=True):
+    if st.button("📄 3. Xuất file Word tuần (Phiếu báo giảng + bài soạn)",
+                 type="primary", use_container_width=True):
         d = Document()
         s = d.sections[0]
         s.top_margin = Inches(0.7)
@@ -988,33 +1007,31 @@ if st.session_state.get("weekly_results"):
         d.styles["Normal"].font.name = "Times New Roman"
         d.styles["Normal"].font.size = Pt(12)
 
-        mem = st.session_state.get("memory", {})
-        d.add_heading("KẾ HOẠCH BÀI DẠY TUẦN", 0)
-        if mem.get("school"):
-            d.add_paragraph("Đơn vị: " + mem["school"])
-        if mem.get("teacher_name"):
-            d.add_paragraph("Giáo viên: " + mem["teacher_name"])
-        d.add_paragraph("Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
-        d.add_paragraph("Tổng số bài: " + str(len(results)))
+        # === TRANG 1: PHIẾU BÁO GIẢNG ===
+        if lich:
+            add_phieu_bao_giang(d, lich, st.session_state["start_date_val"])
+        else:
+            d.add_heading("PHIẾU BÁO GIẢNG", 0)
+            mem = st.session_state.get("memory", {})
+            d.add_paragraph("Trường: " + mem.get("school", ""))
+            d.add_paragraph("Giáo viên: " + mem.get("teacher_name", ""))
 
+        # === CÁC TRANG SAU: BÀI SOẠN ===
         for idx, r in enumerate(results):
             d.add_page_break()
             d.add_heading("BÀI " + str(idx + 1) + ": " + r.get("ten_bai", ""), 1)
-            d.add_paragraph(
-                "Thứ: " + r.get("thu", "") + " | " + r.get("mon_lop", "")
-                + " | " + r.get("so_tiet", "")
-            )
+            d.add_paragraph("Thứ: " + r.get("thu", "") + " | "
+                            + r.get("mon_lop", "") + " | " + r.get("so_tiet", ""))
             d.add_paragraph("---")
             write_content_to_doc(d, r.get("content", ""))
 
         bio = io.BytesIO()
         d.save(bio)
-        st.success("✅ Đã tạo file Word gộp " + str(len(results)) + " bài.")
+        st.success("✅ Đã tạo file Word: Phiếu báo giảng + " + str(len(results)) + " bài soạn")
         st.download_button(
-            "⬇️ Tải file Word gộp",
+            "⬇️ Tải file Word tuần",
             bio.getvalue(),
-            file_name="ke_hoach_tuan_" + datetime.now().strftime("%Y%m%d") + ".docx",
+            file_name="tuan_" + st.session_state["start_date_val"].strftime("%Y%m%d") + ".docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True,
+            type="primary", use_container_width=True,
         )
