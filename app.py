@@ -1,8 +1,8 @@
 """
-AGENT TRỢ LÝ GIÁO VIÊN THCS AI — BẢN NÂNG CẤP
-- Tùy chọn AI (Google Gemini miễn phí)
-- Nạp mẫu (docx/pdf/txt hoặc dán text) để AI bám theo
-- Vẫn có chế độ mẫu cục bộ khi chưa có API key
+AGENT TRỢ LÝ GIÁO VIÊN THCS AI — BẢN 2.0 (2 TÙY CHỌN RÕ RÀNG)
+- Tùy chọn MẪU: định dạng trình bày
+- Tùy chọn NGUỒN: nội dung tài liệu
+- AI bám mẫu + lấy nội dung từ nguồn
 """
 import subprocess
 import sys
@@ -25,7 +25,6 @@ from docx.shared import Pt, Inches
 from datetime import datetime
 import io, re
 
-# Thư viện đọc PDF (nếu có)
 try:
     from pypdf import PdfReader
     HAS_PYPDF = True
@@ -39,37 +38,66 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Trợ lý Giáo viên THCS AI")
-st.caption("Bản nâng cấp • Nạp mẫu • AI sinh nội dung • Xuất Word")
+st.caption("Bản 2.0 • 2 tùy chọn: MẪU (định dạng) + NGUỒN (nội dung) • AI • Xuất Word")
 
-# ============ SESSION STATE ============
+# SESSION STATE
 for k, v in {
     "draft": "",
     "draft_title": "",
     "template_text": "",
+    "source_text": "",
+    "template_names": [],
+    "source_names": [],
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ============ SIDEBAR ============
+
+# ============ ĐỌC FILE ============
+def read_docx(data: bytes) -> str:
+    try:
+        d = Document(io.BytesIO(data))
+        return "\n".join(p.text for p in d.paragraphs if p.text.strip())
+    except Exception as e:
+        return f"[Lỗi docx: {e}]"
+
+def read_pdf(data: bytes) -> str:
+    if not HAS_PYPDF:
+        return "[Chưa cài pypdf]"
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join((pg.extract_text() or "") for pg in reader.pages)
+    except Exception as e:
+        return f"[Lỗi pdf: {e}]"
+
+def read_file(file) -> tuple:
+    """Trả về (tên, nội dung, kích thước)"""
+    if file is None:
+        return ("", "", 0)
+    data = file.read()
+    if not data:
+        return (file.name, f"[File {file.name} rỗng — kiểm tra lại file gốc]", 0)
+    name = file.name.lower()
+    if name.endswith(".docx"):
+        text = read_docx(data)
+    elif name.endswith(".pdf"):
+        text = read_pdf(data)
+    elif name.endswith((".txt", ".md")):
+        text = data.decode("utf-8", errors="ignore")
+    else:
+        text = f"[Không hỗ trợ định dạng {file.name}]"
+    return (file.name, text, len(text))
+
+
+# ============ SIDEBAR: CẤU HÌNH + THÔNG TIN ============
 with st.sidebar:
     st.header("⚙️ Cấu hình AI")
     api_key = st.text_input(
-        "Google Gemini API Key (tùy chọn)",
+        "Google Gemini API Key",
         type="password",
-        help="Lấy miễn phí tại aistudio.google.com/app/apikey. Để trống nếu chỉ dùng mẫu cục bộ.",
+        help="Lấy miễn phí tại aistudio.google.com/app/apikey",
     )
     use_ai = st.checkbox("Dùng AI để sinh nội dung", value=bool(api_key))
-
-    st.divider()
-    st.header("📄 Mẫu tham khảo")
-    template_file = st.file_uploader(
-        "Nạp file mẫu (docx / pdf / txt)",
-        type=["docx", "pdf", "txt"],
-    )
-    template_paste = st.text_area(
-        "Hoặc dán mẫu trực tiếp vào đây", height=120,
-        placeholder="Dán giáo án mẫu, đề mẫu, phiếu học tập mẫu...",
-    )
 
     st.divider()
     st.header("📋 Thông tin")
@@ -94,63 +122,154 @@ with st.sidebar:
         "Soạn nội dung theo yêu cầu riêng",
     ])
     topic = st.text_input("Tên bài/chủ đề/công việc")
-    details = st.text_area("Yêu cầu cụ thể, mục tiêu, số liệu hoặc ghi chú", height=120)
-    period = st.text_input("Thời lượng hoặc thời gian (nếu cần)",
-                           placeholder="Ví dụ: 1 tiết / tháng 10 / video 2 phút")
+    details = st.text_area("Yêu cầu cụ thể", height=100)
+    period = st.text_input("Thời lượng", placeholder="Ví dụ: 1 tiết / 2 tiết")
 
 
-# ============ ĐỌC FILE MẪU ============
-def read_docx(file_bytes: bytes) -> str:
-    d = Document(io.BytesIO(file_bytes))
-    return "\n".join(p.text for p in d.paragraphs if p.text.strip())
+# ============ 2 TAB RÕ RÀNG: MẪU + NGUỒN ============
+tab_mau, tab_nguon, tab_xem = st.tabs([
+    "📐 TÙY CHỌN MẪU (định dạng trình bày)",
+    "📚 TÙY CHỌN NGUỒN (nội dung tài liệu)",
+    "👁️ XEM TRƯỚC ĐÃ NẠP",
+])
 
+# ---------- TAB MẪU ----------
+with tab_mau:
+    st.markdown("""
+**MẪU dùng để:** quy định **cấu trúc, thứ tự mục, cách trình bày** của tài liệu.
+Ví dụ: giáo án mẫu của trường, đề kiểm tra mẫu, phiếu học tập mẫu...
+AI sẽ **bám sát cấu trúc này** khi soạn.
+""")
+    tpl_files = st.file_uploader(
+        "📎 Nạp 1 hoặc nhiều file MẪU (docx / pdf / txt)",
+        type=["docx", "pdf", "txt"],
+        accept_multiple_files=True,
+        key="tpl_uploader",
+    )
+    tpl_paste = st.text_area(
+        "📝 Hoặc dán mẫu trực tiếp vào đây",
+        height=140,
+        placeholder="Dán nội dung mẫu (giáo án, đề, phiếu...) vào đây...",
+        key="tpl_paste",
+    )
+    if st.button("🗑️ Xóa mẫu đã nạp", key="clear_tpl"):
+        st.session_state["template_text"] = ""
+        st.session_state["template_names"] = []
+        st.rerun()
 
-def read_pdf(file_bytes: bytes) -> str:
-    if not HAS_PYPDF:
-        return ""
-    reader = PdfReader(io.BytesIO(file_bytes))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+# ---------- TAB NGUỒN ----------
+with tab_nguon:
+    st.markdown("""
+**NGUỒN dùng để:** chứa **kiến thức, số liệu, dữ kiện** để AI lấy nội dung.
+Ví dụ: bài học SGK, tài liệu tham khảo, số liệu thống kê, văn bản gốc...
+AI **chỉ được lấy nội dung từ nguồn**, không bịa thêm.
+""")
+    src_files = st.file_uploader(
+        "📎 Nạp 1 hoặc nhiều file NGUỒN (docx / pdf / txt)",
+        type=["docx", "pdf", "txt"],
+        accept_multiple_files=True,
+        key="src_uploader",
+    )
+    src_paste = st.text_area(
+        "📝 Hoặc dán nội dung nguồn trực tiếp vào đây",
+        height=140,
+        placeholder="Dán kiến thức, số liệu, dữ kiện vào đây...",
+        key="src_paste",
+    )
+    if st.button("🗑️ Xóa nguồn đã nạp", key="clear_src"):
+        st.session_state["source_text"] = ""
+        st.session_state["source_names"] = []
+        st.rerun()
 
-
-def get_template_text() -> str:
+# ---------- XỬ LÝ NỘI DUNG ĐÃ NẠP ----------
+# Ưu tiên dùng nội dung mới nạp (file + paste), nếu trống thì dùng session_state (đã nạp trước)
+def collect_text(files, paste, store_key, names_key):
     parts = []
-    if template_paste.strip():
-        parts.append(template_paste.strip())
-    if template_file is not None:
-        data = template_file.read()
-        name = template_file.name.lower()
-        try:
-            if name.endswith(".docx"):
-                parts.append(read_docx(data))
-            elif name.endswith(".pdf"):
-                parts.append(read_pdf(data))
-            elif name.endswith(".txt"):
-                parts.append(data.decode("utf-8", errors="ignore"))
-        except Exception as e:
-            st.warning(f"Không đọc được file mẫu: {e}")
-    text = "\n\n---\n\n".join(p for p in parts if p)
-    return text[:8000]  # giới hạn để không vượt context
+    names = []
+    if paste and paste.strip():
+        parts.append(paste.strip())
+        names.append("(văn bản dán)")
+    if files:
+        for f in files:
+            nm, text, sz = read_file(f)
+            if nm:
+                parts.append(f"--- TÀI LIỆU: {nm} ---\n{text}")
+                names.append(f"{nm} ({sz} ký tự)")
+    if parts:
+        st.session_state[store_key] = "\n\n".join(parts)
+        st.session_state[names_key] = names
+    return st.session_state[store_key], st.session_state[names_key]
+
+template_text, template_names = collect_text(tpl_files, tpl_paste, "template_text", "template_names")
+source_text, source_names = collect_text(src_files, src_paste, "source_text", "source_names")
+
+# ---------- TAB XEM TRƯỚC ----------
+with tab_xem:
+    st.subheader("📐 MẪU đã nạp")
+    if template_names:
+        for n in template_names:
+            st.write(f"✅ {n}")
+        st.caption(f"Tổng: {len(template_text):,} ký tự")
+        with st.expander("Xem nội dung mẫu"):
+            st.text(template_text[:3000] + ("..." if len(template_text) > 3000 else ""))
+    else:
+        st.info("Chưa nạp mẫu.")
+
+    st.divider()
+    st.subheader("📚 NGUỒN đã nạp")
+    if source_names:
+        for n in source_names:
+            st.write(f"✅ {n}")
+        st.caption(f"Tổng: {len(source_text):,} ký tự")
+        with st.expander("Xem nội dung nguồn"):
+            st.text(source_text[:3000] + ("..." if len(source_text) > 3000 else ""))
+    else:
+        st.info("Chưa nạp nguồn.")
 
 
 # ============ GỌI AI ============
-def call_gemini(prompt: str, api_key: str) -> str:
+def call_gemini(prompt: str, key: str) -> str:
     import google.generativeai as genai
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    resp = model.generate_content(prompt)
-    return resp.text
+    genai.configure(api_key=key)
+    last_err = None
+    for model_name in [
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+    ]:
+        try:
+            model = genai.GenerativeModel(model_name)
+            resp = model.generate_content(prompt)
+            return resp.text
+        except Exception as e:
+            last_err = e
+    raise last_err
 
 
 def build_prompt() -> str:
     t = topic.strip() or "[Chưa có tên]"
-    template = get_template_text()
-    tpl_block = f"""
-DƯỚI ĐÂY LÀ MẪU THAM KHẢO (giáo viên cung cấp). Hãy bám sát cấu trúc, cách trình bày và văn phong của mẫu này:
 
-\"\"\"
-{template}
-\"\"\"
-""" if template else "Không có mẫu cụ thể; hãy dùng cấu trúc chuẩn của giáo dục THCS Việt Nam."
+    tpl_block = f"""
+╔══════════════════════════════════════════╗
+║  FILE MẪU (BẮT BUỘC bám theo cấu trúc)  ║
+╚══════════════════════════════════════════╝
+{template_text[:12000]}
+═════════════ HẾT MẪU ═════════════
+""" if template_text else """
+(Không có file mẫu — dùng cấu trúc chuẩn GDPT 2018.)
+"""
+
+    src_block = f"""
+╔══════════════════════════════════════════╗
+║  NGUỒN TÀI LIỆU (chỉ lấy nội dung ở đây) ║
+╚══════════════════════════════════════════╝
+{source_text[:20000]}
+═════════════ HẾT NGUỒN ═════════════
+""" if source_text else """
+(Không có nguồn — dùng kiến thức chuẩn môn học.)
+"""
 
     return f"""Bạn là trợ lý chuyên môn cho giáo viên THCS Việt Nam.
 
@@ -162,170 +281,52 @@ YÊU CẦU RIÊNG: {details or 'Không có'}
 
 {tpl_block}
 
-YÊU CẦU ĐẦU RA:
-- Viết bằng tiếng Việt, văn phong sư phạm, trang trọng.
-- Nội dung cụ thể, chi tiết, có thể dùng được ngay (không viết chung chung).
-- Dùng markdown: '# ' cho tiêu đề cấp 1, '## ' cho cấp 2, '### ' cho cấp 3, '- ' cho gạch đầu dòng, '1. ' cho danh sách số.
-- Bám sát chương trình GDPT 2018 và đặc thù môn {subject} lớp {grade}.
-- Nếu có mẫu ở trên, phải theo đúng cấu trúc của mẫu.
-- Không thêm lời chào, không giải thích, chỉ xuất nội dung tài liệu.
+{src_block}
+
+QUY TẮC BẮT BUỘC:
+1. Nếu có FILE MẪU: giữ đúng cấu trúc, thứ tự mục, cách đánh số, cách trình bày của mẫu. Không tự thêm/bớt mục.
+2. Nếu có NGUỒN TÀI LIỆU: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.
+3. Nếu nguồn thiếu: ghi rõ [Cần bổ sung: ...] thay vì tự bịa.
+4. Viết tiếng Việt, văn phong sư phạm, cụ thể, dùng được ngay.
+5. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.
+6. Chỉ xuất nội dung tài liệu, không thêm lời chào.
 """
 
 
-# ============ MẪU CỤC BỘ (khi không dùng AI) ============
+# ============ MẪU CỤC BỘ ============
 def generate_local() -> str:
     t = topic.strip() or "[Điền tên bài/chủ đề]"
     common = (f"- Môn học: {subject}\n- Lớp: {grade}\n- Chủ đề: {t}\n"
               f"- Thời gian: {period or 'Chưa xác định'}")
-
-    if task == "Soạn kế hoạch bài dạy":
-        return f"""# KẾ HOẠCH BÀI DẠY
+    return f"""# {task.upper()}
+{common}
 
 ## I. Thông tin chung
 {common}
 
-## II. Mục tiêu / yêu cầu cần đạt
-- Kiến thức: nêu được kiến thức trọng tâm của bài.
-- Năng lực: vận dụng kiến thức để giải quyết nhiệm vụ học tập.
-- Phẩm chất: tích cực, trung thực và hợp tác trong học tập.
+## II. Nội dung chính
+{details or '[Bổ sung yêu cầu cụ thể]'}
 
-## III. Thiết bị và học liệu
-- Giáo viên: sách giáo khoa, bảng/phương tiện trình chiếu, phiếu học tập.
-- Học sinh: sách giáo khoa, vở ghi và dụng cụ học tập.
-
-## IV. Tiến trình dạy học
-### 1. Khởi động
-- Nêu tình huống/câu hỏi gợi mở liên quan đến {t}.
-### 2. Hình thành kiến thức
-- Giao nhiệm vụ cá nhân hoặc nhóm; học sinh thảo luận và trình bày.
-- Giáo viên nhận xét, chuẩn hóa kiến thức và đưa ví dụ.
-### 3. Luyện tập
-- Tổ chức bài tập từ nhận biết đến vận dụng; phản hồi cách làm.
-### 4. Vận dụng
-- Giao nhiệm vụ gắn với thực tiễn hoặc tình huống gần gũi.
-### 5. Đánh giá
-- Đánh giá qua câu trả lời, sản phẩm học tập và mức độ tham gia.
-
-## V. Điều chỉnh sau bài dạy
-- Nội dung cần điều chỉnh: bổ sung sau khi dạy thực tế.
-
-## VI. Yêu cầu riêng của giáo viên
-{details or 'Đối chiếu yêu cầu cần đạt, sách giáo khoa và kế hoạch giáo dục của nhà trường trước khi sử dụng.'}"""
-
-    if task == "Tạo đề kiểm tra và khung đáp án":
-        return f"""# ĐỀ KIỂM TRA — KHUNG SOẠN THẢO
-{common}
-
-## I. Trắc nghiệm
-1. [Soạn câu hỏi phù hợp với nội dung đã học; 4 lựa chọn A, B, C, D.]
-2. [Soạn câu hỏi ở mức độ thông hiểu.]
-3. [Soạn câu hỏi vận dụng.]
-
-## II. Tự luận
-1. [Ghi rõ yêu cầu và điểm thành phần.]
-2. [Ghi rõ yêu cầu và điểm thành phần.]
-
-## III. Đáp án và hướng dẫn chấm
-- Trắc nghiệm: ghi đáp án đúng và giải thích ngắn.
-- Tự luận: ghi lời giải, thang điểm và tiêu chí chấp nhận cách làm tương đương.
-
-## IV. Ghi chú
-{details or 'Bổ sung ma trận/đặc tả, tổng điểm và thời gian làm bài theo yêu cầu của nhà trường.'}"""
-
-    if task == "Tạo phiếu học tập":
-        return f"""# PHIẾU HỌC TẬP
-{common}
-
-## Mục tiêu
-{details or 'Nắm kiến thức trọng tâm và vận dụng vào nhiệm vụ học tập.'}
-
-## Nhiệm vụ 1 — Khám phá
-1. Ghi lại 3 ý quan trọng của bài học.
-2. Nêu một điều em còn thắc mắc.
-
-## Nhiệm vụ 2 — Luyện tập
-1. [Câu hỏi nhận biết về chủ đề.]
-2. [Câu hỏi thông hiểu.]
-3. [Bài tập vận dụng.]
-
-## Nhiệm vụ 3 — Vận dụng
-Nêu ví dụ thực tế liên quan đến chủ đề và giải thích.
-
-## Tự đánh giá
-- [ ] Em hiểu kiến thức chính.
-- [ ] Em hoàn thành nhiệm vụ.
-- [ ] Em cần được hỗ trợ thêm."""
-
-    if task == "Soạn báo cáo/hồ sơ":
-        return f"""# BÁO CÁO / HỒ SƠ
-{common}
-
-## I. Mục đích
-Nêu mục đích, phạm vi và thời gian thực hiện.
-
-## II. Kết quả thực hiện
-{details or '[Bổ sung công việc đã thực hiện, số liệu và minh chứng thực tế.]'}
-
-## III. Đánh giá
-- Ưu điểm: [nêu theo minh chứng].
-- Hạn chế và nguyên nhân: [nêu khách quan].
-
-## IV. Phương hướng
-- Nhiệm vụ tiếp theo: [việc cần làm, thời hạn].
-- Đề xuất/kiến nghị: [nội dung cần hỗ trợ].
-
-## V. Lưu ý
-Đối chiếu số liệu với hồ sơ gốc trước khi nộp."""
-
-    if task == "Lập kịch bản video bài giảng":
-        return f"""# KỊCH BẢN VIDEO BÀI GIẢNG
-{common}
-
-## 1. Mở đầu (khoảng 10%)
-- Hiển thị tên bài và tình huống gợi mở về {t}.
-
-## 2. Giải thích kiến thức (khoảng 55%)
-- Chia nội dung thành 2–4 ý nhỏ, mỗi ý có ví dụ/hình minh họa.
-- Hiển thị từ khóa ngắn, tránh nhiều chữ trên màn hình.
-
-## 3. Ví dụ và luyện tập (khoảng 25%)
-- Đưa câu hỏi, dành thời gian suy nghĩ rồi trình bày lời giải.
-
-## 4. Tổng kết (khoảng 10%)
-- Nhắc lại 3 ý chính và giao nhiệm vụ vận dụng.
-
-## 5. Yêu cầu bổ sung
-{details or 'Tách cảnh, lời thoại, chữ trên màn hình, âm thanh và motion thành các phần có thể tái sử dụng.'}"""
-
-    return f"""# PHIẾU YÊU CẦU CÔNG VIỆC
-{common}
-
-## Yêu cầu của giáo viên
-{details or '[Mô tả cụ thể sản phẩm cần tạo.]'}
-
-## Quy trình xử lý đề xuất
-1. Xác định mục tiêu và đối tượng sử dụng.
-2. Thu thập dữ liệu đầu vào và tài liệu cần đối chiếu.
-3. Tạo bản nháp, rà soát nội dung.
-4. Giáo viên duyệt trước khi sử dụng chính thức."""
+## III. Ghi chú
+- Đây là bản mẫu cục bộ. Nhập API key để AI sinh nội dung đầy đủ."""
 
 
 def generate() -> str:
     if use_ai:
         if not api_key.strip():
-            st.error("Bạn đã bật AI nhưng chưa nhập API Key.")
+            st.error("Chưa nhập API Key.")
             return ""
         try:
             with st.spinner("🤖 AI đang sinh nội dung..."):
                 return call_gemini(build_prompt(), api_key.strip())
         except Exception as e:
-            st.error(f"Lỗi khi gọi AI: {e}")
-            st.info("Đã chuyển sang dùng mẫu cục bộ.")
+            st.error(f"Lỗi AI: {e}")
+            st.info("Chuyển sang mẫu cục bộ.")
             return generate_local()
     return generate_local()
 
 
-# ============ TẠO FILE WORD ============
+# ============ WORD ============
 def make_doc(title: str, body: str) -> bytes:
     d = Document()
     s = d.sections[0]
@@ -353,21 +354,27 @@ def make_doc(title: str, body: str) -> bytes:
 
 
 # ============ KHU VỰC CHÍNH ============
-if use_ai:
-    st.success("🤖 Chế độ AI đang bật — nội dung sẽ được sinh tự động.")
-else:
-    st.info("📝 Chế độ mẫu cục bộ — chưa dùng AI. Nhập API key ở sidebar để bật AI.")
+st.divider()
+st.subheader("🚀 Tạo tài liệu")
 
-if get_template_text():
-    st.success("📄 Đã nhận mẫu tham khảo — AI sẽ bám theo cấu trúc này.")
-
-if st.button("✨ Tạo bản nháp", type="primary"):
-    if not topic.strip():
-        st.warning("⚠️ Bạn nên nhập 'Tên bài/chủ đề' để tài liệu rõ ràng hơn.")
-    result = generate()
-    if result:
-        st.session_state["draft"] = result
-        st.session_state["draft_title"] = task
+col1, col2 = st.columns([1, 2])
+with col1:
+    if st.button("✨ Tạo bản nháp", type="primary", use_container_width=True):
+        if not topic.strip():
+            st.warning("⚠️ Nên nhập 'Tên bài/chủ đề'.")
+        result = generate()
+        if result:
+            st.session_state["draft"] = result
+            st.session_state["draft_title"] = task
+with col2:
+    status = []
+    if template_text: status.append(f"📐 {len(template_names)} mẫu")
+    if source_text: status.append(f"📚 {len(source_names)} nguồn")
+    if use_ai and api_key: status.append("🤖 AI bật")
+    if status:
+        st.caption(" | ".join(status))
+    else:
+        st.caption("Chưa nạp mẫu/nguồn, chưa bật AI.")
 
 if st.session_state["draft"]:
     st.divider()
@@ -377,8 +384,8 @@ if st.session_state["draft"]:
     )
     name = re.sub(r"[^A-Za-z0-9_\-]", "_", topic.strip())[:45] or "tai_lieu_giao_vien"
 
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col1:
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c1:
         st.download_button(
             "⬇️ Tải Word (.docx)",
             make_doc(st.session_state["draft_title"], st.session_state["draft"]),
@@ -386,28 +393,39 @@ if st.session_state["draft"]:
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary",
         )
-    with col2:
+    with c2:
         st.download_button(
             "⬇️ Tải văn bản (.txt)",
             st.session_state["draft"].encode("utf-8"),
             file_name=name + ".txt",
             mime="text/plain",
         )
-    with col3:
+    with c3:
         if st.button("🗑️ Xóa bản nháp"):
             st.session_state["draft"] = ""
             st.session_state["draft_title"] = ""
             st.rerun()
 
-with st.expander("📖 Hướng dẫn lấy API Key Gemini miễn phí"):
+with st.expander("📖 Hướng dẫn sử dụng 2 tùy chọn"):
     st.markdown("""
-1. Mở trình duyệt, vào **aistudio.google.com/app/apikey**
-2. Đăng nhập bằng tài khoản Google
-3. Bấm **"Create API key"** → chọn project → **Copy** key
-4. Dán vào ô **"Google Gemini API Key"** ở sidebar
-5. Tick chọn **"Dùng AI để sinh nội dung"**
-6. Nạp mẫu (file docx/pdf/txt hoặc dán text) nếu muốn AI bám theo mẫu
-7. Bấm **"Tạo bản nháp"** — AI sẽ sinh nội dung hoàn chỉnh
+### 📐 TÙY CHỌN MẪU (định dạng)
+- Dùng khi bạn có **file mẫu** quy định cấu trúc (giáo án mẫu, đề mẫu...)
+- AI sẽ **giữ đúng thứ tự mục, cách trình bày** của mẫu
+- Nạp **nhiều file** cùng lúc để gộp nhiều mẫu
 
-**Miễn phí**: Gemini 1.5 Flash có hạn mức miễn phí 15 request/phút, 1500 request/ngày — quá đủ cho nhu cầu giáo viên.
+### 📚 TÙY CHỌN NGUỒN (nội dung)
+- Dùng khi bạn có **tài liệu chứa nội dung** (SGK, bài học, số liệu...)
+- AI **chỉ lấy nội dung từ nguồn**, không bịa
+- Nếu nguồn thiếu, AI ghi `[Cần bổ sung: ...]`
+
+### 🎯 Kết hợp cả hai
+- MẪU → định dạng trình bày
+- NGUỒN → nội dung kiến thức
+- AI → sinh tài liệu bám mẫu + lấy nội dung từ nguồn
+
+### 🔑 Lấy API Key Gemini miễn phí
+1. Vào `aistudio.google.com/app/apikey`
+2. Đăng nhập Google → Create API key → Copy
+3. Dán vào ô sidebar
+4. Tick **"Dùng AI để sinh nội dung"**
 """)
