@@ -341,11 +341,10 @@ if st.session_state["draft"]:
             st.session_state["draft"] = ""
             st.session_state["draft_title"] = ""
             st.rerun()
-
-with st.expander("Huong dan cai API Key vinh vien (1 lan)"):
-    st.markdown("""
-**Buoc 1:** Lay API Key mien phi tai `aistudio.google.com/app/apikey`
-
-**Buoc 2:** Mo app Streamlit > bam **...** goc duoi phai > **Settings** > tab **Secrets**
-
-**Buoc 3:** Dan dong sau (thay bang key cua ban):
+with st.expander("Huong dan cai API Key vinh vien"):
+    st.write("Buoc 1: Lay API Key mien phi tai aistudio.google.com/app/apikey")
+    st.write("Buoc 2: Mo app Streamlit > bam ... goc duoi phai > Settings > tab Secrets")
+    st.write("Buoc 3: Dan dong sau (thay bang key cua ban):")
+    st.code('GEMINI_API_KEY = "AIzaSy...key_cua_ban..."', language="toml")
+    st.write("Buoc 4: Bam Save > Reboot")
+    st.write("Tu do AI se tu dong bat, khong can dan key nua.")
