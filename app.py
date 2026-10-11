@@ -34,8 +34,8 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("🎓 Agent Tro ly Giao vien THCS AI")
-st.caption("Ban 3.2 • 4 nha cung cap AI • Tu dong chuyen doi • Xuat Word")
+st.title("🎓 Agent Trợ lý Giáo viên THCS AI")
+st.caption("Bản 3.3 • 4 nhà cung cấp AI • Nội dung chi tiết • Xuất Word")
 
 
 # ============ ĐỌC CẤU HÌNH TỪ SECRETS ============
@@ -66,6 +66,33 @@ NAME_MAP = {
     "GROQ_API_KEY": "Groq",
     "OPENROUTER_API_KEY": "OpenRouter",
     "NVIDIA_API_KEY": "NVIDIA",
+}
+
+# Model ưu tiên cho từng nhà cung cấp (mạnh nhất trước)
+PREFERRED_MODELS = {
+    "GEMINI_API_KEY": [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-flash-latest",
+        "gemini-1.5-flash",
+    ],
+    "GROQ_API_KEY": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-70b-versatile",
+        "mixtral-8x7b-32768",
+        "llama-3.1-8b-instant",
+    ],
+    "OPENROUTER_API_KEY": [
+        "google/gemini-2.0-flash-exp:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "deepseek/deepseek-chat:free",
+        "mistralai/mistral-7b-instruct:free",
+    ],
+    "NVIDIA_API_KEY": [
+        "meta/llama-3.3-70b-instruct",
+        "meta/llama-3.1-70b-instruct",
+        "mistralai/mixtral-8x7b-instruct-v0.1",
+    ],
 }
 
 DEFAULT_SCHOOL = cfg("SCHOOL", "")
@@ -153,7 +180,6 @@ with st.sidebar:
         st.caption("Thêm key trong Secrets để bật AI.")
         use_ai = st.checkbox("Dùng AI để sinh nội dung", value=False)
 
-    # Nhập key tạm thời nếu chưa có trong Secrets
     if not available_names:
         with st.expander("🔑 Nhập API key tạm thời"):
             temp_gem = st.text_input("Gemini API Key", type="password", key="t_gem")
@@ -291,17 +317,39 @@ with tab_xem:
 
 # ============ GỌI AI QUA FREELM ============
 def call_ai(prompt):
-    """Gọi AI qua freelm với tự động chuyển đổi nhà cung cấp."""
+    """Gọi AI qua freelm, ưu tiên model mạnh, tự chuyển đổi khi lỗi."""
     import freelm
 
     llm = freelm.FreeLLM.from_env()
-    resp = llm.chat(
-        [{"role": "user", "content": prompt}],
-        model="auto",
-    )
-    text = getattr(resp, "text", None) or getattr(resp, "content", "")
-    provider = getattr(resp, "provider", "AI")
-    return text, provider
+
+    last_err = None
+    for provider_key in available_providers:
+        models = PREFERRED_MODELS.get(provider_key, [])
+        for model_name in models:
+            try:
+                resp = llm.chat(
+                    [{"role": "user", "content": prompt}],
+                    model=model_name,
+                )
+                text = getattr(resp, "text", None) or getattr(resp, "content", "")
+                if text and len(text.strip()) > 100:
+                    return text, model_name
+            except Exception as e:
+                last_err = e
+                continue
+
+    # Fallback: dùng auto
+    try:
+        resp = llm.chat(
+            [{"role": "user", "content": prompt}],
+            model="auto",
+        )
+        text = getattr(resp, "text", None) or getattr(resp, "content", "")
+        return text, "auto"
+    except Exception as e:
+        if last_err:
+            raise last_err
+        raise e
 
 
 def build_prompt():
@@ -310,7 +358,7 @@ def build_prompt():
     if template_text:
         tpl_block = (
             "=== FILE MẪU (BẮT BUỘC SAO CHÉP NGUYÊN CẤU TRÚC) ===\n"
-            + template_text[:12000]
+            + template_text[:15000]
             + "\n=== HẾT MẪU ==="
         )
     else:
@@ -319,13 +367,14 @@ def build_prompt():
     if source_text:
         src_block = (
             "=== NGUỒN TÀI LIỆU (chỉ lấy nội dung từ đây) ===\n"
-            + source_text[:20000]
+            + source_text[:25000]
             + "\n=== HẾT NGUỒN ==="
         )
     else:
         src_block = "(Không có nguồn - dùng kiến thức chuẩn môn học.)"
 
-    prompt = "Bạn là trợ lý chuyên môn cho giáo viên THCS Việt Nam.\n\n"
+    prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n"
+    prompt += "Bạn có nhiệm vụ soạn tài liệu CHI TIẾT, ĐẦY ĐỦ, DÙNG ĐƯỢC NGAY.\n\n"
     prompt += "NHIỆM VỤ: " + task + "\n"
     prompt += "MÔN: " + subject + " | KHỐI: " + grade + "\n"
     prompt += "CHỦ ĐỀ: " + t + "\n"
@@ -333,30 +382,43 @@ def build_prompt():
     prompt += "YÊU CẦU RIÊNG: " + (details or "Không có") + "\n\n"
     prompt += tpl_block + "\n\n" + src_block + "\n\n"
 
-    prompt += "QUY TẮC BẮT BUỘC (phải tuân thủ tuyệt đối):\n"
+    prompt += "QUY TẮC BẮT BUỘC (tuân thủ tuyệt đối):\n"
+    prompt += "\n[A] VỀ CẤU TRÚC:\n"
     prompt += "1. NẾU CÓ FILE MẪU: phải SAO CHÉP NGUYÊN cấu trúc của mẫu:\n"
     prompt += "   - Giữ ĐÚNG thứ tự các mục (I, II, III... hoặc 1, 2, 3...)\n"
-    prompt += "   - Giữ ĐÚNG tên mục, tiêu đề như trong mẫu\n"
-    prompt += "   - Giữ ĐÚNG cách đánh số, cách trình bày, vị trí các mục\n"
-    prompt += "   - CHỈ THAY phần nội dung bên trong, KHÔNG đổi cấu trúc\n"
-    prompt += "   - Nếu mẫu có mục nào thì phải có mục đó, không tự ý thêm/bớt\n"
-    prompt += "2. NẾU CÓ NGUỒN: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.\n"
-    prompt += "3. NẾU NGUỒN THIẾU: ghi rõ [Cần bổ sung: ...].\n"
-    prompt += "4. KÝ HIỆU TOÁN HỌC - BẮT BUỘC dùng Unicode đẹp:\n"
+    prompt += "   - Giữ ĐÚNG tên mục, tiêu đề, cách đánh số\n"
+    prompt += "   - Giữ ĐÚNG vị trí các mục con, không tự thêm/bớt\n"
+    prompt += "   - CHỈ THAY nội dung bên trong, KHÔNG đổi cấu trúc\n"
+    prompt += "2. NẾU KHÔNG CÓ MẪU: dùng cấu trúc chuẩn của loại tài liệu đó.\n"
+
+    prompt += "\n[B] VỀ NỘI DUNG (RẤT QUAN TRỌNG):\n"
+    prompt += "3. Viết CHI TIẾT, CỤ THỂ, ĐẦY ĐỦ. KHÔNG viết chung chung, sáo rỗng.\n"
+    prompt += "4. Mỗi mục phải có nội dung thực chất:\n"
+    prompt += "   - Mục 'Mục tiêu': nêu rõ kiến thức, kỹ năng, thái độ cụ thể\n"
+    prompt += "   - Mục 'Hoạt động': mô tả từng bước: GV làm gì, HS làm gì, sản phẩm\n"
+    prompt += "   - Mục 'Câu hỏi/bài tập': có câu hỏi cụ thể, đáp án mẫu\n"
+    prompt += "5. Với mỗi hoạt động dạy học, ghi rõ:\n"
+    prompt += "   - Mục tiêu hoạt động\n"
+    prompt += "   - Nội dung/cách thức tổ chức\n"
+    prompt += "   - Sản phẩm học tập dự kiến\n"
+    prompt += "6. Độ dài tối thiểu: 1500 từ cho kế hoạch bài dạy, 1000 từ cho các loại khác.\n"
+    prompt += "7. NẾU CÓ NGUỒN: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.\n"
+    prompt += "8. NẾU NGUỒN THIẾU: ghi rõ [Cần bổ sung: ...].\n"
+
+    prompt += "\n[C] VỀ KÝ HIỆU TOÁN HỌC:\n"
+    prompt += "9. Dùng Unicode đẹp, KHÔNG dùng LaTeX:\n"
     prompt += "   - Lũy thừa: x², x³, aⁿ (KHÔNG viết x^2)\n"
     prompt += "   - Chỉ số dưới: H₂O, CO₂, a₁, a₂ (KHÔNG viết H_2O)\n"
-    prompt += "   - Căn bậc 2: √x, √(a+b) (KHÔNG viết sqrt(x))\n"
-    prompt += "   - Phân số: viết dạng 1/2, 3/4 (KHÔNG viết \\frac{1}{2})\n"
-    prompt += "   - Nhân chia: × ÷ (KHÔNG viết * /)\n"
-    prompt += "   - So sánh: ≤ ≥ ≠ ≈ ≡ (KHÔNG viết <= >= !=)\n"
-    prompt += "   - Tập hợp: ∈ ∉ ⊂ ⊃ ∪ ∩ ∅\n"
-    prompt += "   - Hy Lạp: α β γ δ π θ Δ Σ Ω\n"
-    prompt += "   - Mũi tên: → ⇒ ↔ ⇔\n"
-    prompt += "   - Độ: ° (ví dụ 90°, 45°)\n"
-    prompt += "   - TUYỆT ĐỐI KHÔNG dùng LaTeX: không dùng $...$, \\frac, \\sqrt, ^, _\n"
-    prompt += "5. Viết tiếng Việt CÓ DẤU đầy đủ, văn phong sư phạm, cụ thể, dùng ngay.\n"
-    prompt += "6. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
-    prompt += "7. Chỉ xuất nội dung tài liệu, KHÔNG thêm lời chào, KHÔNG giải thích.\n"
+    prompt += "   - Căn bậc 2: √x (KHÔNG viết sqrt(x))\n"
+    prompt += "   - Phân số: 1/2, 3/4 (KHÔNG viết \\frac{1}{2})\n"
+    prompt += "   - Nhân chia: × ÷ ; So sánh: ≤ ≥ ≠ ≈ ; Tập hợp: ∈ ∉ ⊂ ∪ ∩ ∅\n"
+    prompt += "   - Hy Lạp: α β γ π θ Δ Σ Ω ; Mũi tên: → ⇒ ↔ ; Độ: °\n"
+
+    prompt += "\n[D] VỀ ĐỊNH DẠNG:\n"
+    prompt += "10. Tiếng Việt có dấu đầy đủ, văn phong sư phạm trang trọng.\n"
+    prompt += "11. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
+    prompt += "12. Chỉ xuất nội dung tài liệu. KHÔNG lời chào, KHÔNG giải thích.\n"
+
     return prompt
 
 
@@ -383,12 +445,12 @@ def generate():
             st.error("Chưa có API key nào.")
             return ""
         try:
-            with st.spinner("🤖 freelm đang dò tìm nhà cung cấp..."):
-                text, provider = call_ai(build_prompt())
-            st.success("✅ Đã sinh bằng: " + str(provider))
+            with st.spinner("🤖 Đang thử model mạnh nhất..."):
+                text, model_used = call_ai(build_prompt())
+            st.success("✅ Đã sinh bằng model: " + str(model_used))
             return text
         except Exception as e:
-            st.error("Lỗi freelm: " + str(e))
+            st.error("Lỗi tất cả nhà cung cấp: " + str(e))
             st.info("Chuyển sang mẫu cục bộ.")
             return generate_local()
     return generate_local()
@@ -547,4 +609,4 @@ with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
         language="toml",
     )
     st.write("**Bước 4:** Bấm **Save** → **Reboot**")
-    st.write("**Cách dùng:** freelm tự thử từng nhà cung cấp, không cần chọn thủ công.")
+    st.write("**Cách dùng:** freelm tự thử từng model mạnh nhất, không cần chọn thủ công.")
