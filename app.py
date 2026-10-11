@@ -352,11 +352,11 @@ def read_file(file, use_ocr=True):
     return (name, text, len(text))
 
 
-if "app_started_v12" not in st.session_state:
+if "app_started_v13" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v12"] = True
+    st.session_state["app_started_v13"] = True
 
 
 defaults = {
@@ -823,24 +823,21 @@ def add_table(doc, rows):
             p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.first_line_indent = Inches(0)
+            p.paragraph_format.left_indent = Inches(0)
+            p.paragraph_format.right_indent = Inches(0)
 
             is_header = (i == 0)
             if is_header:
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p.paragraph_format.first_line_indent = Inches(0)
-                p.paragraph_format.left_indent = Inches(0)
-                p.paragraph_format.right_indent = Inches(0)
             else:
                 p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                p.paragraph_format.first_line_indent = Inches(0)
-                p.paragraph_format.left_indent = Inches(0)
-                p.paragraph_format.right_indent = Inches(0)
 
             val = (row[j] if j < len(row) else "").replace("<br>", "\n")
 
             if not is_header:
-                val = re.sub(r"\s*(?=[Bb]ước\s*\d+)", "\n", val)
-                val = re.sub(r"\s+(?=[\-\+]\s+\S)", "\n", val)
+                val = re.sub(r"(?<!^)(?=[Bb]ước\s*\d+)", "\n", val)
+                val = re.sub(r"(?<=[\.\:\;])\s+(?=[A-ZĐ])", "\n", val)
 
                 lines = val.split("\n")
                 cleaned_lines = []
