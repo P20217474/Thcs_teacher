@@ -14,7 +14,6 @@ def _ensure(pkg, mod=None):
 _ensure("streamlit")
 _ensure("python-docx", "docx")
 _ensure("pypdf", "pypdf")
-_ensure("freelm")
 
 import streamlit as st
 from docx import Document
@@ -36,7 +35,7 @@ st.set_page_config(
 )
 
 st.title("🎓 Agent Tro ly Giao vien THCS AI")
-st.caption("Ban 3.1 • freelm • 6 nha cung cap AI • Tu dong chuyen doi • Xuat Word")
+st.caption("Ban 3.2 • 4 nha cung cap AI • Tu dong chuyen doi • Xuat Word")
 
 
 # ============ ĐỌC CẤU HÌNH TỪ SECRETS ============
@@ -48,26 +47,26 @@ def cfg(key, default=""):
         return default
 
 
-# Đọc tất cả API key có thể có
-GEMINI_KEY = cfg("GEMINI_API_KEY", "")
-GROQ_KEY = cfg("GROQ_API_KEY", "")
-OPENROUTER_KEY = cfg("OPENROUTER_API_KEY", "")
-MISTRAL_KEY = cfg("MISTRAL_API_KEY", "")
-CEREBRAS_KEY = cfg("CEREBRAS_API_KEY", "")
-NVIDIA_KEY = cfg("NVIDIA_API_KEY", "")
+PROVIDER_KEYS = {
+    "GEMINI_API_KEY": cfg("GEMINI_API_KEY", ""),
+    "GROQ_API_KEY": cfg("GROQ_API_KEY", ""),
+    "OPENROUTER_API_KEY": cfg("OPENROUTER_API_KEY", ""),
+    "NVIDIA_API_KEY": cfg("NVIDIA_API_KEY", ""),
+}
 
-# Copy tất cả key vào os.environ để freelm đọc
-# (freelm đọc từ biến môi trường)
-for k, v in {
-    "GEMINI_API_KEY": GEMINI_KEY,
-    "GROQ_API_KEY": GROQ_KEY,
-    "OPENROUTER_API_KEY": OPENROUTER_KEY,
-    "MISTRAL_API_KEY": MISTRAL_KEY,
-    "CEREBRAS_API_KEY": CEREBRAS_KEY,
-    "NVIDIA_API_KEY": NVIDIA_KEY,
-}.items():
-    if v:
-        os.environ[k] = v
+# Đặt vào os.environ để freelm đọc
+for _k, _v in PROVIDER_KEYS.items():
+    if _v:
+        os.environ[_k] = _v
+
+available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
+
+NAME_MAP = {
+    "GEMINI_API_KEY": "Gemini",
+    "GROQ_API_KEY": "Groq",
+    "OPENROUTER_API_KEY": "OpenRouter",
+    "NVIDIA_API_KEY": "NVIDIA",
+}
 
 DEFAULT_SCHOOL = cfg("SCHOOL", "")
 DEFAULT_TEACHER = cfg("TEACHER", "")
@@ -76,7 +75,7 @@ DEFAULT_GRADE = cfg("GRADE", "6")
 
 
 # ============ SESSION STATE ============
-for k, v in {
+for _k, _v in {
     "draft": "",
     "draft_title": "",
     "template_text": "",
@@ -84,8 +83,8 @@ for k, v in {
     "template_names": [],
     "source_names": [],
 }.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
 
 
 # ============ ĐỌC FILE ============
@@ -143,45 +142,33 @@ if DEFAULT_GRADE not in GRADES:
 with st.sidebar:
     st.header("⚙️ Cấu hình AI")
 
-    # Đếm số nhà cung cấp có key
-    available = []
-    if GEMINI_KEY:
-        available.append("Gemini")
-    if GROQ_KEY:
-        available.append("Groq")
-    if OPENROUTER_KEY:
-        available.append("OpenRouter")
-    if MISTRAL_KEY:
-        available.append("Mistral")
-    if CEREBRAS_KEY:
-        available.append("Cerebras")
-    if NVIDIA_KEY:
-        available.append("NVIDIA")
+    available_names = [NAME_MAP[k] for k in available_providers]
 
-    if available:
-        st.success("✅ " + ", ".join(available))
+    if available_names:
+        st.success("✅ " + ", ".join(available_names))
         use_ai = st.checkbox("Dùng AI để sinh nội dung", value=True)
         st.caption("freelm tự chuyển đổi khi 1 nhà cung cấp lỗi.")
     else:
         st.warning("Chưa có API key nào.")
-        st.caption("Nhập ít nhất 1 key để dùng AI.")
+        st.caption("Thêm key trong Secrets để bật AI.")
         use_ai = st.checkbox("Dùng AI để sinh nội dung", value=False)
 
-    # Cho phép nhập key tạm thời nếu chưa có
-    if not available:
+    # Nhập key tạm thời nếu chưa có trong Secrets
+    if not available_names:
         with st.expander("🔑 Nhập API key tạm thời"):
-            temp_gemini = st.text_input("Gemini API Key", type="password")
-            temp_groq = st.text_input("Groq API Key", type="password")
-            temp_openrouter = st.text_input("OpenRouter API Key", type="password")
-            if temp_gemini.strip():
-                os.environ["GEMINI_API_KEY"] = temp_gemini.strip()
-                GEMINI_KEY = temp_gemini.strip()
-            if temp_groq.strip():
-                os.environ["GROQ_API_KEY"] = temp_groq.strip()
-                GROQ_KEY = temp_groq.strip()
-            if temp_openrouter.strip():
-                os.environ["OPENROUTER_API_KEY"] = temp_openrouter.strip()
-                OPENROUTER_KEY = temp_openrouter.strip()
+            temp_gem = st.text_input("Gemini API Key", type="password", key="t_gem")
+            temp_groq = st.text_input("Groq API Key", type="password", key="t_groq")
+            temp_or = st.text_input("OpenRouter API Key", type="password", key="t_or")
+            temp_nv = st.text_input("NVIDIA API Key", type="password", key="t_nv")
+            for env_key, val in [
+                ("GEMINI_API_KEY", temp_gem),
+                ("GROQ_API_KEY", temp_groq),
+                ("OPENROUTER_API_KEY", temp_or),
+                ("NVIDIA_API_KEY", temp_nv),
+            ]:
+                if val.strip():
+                    os.environ[env_key] = val.strip()
+                    available_providers.append(env_key)
 
     st.divider()
     st.header("📋 Thông tin")
@@ -197,16 +184,16 @@ with st.sidebar:
     st.divider()
     st.subheader("📝 Công việc")
     task = st.selectbox("Chọn công việc", [
-        "Soan ke hoach bai day",
-        "Tao de kiem tra va khung dap an",
-        "Tao phieu hoc tap",
-        "Soan bao cao/ho so",
-        "Lap kich ban video bai giang",
-        "Soan noi dung theo yeu cau rieng",
+        "Soạn kế hoạch bài dạy",
+        "Tạo đề kiểm tra và khung đáp án",
+        "Tạo phiếu học tập",
+        "Soạn báo cáo/hồ sơ",
+        "Lập kịch bản video bài giảng",
+        "Soạn nội dung theo yêu cầu riêng",
     ])
     topic = st.text_input("Tên bài/chủ đề")
     details = st.text_area("Yêu cầu cụ thể", height=100)
-    period = st.text_input("Thời lượng", placeholder="Vi du: 1 tiet / 2 tiet")
+    period = st.text_input("Thời lượng", placeholder="Ví dụ: 1 tiết / 2 tiết")
 
 
 # ============ 3 TAB ============
@@ -260,13 +247,13 @@ def collect_text(files, paste, store_key, names_key):
     names = []
     if paste and paste.strip():
         parts.append(paste.strip())
-        names.append("(van ban dan)")
+        names.append("(văn bản dán)")
     if files:
         for f in files:
             nm, text, sz = read_file(f)
             if nm:
-                parts.append("--- TAI LIEU: " + nm + " ---\n" + text)
-                names.append(nm + " (" + str(sz) + " ky tu)")
+                parts.append("--- TÀI LIỆU: " + nm + " ---\n" + text)
+                names.append(nm + " (" + str(sz) + " ký tự)")
     if parts:
         st.session_state[store_key] = "\n\n".join(parts)
         st.session_state[names_key] = names
@@ -312,94 +299,96 @@ def call_ai(prompt):
         [{"role": "user", "content": prompt}],
         model="auto",
     )
-    return resp.text, resp.provider
+    text = getattr(resp, "text", None) or getattr(resp, "content", "")
+    provider = getattr(resp, "provider", "AI")
+    return text, provider
 
 
 def build_prompt():
-    t = topic.strip() or "[Chua co ten]"
+    t = topic.strip() or "[Chưa có tên]"
 
     if template_text:
         tpl_block = (
-            "=== FILE MAU (BAT BUOC SAO CHEP NGUYEN CAU TRUC) ===\n"
+            "=== FILE MẪU (BẮT BUỘC SAO CHÉP NGUYÊN CẤU TRÚC) ===\n"
             + template_text[:12000]
-            + "\n=== HET MAU ==="
+            + "\n=== HẾT MẪU ==="
         )
     else:
-        tpl_block = "(Khong co mau - dung cau truc chuan GDPT 2018.)"
+        tpl_block = "(Không có mẫu - dùng cấu trúc chuẩn GDPT 2018.)"
 
     if source_text:
         src_block = (
-            "=== NGUON TAI LIEU (chi lay noi dung tu day) ===\n"
+            "=== NGUỒN TÀI LIỆU (chỉ lấy nội dung từ đây) ===\n"
             + source_text[:20000]
-            + "\n=== HET NGUON ==="
+            + "\n=== HẾT NGUỒN ==="
         )
     else:
-        src_block = "(Khong co nguon - dung kien thuc chuan mon hoc.)"
+        src_block = "(Không có nguồn - dùng kiến thức chuẩn môn học.)"
 
-    prompt = "Ban la tro ly chuyen mon cho giao vien THCS Viet Nam.\n\n"
-    prompt += "NHIEM VU: " + task + "\n"
-    prompt += "MON: " + subject + " | KHOI: " + grade + "\n"
-    prompt += "CHU DE: " + t + "\n"
-    prompt += "THOI LUONG: " + (period or "Chua xac dinh") + "\n"
-    prompt += "YEU CAU RIENG: " + (details or "Khong co") + "\n\n"
+    prompt = "Bạn là trợ lý chuyên môn cho giáo viên THCS Việt Nam.\n\n"
+    prompt += "NHIỆM VỤ: " + task + "\n"
+    prompt += "MÔN: " + subject + " | KHỐI: " + grade + "\n"
+    prompt += "CHỦ ĐỀ: " + t + "\n"
+    prompt += "THỜI LƯỢNG: " + (period or "Chưa xác định") + "\n"
+    prompt += "YÊU CẦU RIÊNG: " + (details or "Không có") + "\n\n"
     prompt += tpl_block + "\n\n" + src_block + "\n\n"
 
-    prompt += "QUY TAC BAT BUOC (phai tuan thu tuyet doi):\n"
-    prompt += "1. NEU CO FILE MAU: phai SAO CHEP NGUYEN cau truc cua mau:\n"
-    prompt += "   - Giu DUNG thu tu cac muc (I, II, III... hoac 1, 2, 3...)\n"
-    prompt += "   - Giu DUNG ten muc, tieu de nhu trong mau\n"
-    prompt += "   - Giu DUNG cach danh so, cach trinh bay, vi tri cac muc\n"
-    prompt += "   - CHI THAY phan noi dung ben trong, KHONG doi cau truc\n"
-    prompt += "   - Neu mau co muc nao thi phai co muc do, khong tu y them/bot\n"
-    prompt += "2. NEU CO NGUON: kien thuc, so lieu phai lay tu nguon. KHONG bia.\n"
-    prompt += "3. NEU NGUON THIEU: ghi ro [Can bo sung: ...].\n"
-    prompt += "4. KY HIEU TOAN HOC - BAT BUOC dung Unicode dep:\n"
-    prompt += "   - Luy thua: x², x³, aⁿ (KHONG viet x^2)\n"
-    prompt += "   - Chi so duoi: H₂O, CO₂, a₁, a₂ (KHONG viet H_2O)\n"
-    prompt += "   - Can bac 2: √x, √(a+b) (KHONG viet sqrt(x))\n"
-    prompt += "   - Phan so: viet dang 1/2, 3/4 (KHONG viet \\frac{1}{2})\n"
-    prompt += "   - Nhan chia: × ÷ (KHONG viet * /)\n"
-    prompt += "   - So sanh: ≤ ≥ ≠ ≈ ≡ (KHONG viet <= >= !=)\n"
-    prompt += "   - Tap hop: ∈ ∉ ⊂ ⊃ ∪ ∩ ∅\n"
-    prompt += "   - Hy Lap: α β γ δ π θ Δ Σ Ω\n"
-    prompt += "   - Mui ten: → ⇒ ↔ ⇔\n"
-    prompt += "   - Do: ° (vi du 90°, 45°)\n"
-    prompt += "   - TUYET DOI KHONG dung LaTeX: khong dung $...$, \\frac, \\sqrt, ^, _\n"
-    prompt += "5. Viet tieng Viet CO DAU day du, van phong su pham, cu the, dung ngay.\n"
-    prompt += "6. Markdown: '# ' cap 1, '## ' cap 2, '### ' cap 3, '- ' bullet, '1. ' so.\n"
-    prompt += "7. Chi xuat noi dung tai lieu, KHONG them loi chao, KHONG giai thich.\n"
+    prompt += "QUY TẮC BẮT BUỘC (phải tuân thủ tuyệt đối):\n"
+    prompt += "1. NẾU CÓ FILE MẪU: phải SAO CHÉP NGUYÊN cấu trúc của mẫu:\n"
+    prompt += "   - Giữ ĐÚNG thứ tự các mục (I, II, III... hoặc 1, 2, 3...)\n"
+    prompt += "   - Giữ ĐÚNG tên mục, tiêu đề như trong mẫu\n"
+    prompt += "   - Giữ ĐÚNG cách đánh số, cách trình bày, vị trí các mục\n"
+    prompt += "   - CHỈ THAY phần nội dung bên trong, KHÔNG đổi cấu trúc\n"
+    prompt += "   - Nếu mẫu có mục nào thì phải có mục đó, không tự ý thêm/bớt\n"
+    prompt += "2. NẾU CÓ NGUỒN: kiến thức, số liệu phải lấy từ nguồn. KHÔNG bịa.\n"
+    prompt += "3. NẾU NGUỒN THIẾU: ghi rõ [Cần bổ sung: ...].\n"
+    prompt += "4. KÝ HIỆU TOÁN HỌC - BẮT BUỘC dùng Unicode đẹp:\n"
+    prompt += "   - Lũy thừa: x², x³, aⁿ (KHÔNG viết x^2)\n"
+    prompt += "   - Chỉ số dưới: H₂O, CO₂, a₁, a₂ (KHÔNG viết H_2O)\n"
+    prompt += "   - Căn bậc 2: √x, √(a+b) (KHÔNG viết sqrt(x))\n"
+    prompt += "   - Phân số: viết dạng 1/2, 3/4 (KHÔNG viết \\frac{1}{2})\n"
+    prompt += "   - Nhân chia: × ÷ (KHÔNG viết * /)\n"
+    prompt += "   - So sánh: ≤ ≥ ≠ ≈ ≡ (KHÔNG viết <= >= !=)\n"
+    prompt += "   - Tập hợp: ∈ ∉ ⊂ ⊃ ∪ ∩ ∅\n"
+    prompt += "   - Hy Lạp: α β γ δ π θ Δ Σ Ω\n"
+    prompt += "   - Mũi tên: → ⇒ ↔ ⇔\n"
+    prompt += "   - Độ: ° (ví dụ 90°, 45°)\n"
+    prompt += "   - TUYỆT ĐỐI KHÔNG dùng LaTeX: không dùng $...$, \\frac, \\sqrt, ^, _\n"
+    prompt += "5. Viết tiếng Việt CÓ DẤU đầy đủ, văn phong sư phạm, cụ thể, dùng ngay.\n"
+    prompt += "6. Markdown: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
+    prompt += "7. Chỉ xuất nội dung tài liệu, KHÔNG thêm lời chào, KHÔNG giải thích.\n"
     return prompt
 
 
 def generate_local():
-    t = topic.strip() or "[Dien ten bai]"
+    t = topic.strip() or "[Điền tên bài]"
     common = (
-        "- Mon hoc: " + subject
-        + "\n- Lop: " + grade
-        + "\n- Chu de: " + t
-        + "\n- Thoi gian: " + (period or "Chua xac dinh")
+        "- Môn học: " + subject
+        + "\n- Lớp: " + grade
+        + "\n- Chủ đề: " + t
+        + "\n- Thời gian: " + (period or "Chưa xác định")
     )
     return (
         "# " + task.upper() + "\n" + common
-        + "\n\n## I. Thong tin chung\n" + common
-        + "\n\n## II. Noi dung chinh\n"
-        + (details or "[Bo sung yeu cau cu the]")
-        + "\n\n## III. Ghi chu\n- Ban mau cuc bo."
+        + "\n\n## I. Thông tin chung\n" + common
+        + "\n\n## II. Nội dung chính\n"
+        + (details or "[Bổ sung yêu cầu cụ thể]")
+        + "\n\n## III. Ghi chú\n- Bản mẫu cục bộ."
     )
 
 
 def generate():
     if use_ai:
-        if not (GEMINI_KEY or GROQ_KEY or OPENROUTER_KEY or MISTRAL_KEY or CEREBRAS_KEY or NVIDIA_KEY):
+        if not available_providers:
             st.error("Chưa có API key nào.")
             return ""
         try:
             with st.spinner("🤖 freelm đang dò tìm nhà cung cấp..."):
                 text, provider = call_ai(build_prompt())
-            st.success(f"✅ Đã sinh bằng: {provider}")
+            st.success("✅ Đã sinh bằng: " + str(provider))
             return text
         except Exception as e:
-            st.error(f"Lỗi freelm: {e}")
+            st.error("Lỗi freelm: " + str(e))
             st.info("Chuyển sang mẫu cục bộ.")
             return generate_local()
     return generate_local()
@@ -451,10 +440,10 @@ def make_doc(title, body):
     d.styles["Normal"].font.size = Pt(12)
     d.add_heading(title, 0)
     if school.strip():
-        d.add_paragraph("Don vi: " + school.strip())
+        d.add_paragraph("Đơn vị: " + school.strip())
     if teacher.strip():
-        d.add_paragraph("Nguoi thuc hien: " + teacher.strip())
-    d.add_paragraph("Ngay tao: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
+        d.add_paragraph("Người thực hiện: " + teacher.strip())
+    d.add_paragraph("Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
     for line in body.splitlines():
         if line.startswith("### "):
             d.add_heading(line[4:], 3)
@@ -496,8 +485,8 @@ with col2:
         status.append(str(len(template_names)) + " mẫu")
     if source_text:
         status.append(str(len(source_names)) + " nguồn")
-    if use_ai and available:
-        status.append("AI: " + ", ".join(available))
+    if use_ai and available_names:
+        status.append("AI: " + ", ".join(available_names))
     if status:
         st.caption(" | ".join(status))
 
@@ -539,21 +528,17 @@ if st.session_state["draft"]:
             st.rerun()
 
 with st.expander("📖 Hướng dẫn cài đặt vĩnh viễn (1 lần)"):
-    st.write("**Bước 1:** Lấy API key miễn phí (chỉ cần 1, càng nhiều càng tốt):")
+    st.write("**Bước 1:** Lấy API key (đã có sẵn 4 key):")
     st.write("- Gemini: aistudio.google.com/app/apikey")
     st.write("- Groq: console.groq.com/keys")
     st.write("- OpenRouter: openrouter.ai/keys")
-    st.write("- Mistral: console.mistral.ai/api-keys")
-    st.write("- Cerebras: cloud.cerebras.ai")
     st.write("- NVIDIA: build.nvidia.com")
     st.write("**Bước 2:** Mở app Streamlit → **Manage app** → **Settings** → tab **Secrets**")
-    st.write("**Bước 3:** Dán nội dung sau (bỏ dòng nào không có key):")
+    st.write("**Bước 3:** Dán nội dung sau (thay giá trị thật):")
     st.code(
         'GEMINI_API_KEY = "AIzaSy..."\n'
         'GROQ_API_KEY = "gsk_..."\n'
         'OPENROUTER_API_KEY = "sk-or-..."\n'
-        'MISTRAL_API_KEY = "..."\n'
-        'CEREBRAS_API_KEY = "..."\n'
         'NVIDIA_API_KEY = "nvapi-..."\n'
         'SCHOOL = "Truong THCS ..."\n'
         'TEACHER = "Nguyen Van A"\n'
