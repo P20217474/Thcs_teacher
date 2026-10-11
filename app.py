@@ -54,11 +54,11 @@ for k, v in {
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
-        def read_docx(data: bytes) -> str:
-    try:
+def read_docx(data: bytes) -> str:
+try:
         d = Document(io.BytesIO(data))
         return "\n".join(p.text for p in d.paragraphs if p.text.strip())
-    except Exception as e:
+except Exception as e:
         return "[Loi docx: " + str(e) + "]"
 
 def read_pdf(data: bytes) -> str:
