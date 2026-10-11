@@ -136,7 +136,7 @@ def get_template_text() -> str:
 def call_gemini(prompt: str, api_key: str) -> str:
     import google.generativeai as genai
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     resp = model.generate_content(prompt)
     return resp.text
 
