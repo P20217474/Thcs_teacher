@@ -353,11 +353,11 @@ def read_file(file, use_ocr=True):
 
 
 # Reset key cũ
-if "app_started_v7" not in st.session_state:
+if "app_started_v8" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v7"] = True
+    st.session_state["app_started_v8"] = True
 
 
 defaults = {
@@ -680,7 +680,7 @@ def build_exec_prompt(plan):
     prompt += "**III. Tiến trình dạy học**\n\n"
 
     prompt += "**1. Hoạt động 1: Mở đầu**\n"
-    prompt += "**a) Mục tiêu:** [2 câu: gây hứng thú + gợi mở nội dung]\n"
+    prompt += "**a) Mục tiêu:** [2 câu mô tả ngắn gọn]\n"
     prompt += "**b) Nội dung:** [1-2 câu mô tả ngắn gọn]\n"
     prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
@@ -691,8 +691,8 @@ def build_exec_prompt(plan):
     prompt += "| Bước 4: Kết luận, nhận định:<br>GV đánh giá, dẫn dắt vào bài mới | |\n\n"
 
     prompt += "**2. Hoạt động 2: Giải quyết vấn đề từ Hoạt động 1**\n"
-    prompt += "**a) Mục tiêu:** [mô tả mục tiêu giúp HS chiếm lĩnh kiến thức mới]\n"
-    prompt += "**b) Nội dung:** [nêu rõ nội dung yêu cầu/nhiệm vụ cụ thể của HS làm việc với SGK]\n"
+    prompt += "**a) Mục tiêu:** [mô tả]\n"
+    prompt += "**b) Nội dung:** [mô tả]\n"
     prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
@@ -798,9 +798,34 @@ def add_para(doc, text, style=None):
 def add_table(doc, rows):
     if not rows:
         return
-    n = max(len(r) for r in rows)
+
+    # Lọc bỏ cột rác ở cuối (sinh ra từ dấu | lạ trong nội dung)
+    cleaned_rows = []
+    for row in rows:
+        while len(row) > 2 and len(row[-1].strip()) <= 2 and row[-1].strip() in (
+            "", "=", ".", ";", ",", "a", "b", "c", "5", "0", "1", "2",
+            "3", "4", "6", "7", "8", "9", "|"
+        ):
+            row = row[:-1]
+        cleaned_rows.append(row)
+
+    # Nếu có nhiều hơn 2 cột → gộp cột 3 trở đi vào cột 2
+    max_n = max(len(r) for r in cleaned_rows)
+    if max_n > 2:
+        for i, r in enumerate(cleaned_rows):
+            if len(r) > 2:
+                extra = " ".join(c.strip() for c in r[2:] if c.strip())
+                cleaned_rows[i] = [r[0], r[1] + (" " + extra if extra else "")]
+        max_n = 2
+
+    rows = cleaned_rows
+    n = max_n
+    if n < 1:
+        return
+
     t = doc.add_table(rows=len(rows), cols=n)
     t.style = "Table Grid"
+
     for i, row in enumerate(rows):
         for j in range(n):
             c = t.cell(i, j)
@@ -849,7 +874,6 @@ def _add_heading(doc, text):
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(6)
-    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     is_title_ten_bai = bool(re.match(r"^TÊN\s*BÀI\s*DẠY", text, re.IGNORECASE))
     is_title_mon_hoc = bool(re.match(r"^Môn\s*học", text, re.IGNORECASE))
@@ -865,15 +889,34 @@ def _add_heading(doc, text):
         return p
 
     if re.match(r"^[a-z]\)\s", text):
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         p.paragraph_format.first_line_indent = Inches(0.39)
         p.paragraph_format.left_indent = Inches(0)
-        run = p.add_run(text)
-        _set_run_font(run, 14, bold=True)
-        run.italic = True
+        p.paragraph_format.right_indent = Inches(0)
+
+        if ":" in text:
+            idx_colon = text.index(":")
+            heading_part = text[:idx_colon + 1]
+            content_part = text[idx_colon + 1:]
+
+            run1 = p.add_run(heading_part)
+            _set_run_font(run1, 14, bold=True)
+            run1.italic = True
+
+            if content_part:
+                run2 = p.add_run(content_part)
+                _set_run_font(run2, 14, bold=False)
+                run2.italic = True
+        else:
+            run = p.add_run(text)
+            _set_run_font(run, 14, bold=True)
+            run.italic = True
         return p
 
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
+    p.paragraph_format.right_indent = Inches(0)
     run = p.add_run(text)
     _set_run_font(run, 14, bold=True)
     return p
@@ -927,19 +970,34 @@ def write_content_to_doc(d, content):
             i += 1
             continue
 
+        # Bảng markdown — CHỈ nhận khi có dòng phân cách |---|---|
         if stripped.startswith("|") and stripped.endswith("|"):
             tl = []
             j = i
             while j < len(lines) and lines[j].strip().startswith("|") and lines[j].strip().endswith("|"):
                 tl.append(lines[j].strip())
                 j += 1
-            rows = []
-            for t in tl:
-                if re.match(r"^\|[\s\-:]+\|", t):
-                    continue
-                rows.append([c.strip() for c in t.strip("|").split("|")])
-            if rows:
-                add_table(d, rows)
+
+            is_valid_table = False
+            if len(tl) >= 2:
+                if re.match(r"^\|[\s\-:\|]+\|$", tl[1]):
+                    is_valid_table = True
+
+            if is_valid_table:
+                rows = []
+                for t in tl:
+                    if re.match(r"^\|[\s\-:\|]+\|$", t):
+                        continue
+                    cells = [c.strip() for c in t.strip("|").split("|")]
+                    if 2 <= len(cells) <= 4:
+                        rows.append(cells)
+                if rows:
+                    add_table(d, rows)
+            else:
+                for t in tl:
+                    text_line = t.strip("|").strip()
+                    if text_line:
+                        add_para(d, text_line)
             i = j
             continue
 
@@ -1133,11 +1191,20 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     for i, w in enumerate(widths):
         table.rows[0].cells[i].width = w
 
+    # Nhóm theo ngày — chuẩn hóa key để tránh tách nhóm
     nhom_ngay = []
     for r in lich:
-        key = r["thu"] + "|" + r["ngay"]
+        thu_clean = r["thu"].strip()
+        ngay_clean = r["ngay"].strip()
+        key = (thu_clean + "|" + ngay_clean).lower().replace(" ", "")
+
         if not nhom_ngay or nhom_ngay[-1]["key"] != key:
-            nhom_ngay.append({"key": key, "thu": r["thu"], "ngay": r["ngay"], "items": [r]})
+            nhom_ngay.append({
+                "key": key,
+                "thu": thu_clean,
+                "ngay": ngay_clean,
+                "items": [r],
+            })
         else:
             nhom_ngay[-1]["items"].append(r)
 
