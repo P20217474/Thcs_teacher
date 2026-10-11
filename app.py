@@ -349,9 +349,19 @@ def read_file(file, use_ocr=True):
     else:
         text = _read_txt_safe(data)
     return (name, text, len(text))
+    # ============ RESET KEY CŨ (chống kẹt widget) ============
+if "app_started_v4" not in st.session_state:
+    for k in list(st.session_state.keys()):
+        if k in ("date_widget_v2", "buoi_widget_v2", "tuan_widget_v2",
+                 "date_input_widget", "buoi_input_widget", "tuan_input",
+                 "sd_key_v3", "bd_key_v3", "tn_key_v3",
+                 "ngay_bd_final", "buoi_final", "tuan_final"):
+            del st.session_state[k]
+    st.session_state["app_started_v4"] = True
 
 
-for k, v in {
+# ============ SESSION STATE ============
+defaults = {
     "memory": load_memory(),
     "templates": load_templates(),
     "sources": load_sources(),
@@ -362,14 +372,13 @@ for k, v in {
     "last_topic": "",
     "weekly_results": [],
     "lich_bao_giang": [],
-    "start_date_val": datetime.now().date(),
-    "buoi_day": "BUỔI CHIỀU",
-    "tuan_number": "",
-}.items():
+}
+for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 
+# ============ SIDEBAR ============
 with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
@@ -402,9 +411,11 @@ with st.sidebar:
         st.write(label + ": " + str(len(st.session_state[key])) + " file")
 
     if st.button("🔄 Tải lại", use_container_width=True):
-        for key, fn in [("templates", load_templates), ("sources", load_sources),
-                        ("ppct", load_ppct), ("tkb", load_tkb), ("schedule", load_schedule)]:
-            st.session_state[key] = fn()
+        st.session_state["templates"] = load_templates()
+        st.session_state["sources"] = load_sources()
+        st.session_state["ppct"] = load_ppct()
+        st.session_state["tkb"] = load_tkb()
+        st.session_state["schedule"] = load_schedule()
         st.rerun()
     st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
 
@@ -432,6 +443,7 @@ def call_ai(prompt, system=""):
     except Exception as e:
         if last_err: raise last_err
         raise e
+
 
 # ============ UPLOAD TAB ============
 tab_up, tab_kho = st.tabs(["📤 Upload", "📂 Kho tri thức"])
@@ -486,9 +498,11 @@ with tab_up:
                     ok, msg = gh_save(path, full, f"Upload {safe}")
                 if ok:
                     st.success("✅ " + msg)
-                    for key, fn in [("templates", load_templates), ("sources", load_sources),
-                                    ("ppct", load_ppct), ("tkb", load_tkb), ("schedule", load_schedule)]:
-                        st.session_state[key] = fn()
+                    st.session_state["templates"] = load_templates()
+                    st.session_state["sources"] = load_sources()
+                    st.session_state["ppct"] = load_ppct()
+                    st.session_state["tkb"] = load_tkb()
+                    st.session_state["schedule"] = load_schedule()
                     st.rerun()
                 else:
                     st.error("❌ " + msg)
@@ -528,6 +542,7 @@ with tab_kho:
         st.divider()
 
 
+# ============ PROMPT CV 5512 ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
     tpl_text = ""
@@ -613,8 +628,7 @@ def build_exec_prompt(plan):
     prompt += "10. KHÔNG viết phần 'Người soạn', 'Ký tên', 'Sông Đốc' ở cuối.\n"
     prompt += "11. Kết thúc bài bằng '4. Hoạt động 4'.\n"
     return prompt
-
-
+    # ============ WORD HELPERS ============
 def fix_math(text):
     text = re.sub(r"\^2\b", "²", text)
     text = re.sub(r"\^3\b", "³", text)
@@ -842,12 +856,10 @@ def make_doc(title, body):
     return b.getvalue()
 
 
-def add_phieu_bao_giang(doc, lich, tuan_start):
+def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     mem = st.session_state.get("memory", {})
     now = datetime.now()
     end_date = tuan_start + timedelta(days=6)
-    buoi = st.session_state.get("buoi_day", "BUỔI CHIỀU")
-    tuan_num = st.session_state.get("tuan_number", "").strip() or "........"
 
     table_head = doc.add_table(rows=1, cols=2)
     table_head.autofit = True
@@ -969,6 +981,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
     doc.add_paragraph("")
 
 
+# ============ SOẠN 1 BÀI ============
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
 cmd = st.text_area("Lệnh", height=100,
@@ -1022,6 +1035,7 @@ if st.session_state.get("draft"):
                                               height=500, key="edit_draft")
 
 
+# ============ TẠO LỊCH BÁO GIẢNG ============
 st.divider()
 st.subheader("📅 Tạo / Nạp lịch báo giảng")
 
@@ -1049,27 +1063,13 @@ with sub_t1:
 
     col1_d, col2_d, col3_d = st.columns(3)
     with col1_d:
-        start_date = st.date_input(
-            "📆 Ngày bắt đầu tuần (thứ 2)",
-            value=st.session_state.get("start_date_val", datetime.now().date()),
-            key="date_widget_v2",
-        )
-        st.session_state["start_date_val"] = start_date
+        start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
+                                    value=datetime.now().date(),
+                                    key="ngay_bd_w")
     with col2_d:
-        buoi_day = st.selectbox(
-            "🌅 Buổi dạy",
-            ["BUỔI CHIỀU", "BUỔI SÁNG"],
-            index=0 if st.session_state.get("buoi_day", "BUỔI CHIỀU") == "BUỔI CHIỀU" else 1,
-            key="buoi_widget_v2",
-        )
-        st.session_state["buoi_day"] = buoi_day
+        buoi_day = st.selectbox("🌅 Buổi dạy", ["BUỔI CHIỀU", "BUỔI SÁNG"], key="buoi_w")
     with col3_d:
-        tuan_number = st.text_input(
-            "📅 Số tuần (VD: 6)",
-            key="tuan_widget_v2",
-            placeholder="6",
-        )
-        st.session_state["tuan_number"] = tuan_number
+        tuan_number = st.text_input("📅 Số tuần (VD: 6)", key="tuan_w", placeholder="VD: 6")
 
     def ai_extract_tkb(raw):
         system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
@@ -1449,6 +1449,7 @@ with sub_t3:
                         st.session_state["schedule"] = load_schedule()
 
 
+# ============ HIỂN THỊ LỊCH ============
 def hien_thi_lich_theo_ngay(lich):
     for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]:
         bai_trong_ngay = [r for r in lich if r["thu"].lower().startswith(thu.lower()[:5])]
@@ -1537,6 +1538,7 @@ if st.session_state.get("lich_bao_giang"):
             st.session_state["weekly_results"] = results
 
 
+# ============ XUẤT WORD TUẦN ============
 if st.session_state.get("weekly_results"):
     results = st.session_state["weekly_results"]
     lich = st.session_state.get("lich_bao_giang", [])
@@ -1574,7 +1576,10 @@ if st.session_state.get("weekly_results"):
         pf.space_after = Pt(0)
 
         if lich:
-            add_phieu_bao_giang(d, lich, st.session_state["start_date_val"])
+            buoi = st.session_state.get("buoi_w", "BUỔI CHIỀU")
+            tuan_num = st.session_state.get("tuan_w", "").strip() or "........"
+            ngay_bd = st.session_state.get("ngay_bd_w", datetime.now().date())
+            add_phieu_bao_giang(d, lich, ngay_bd, buoi, tuan_num)
 
         for idx, r in enumerate(results):
             d.add_page_break()
@@ -1593,7 +1598,7 @@ if st.session_state.get("weekly_results"):
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
-            file_name="tuan_" + st.session_state["start_date_val"].strftime("%Y%m%d") + ".docx",
+            file_name="tuan_" + st.session_state.get("ngay_bd_w", datetime.now().date()).strftime("%Y%m%d") + ".docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary", use_container_width=True,
         )
