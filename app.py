@@ -39,9 +39,15 @@ try:
 except Exception:
     HAS_PIL = False
 
+try:
+    import google.generativeai as genai_vision
+    HAS_GEMINI_VISION = True
+except Exception:
+    HAS_GEMINI_VISION = False
+
 st.set_page_config(page_title="Trợ lý Giáo viên THCS", page_icon="🧠", layout="wide")
 st.title("🧠 Trợ lý Giáo viên THCS")
-st.caption("Bộ não tự động • Lịch báo giảng • Soạn tuần • Xuất Word")
+st.caption("Bộ não tự động • Đọc ảnh SGK • Lịch báo giảng • Soạn tuần • Xuất Word")
 
 
 # ============ CẤU HÌNH ============
@@ -63,6 +69,8 @@ for _k, _v in PROVIDER_KEYS.items():
     if _v:
         os.environ[_k] = _v
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
+
+GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
 PREFERRED_MODELS = {
     "GEMINI_API_KEY": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"],
@@ -108,9 +116,6 @@ def gh_get(path):
 def gh_save(path, content, message="Update"):
     if not GITHUB_TOKEN:
         return (False, "Chưa có GITHUB_TOKEN")
-    if not GITHUB_REPO:
-        return (False, "Chưa có GITHUB_REPO")
-
     old, sha = gh_get(path)
     data = {
         "message": message,
@@ -119,11 +124,9 @@ def gh_save(path, content, message="Update"):
     }
     if sha:
         data["sha"] = sha
-
     res = gh_api("PUT", f"/repos/{GITHUB_REPO}/contents/{path}", data)
-
     if res is None:
-        return (False, "Không gọi được GitHub API")
+        return (False, "Không gọi được API")
     if isinstance(res, dict) and "error" in res:
         return (False, "Lỗi: " + str(res["error"]))
     if isinstance(res, dict) and "content" in res:
@@ -132,12 +135,11 @@ def gh_save(path, content, message="Update"):
 
 
 def gh_delete(path):
-    """Xóa file trên GitHub. Trả về (success, message)."""
     if not GITHUB_TOKEN:
         return (False, "Chưa có GITHUB_TOKEN")
     old, sha = gh_get(path)
     if not sha:
-        return (False, "File không tồn tại: " + path)
+        return (False, "File không tồn tại")
     res = gh_api(
         "DELETE",
         f"/repos/{GITHUB_REPO}/contents/{path}",
@@ -145,9 +147,7 @@ def gh_delete(path):
     )
     if isinstance(res, dict) and "error" in res:
         return (False, "Lỗi: " + str(res["error"]))
-    if isinstance(res, dict) and "content" in res:
-        return (True, "Đã xóa: " + path)
-    if isinstance(res, dict) and "commit" in res:
+    if isinstance(res, dict) and ("content" in res or "commit" in res):
         return (True, "Đã xóa: " + path)
     return (False, "Phản hồi không hợp lệ")
 
@@ -161,7 +161,7 @@ def gh_list(folder):
 
 def gh_test():
     if not GITHUB_TOKEN:
-        return (False, "Thiếu GITHUB_TOKEN trong Secrets")
+        return (False, "Thiếu GITHUB_TOKEN")
     res = gh_api("GET", "/user")
     if res is None:
         return (False, "Không gọi được API")
@@ -173,7 +173,7 @@ def gh_test():
         if isinstance(res2, dict) and "permissions" in res2:
             perms = res2["permissions"]
             if perms.get("push") or perms.get("admin"):
-                return (True, "OK — " + login + " | Có quyền ghi vào " + GITHUB_REPO)
+                return (True, "OK — " + login + " | Có quyền ghi")
             return (False, "Token thiếu quyền 'repo'")
         return (True, "OK — " + login)
     return (False, "Token không hợp lệ")
@@ -223,7 +223,49 @@ def save_history(task, topic, content):
     return gh_save(fname, md, f"History {topic}")
 
 
-# ============ ĐỌC FILE AN TOÀN ============
+# ============ OCR ẢNH BẰNG GEMINI VISION ============
+def ocr_image_with_gemini(data, fname):
+    """Dùng Gemini Vision đọc text trong ảnh."""
+    if not GEMINI_KEY:
+        return ("[" + fname + ": cần GEMINI_API_KEY để đọc ảnh. "
+                "Vào Secrets thêm GEMINI_API_KEY = \"AIzaSy...\"]")
+    if not HAS_GEMINI_VISION:
+        return "[" + fname + ": chưa cài google-generativeai. Thêm vào requirements.txt]"
+    if not HAS_PIL:
+        return "[" + fname + ": chưa cài pillow]"
+
+    try:
+        genai_vision.configure(api_key=GEMINI_KEY)
+        img = Image.open(io.BytesIO(data))
+
+        models_to_try = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"]
+        last_err = None
+
+        for model_name in models_to_try:
+            try:
+                model = genai_vision.GenerativeModel(model_name)
+                prompt = (
+                    "Đây là ảnh trang sách giáo khoa hoặc tài liệu dạy học. "
+                    "Hãy đọc TOÀN BỘ chữ có trong ảnh và trả về chính xác nội dung văn bản. "
+                    "Giữ nguyên cấu trúc: tiêu đề, số thứ tự, đề mục, công thức toán học. "
+                    "Với công thức toán, dùng ký hiệu Unicode: x², √x, ≤, ≥, ∈, π... "
+                    "Chỉ trả về nội dung text, không thêm lời giải thích hay mô tả ảnh."
+                )
+                response = model.generate_content([prompt, img])
+                text = response.text.strip()
+                if len(text) < 20:
+                    return "[" + fname + ": AI không đọc được text trong ảnh]"
+                return text
+            except Exception as e:
+                last_err = e
+                continue
+
+        return "[" + fname + ": Lỗi OCR — " + str(last_err) + "]"
+    except Exception as e:
+        return "[" + fname + ": Lỗi OCR — " + str(e) + "]"
+
+
+# ============ ĐỌC FILE ============
 def _read_docx_safe(data):
     try:
         d = Document(io.BytesIO(data))
@@ -263,7 +305,10 @@ def _read_pdf_safe(data):
                 continue
         full = "\n".join(texts)
         if len(full.strip()) < 50:
-            return "[PDF scan, không có text. Dùng Google Drive OCR hoặc dán trực tiếp.]\n" + full
+            return (
+                "[PDF scan, không có text. Hãy dùng tính năng OCR ảnh: "
+                "chụp ảnh từng trang → upload dạng .jpg/.png → AI đọc.]\n" + full
+            )
         return full
     except Exception as e:
         return "[Lỗi đọc pdf: " + str(e) + "]"
@@ -338,15 +383,8 @@ def _read_txt_safe(data):
     return data.decode("utf-8", errors="ignore")
 
 
-def _read_image_info(data, fname):
-    try:
-        img = Image.open(io.BytesIO(data))
-        return "[" + fname + ": ảnh " + str(img.size[0]) + "x" + str(img.size[1]) + " px. Cần OCR.]"
-    except Exception as e:
-        return "[Lỗi ảnh " + fname + ": " + str(e) + "]"
-
-
-def read_file(file):
+def read_file(file, use_ocr=True):
+    """Đọc file. Nếu là ảnh → dùng Gemini Vision OCR."""
     if file is None:
         return ("", "", 0)
     try:
@@ -360,6 +398,14 @@ def read_file(file):
     nl = name.lower()
     magic = data[:8]
     text = ""
+
+    # Ảnh → dùng OCR
+    if nl.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+        if use_ocr:
+            text = ocr_image_with_gemini(data, name)
+        else:
+            text = "[" + name + ": ảnh]"
+        return (name, text, len(text))
 
     if magic[:4] == b"%PDF":
         text = _read_pdf_safe(data)
@@ -383,8 +429,6 @@ def read_file(file):
             text = _read_csv_safe(data)
         elif nl.endswith((".txt", ".md", ".log", ".json")):
             text = _read_txt_safe(data)
-        elif nl.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-            text = _read_image_info(data, name)
         else:
             try:
                 decoded = _read_txt_safe(data)
@@ -422,7 +466,6 @@ with st.sidebar:
     if GITHUB_TOKEN:
         st.success("💾 Đã có GITHUB_TOKEN")
         st.caption("Repo: " + GITHUB_REPO)
-        st.caption("Branch: " + GITHUB_BRANCH)
         if st.button("🧪 Test GitHub", use_container_width=True):
             ok, msg = gh_test()
             if ok:
@@ -431,7 +474,11 @@ with st.sidebar:
                 st.error("❌ " + msg)
     else:
         st.error("❌ Chưa có GITHUB_TOKEN")
-        st.caption("Thêm vào Secrets: GITHUB_TOKEN = \"ghp_...\"")
+
+    if GEMINI_KEY:
+        st.success("🔍 Gemini Vision sẵn sàng đọc ảnh")
+    else:
+        st.warning("⚠️ Chưa có GEMINI_API_KEY — không đọc được ảnh")
 
     mem["teacher_name"] = st.text_input("Giáo viên", value=mem.get("teacher_name", ""))
     mem["school"] = st.text_input("Trường", value=mem.get("school", ""))
@@ -487,43 +534,60 @@ def call_ai(prompt, system=""):
 tab_up, tab_kho = st.tabs(["📤 Upload mẫu/nguồn", "📂 Kho tri thức"])
 
 with tab_up:
-    st.info("💡 **MẪU** = định dạng bài soạn (bảng 2 cột). **NGUỒN** = nội dung SGK.")
+    st.markdown("### 📤 Upload file")
+    st.info(
+        "💡 **MẪU** = định dạng bài soạn (bảng 2 cột). "
+        "**NGUỒN** = nội dung SGK. "
+        "Ảnh chụp SGK sẽ được **Gemini Vision** đọc tự động."
+    )
     up_type = st.radio("Loại", ["Mẫu (định dạng)", "Nguồn (nội dung)"], horizontal=True)
-    up_name = st.text_input("Tên file", placeholder="mau_bai_soan")
+    up_name = st.text_input("Tên file", placeholder="toan6_bai11_ocr")
     up_files = st.file_uploader(
-        "Chọn file (docx / pdf / xlsx / csv / txt / ảnh)",
-        type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc", "png", "jpg", "jpeg"],
-        accept_multiple_files=True, key="up_files",
+        "Chọn file (ảnh chụp SGK / PDF / DOCX / XLSX / CSV / TXT)",
+        type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc",
+              "png", "jpg", "jpeg", "webp", "bmp"],
+        accept_multiple_files=True,
+        key="up_files",
     )
     up_paste = st.text_area("Hoặc dán nội dung", height=120, key="up_paste")
 
     if up_files:
         st.markdown("**📋 Trạng thái file:**")
         for f in up_files:
-            nm, txt, sz = read_file(f)
-            if sz == 0 or txt.startswith("[Lỗi") or txt.startswith("[File .doc"):
-                st.write("⚠️ " + nm + ": " + txt[:80])
-            elif sz < 200:
-                st.write("⚠️ " + nm + ": " + str(sz) + " ký tự (có thể lỗi)")
+            nl = f.name.lower()
+            if nl.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")):
+                st.write("🖼️ " + f.name + " — ảnh, sẽ dùng Gemini Vision đọc")
+            elif nl.endswith(".pdf"):
+                st.write("📄 " + f.name + " — PDF, sẽ tự đọc text (nếu có)")
+            elif nl.endswith((".docx", ".doc")):
+                st.write("📝 " + f.name + " — Word")
             else:
-                st.write("✅ " + nm + ": " + str(sz) + " ký tự")
+                st.write("📎 " + f.name)
 
-    if st.button("💾 Lưu lên GitHub", type="primary"):
+    if st.button("💾 Lưu lên GitHub", type="primary", use_container_width=True):
         ok0, msg0 = gh_test()
         if not ok0:
             st.error("❌ Lỗi kết nối: " + msg0)
-            st.info("Kiểm tra GITHUB_TOKEN, GITHUB_REPO trong Secrets")
         else:
             st.success("✅ " + msg0)
             parts = []
             if up_paste.strip():
                 parts.append(up_paste.strip())
+
             for f in (up_files or []):
-                _, txt, _ = read_file(f)
-                parts.append("--- " + f.name + " ---\n" + txt)
+                nl = f.name.lower()
+                if nl.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")):
+                    with st.spinner("🔍 AI đang đọc ảnh " + f.name + "..."):
+                        data = f.read()
+                        txt = ocr_image_with_gemini(data, f.name)
+                    parts.append("--- " + f.name + " (OCR) ---\n" + txt)
+                    st.info("📖 Đã đọc " + f.name + ": " + str(len(txt)) + " ký tự")
+                else:
+                    _, txt, _ = read_file(f, use_ocr=False)
+                    parts.append("--- " + f.name + " ---\n" + txt)
 
             if not parts:
-                st.warning("Không có nội dung. Hãy chọn file hoặc dán text.")
+                st.warning("Không có nội dung.")
             else:
                 full = "\n\n".join(parts)
                 safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", up_name.strip())[:40]
@@ -555,24 +619,20 @@ with tab_kho:
                     st.caption("Kích thước: " + str(len(content)) + " ký tự")
                     st.text(content[:2000])
             with col2:
-                if st.button("🗑️", key="del_tpl_" + name, help="Xóa mẫu này"):
+                if st.button("🗑️", key="del_tpl_" + name):
                     with st.spinner("Đang xóa..."):
                         ok, msg = gh_delete("data/templates/" + name)
                     if ok:
-                        st.success(msg)
                         st.session_state["templates"] = load_templates()
                         st.rerun()
-                    else:
-                        st.error(msg)
     else:
-        st.info("Chưa có mẫu. Upload ở tab bên trái.")
+        st.info("Chưa có mẫu.")
 
     if st.session_state["templates"]:
         if st.button("🗑️ Xóa TẤT CẢ mẫu", key="del_all_tpl"):
             for name in list(st.session_state["templates"].keys()):
                 gh_delete("data/templates/" + name)
             st.session_state["templates"] = load_templates()
-            st.success("Đã xóa tất cả mẫu.")
             st.rerun()
 
     st.divider()
@@ -586,24 +646,20 @@ with tab_kho:
                     st.caption("Kích thước: " + str(len(content)) + " ký tự")
                     st.text(content[:2000])
             with col2:
-                if st.button("🗑️", key="del_src_" + name, help="Xóa nguồn này"):
+                if st.button("🗑️", key="del_src_" + name):
                     with st.spinner("Đang xóa..."):
                         ok, msg = gh_delete("data/sources/" + name)
                     if ok:
-                        st.success(msg)
                         st.session_state["sources"] = load_sources()
                         st.rerun()
-                    else:
-                        st.error(msg)
     else:
-        st.info("Chưa có nguồn. Upload ở tab bên trái.")
+        st.info("Chưa có nguồn.")
 
     if st.session_state["sources"]:
         if st.button("🗑️ Xóa TẤT CẢ nguồn", key="del_all_src"):
             for name in list(st.session_state["sources"].keys()):
                 gh_delete("data/sources/" + name)
             st.session_state["sources"] = load_sources()
-            st.success("Đã xóa tất cả nguồn.")
             st.rerun()
 
 
@@ -650,7 +706,7 @@ def build_exec_prompt(plan):
 
     prompt += "KÝ HIỆU TOÁN (dùng Unicode):\n"
     prompt += "9. x², x³, √x, H₂O, ≤, ≥, ≠, ∈, π, °, α, β\n"
-    prompt += "10. KHÔNG dùng LaTeX ($...$, \\frac, \\sqrt).\n\n"
+    prompt += "10. KHÔNG dùng LaTeX.\n\n"
 
     prompt += "ĐỊNH DẠNG MARKDOWN:\n"
     prompt += "11. '# ' cấp 1, '## ' cấp 2, '### ' cấp 3\n"
@@ -782,10 +838,8 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run("Tuần: ").bold = True
     end_date = tuan_start + timedelta(days=6)
-    p.add_run(
-        "Từ ngày " + tuan_start.strftime("%d/%m/%Y")
-        + " đến ngày " + end_date.strftime("%d/%m/%Y")
-    )
+    p.add_run("Từ ngày " + tuan_start.strftime("%d/%m/%Y")
+              + " đến ngày " + end_date.strftime("%d/%m/%Y"))
 
     doc.add_paragraph()
 
@@ -807,9 +861,9 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
         row[5].text = ""
 
     doc.add_paragraph()
+    now = datetime.now()
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    now = datetime.now()
     p.add_run("Ngày " + now.strftime("%d") + " tháng " + now.strftime("%m") + " năm " + now.strftime("%Y"))
 
     p2 = doc.add_paragraph()
@@ -818,7 +872,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
 
     doc.add_paragraph()
     doc.add_paragraph()
-
     p3 = doc.add_paragraph()
     p3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p3.add_run(mem.get("teacher_name", "..."))
@@ -981,11 +1034,11 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
     else:
         tkb_raw = tkb_manual.strip()
         if tkb_file:
-            _, text, _ = read_file(tkb_file)
+            _, text, _ = read_file(tkb_file, use_ocr=False)
             tkb_raw = text
         ppct_raw = ppct_manual.strip()
         if ppct_file:
-            _, text, _ = read_file(ppct_file)
+            _, text, _ = read_file(ppct_file, use_ocr=False)
             ppct_raw = text
 
         if not tkb_raw or not ppct_raw:
@@ -1146,11 +1199,6 @@ if st.session_state.get("weekly_results"):
 
         if lich:
             add_phieu_bao_giang(d, lich, st.session_state["start_date_val"])
-        else:
-            d.add_heading("PHIẾU BÁO GIẢNG", 0)
-            mem = st.session_state.get("memory", {})
-            d.add_paragraph("Trường: " + mem.get("school", ""))
-            d.add_paragraph("Giáo viên: " + mem.get("teacher_name", ""))
 
         for idx, r in enumerate(results):
             d.add_page_break()
