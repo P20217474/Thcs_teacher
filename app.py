@@ -352,12 +352,11 @@ def read_file(file, use_ocr=True):
     return (name, text, len(text))
 
 
-# Reset key cũ
-if "app_started_v11" not in st.session_state:
+if "app_started_v12" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v11"] = True
+    st.session_state["app_started_v12"] = True
 
 
 defaults = {
@@ -419,7 +418,6 @@ with st.sidebar:
 
     st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
 
-    # ============ DỌN DẸP ============
     st.divider()
     st.subheader("🧹 Dọn dẹp")
 
@@ -897,16 +895,24 @@ def _add_heading(doc, text):
             heading_part = text[:idx_colon + 1]
             content_part = text[idx_colon + 1:]
 
+            heading_part = re.sub(r"^\**", "", heading_part).strip()
+            heading_part = re.sub(r"\**$", "", heading_part).strip()
+            content_part = re.sub(r"^\**\s*", "", content_part)
+            content_part = re.sub(r"\**$", "", content_part).strip()
+
             run1 = p.add_run(heading_part)
             _set_run_font(run1, 14, bold=True)
             run1.italic = True
 
             if content_part:
+                if not content_part.startswith(" "):
+                    content_part = " " + content_part
                 run2 = p.add_run(content_part)
                 _set_run_font(run2, 14, bold=False)
                 run2.italic = True
         else:
-            run = p.add_run(text)
+            clean = re.sub(r"\**", "", text).strip()
+            run = p.add_run(clean)
             _set_run_font(run, 14, bold=True)
             run.italic = True
         return p
@@ -946,10 +952,14 @@ def write_content_to_doc(d, content):
     cleaned = []
     for line in lines:
         s = line.strip()
-        if re.match(r"^Sông\s+Đốc", s, re.IGNORECASE): break
-        if re.search(r"NGƯỜI\s*SOẠN", s, re.IGNORECASE): break
-        if re.search(r"KÝ\s*DUYỆT", s, re.IGNORECASE): break
-        if re.match(r"^\(?Ký\s*tên\)?\s*$", s, re.IGNORECASE): break
+        if re.match(r"^Sông\s+Đốc", s, re.IGNORECASE):
+            break
+        if re.search(r"NGƯỜI\s*SOẠN", s, re.IGNORECASE):
+            break
+        if re.search(r"KÝ\s*DUYỆT", s, re.IGNORECASE):
+            break
+        if re.match(r"^\(?Ký\s*tên\)?\s*$", s, re.IGNORECASE):
+            break
         cleaned.append(line)
     content = "\n".join(cleaned)
 
@@ -960,7 +970,7 @@ def write_content_to_doc(d, content):
         stripped = line.strip()
 
         if stripped == "":
-            if i > 0 and lines[i-1].strip() != "":
+            if i > 0 and lines[i - 1].strip() != "":
                 p = d.add_paragraph("")
                 p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
                 p.paragraph_format.space_before = Pt(0)
@@ -999,28 +1009,34 @@ def write_content_to_doc(d, content):
             continue
 
         if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", stripped, re.IGNORECASE):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            clean = stripped.replace("**", "").replace("*", "")
+            _add_heading(d, clean.strip())
             i += 1
             continue
         if re.match(r"^\**\s*Môn\s*học", stripped, re.IGNORECASE):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            clean = stripped.replace("**", "").replace("*", "")
+            _add_heading(d, clean.strip())
             i += 1
             continue
         if re.match(r"^\**\s*Thời\s*gian\s*thực\s*hiện", stripped, re.IGNORECASE):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            clean = stripped.replace("**", "").replace("*", "")
+            _add_heading(d, clean.strip())
             i += 1
             continue
 
         if re.match(r"^\**\s*(I|II|III|IV|V)\.\s+\S", stripped):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            clean = stripped.replace("**", "").replace("*", "")
+            _add_heading(d, clean.strip())
             i += 1
             continue
         if re.match(r"^\**\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and len(stripped) < 120:
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            clean = stripped.replace("**", "").replace("*", "")
+            _add_heading(d, clean.strip())
             i += 1
             continue
         if re.match(r"^\**\s*[a-z]\)\s+\S", stripped):
-            _add_heading(d, re.sub(r"^[*#\-\+\\]+\s*", "", stripped).rstrip("*").strip())
+            clean = stripped.replace("**", "").replace("*", "")
+            _add_heading(d, clean.strip())
             i += 1
             continue
 
@@ -1190,7 +1206,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
     nhom_ngay = []
     for r in lich:
         thu_clean = r["thu"].strip()
-        ngay_clean = r["ngay"].strip()
+        ngay_clean = r.get("ngay", "").strip()
         key = (thu_clean + "|" + ngay_clean).lower().replace(" ", "")
 
         if not nhom_ngay or nhom_ngay[-1]["key"] != key:
@@ -1689,12 +1705,10 @@ with sub_t2:
         lich = []
         loi = []
 
-        # ===== ĐỌC TỪ FILE =====
         if manual_file:
             fname = manual_file.name.lower()
             raw_bytes = manual_file.read()
 
-            # --- WORD (.docx) ---
             if fname.endswith(".docx"):
                 try:
                     from docx import Document as DocxDoc
@@ -1727,7 +1741,6 @@ with sub_t2:
                 except Exception as e:
                     loi.append("Lỗi đọc Word: " + str(e))
 
-            # --- EXCEL ---
             elif fname.endswith((".xlsx", ".xls")):
                 try:
                     import openpyxl
@@ -1763,7 +1776,6 @@ with sub_t2:
                 except Exception as e:
                     loi.append("Lỗi đọc Excel: " + str(e))
 
-            # --- TEXT/CSV/PDF ---
             else:
                 try:
                     _, raw_text, _ = read_file(manual_file, use_ocr=False)
@@ -1792,7 +1804,6 @@ with sub_t2:
                 except Exception as e:
                     loi.append("Lỗi đọc file: " + str(e))
 
-        # ===== ĐỌC TỪ PASTE =====
         elif manual_paste.strip():
             for line in manual_paste.strip().splitlines():
                 line = line.strip()
@@ -1819,7 +1830,6 @@ with sub_t2:
                 else:
                     loi.append("Dòng thiếu cột: " + line[:80])
 
-        # ===== XỬ LÝ KẾT QUẢ =====
         for msg in loi:
             st.warning(msg)
 
@@ -1834,7 +1844,7 @@ with sub_t2:
                 st.markdown("|---|---|---|---|---|---|---|")
                 for r in lich[:30]:
                     st.markdown(
-                        "| " + r["thu"] + " | " + r["ngay"] + " | " + r["tiet"]
+                        "| " + r["thu"] + " | " + r.get("ngay", "") + " | " + r["tiet"]
                         + " | " + r["lop"] + " | " + r["mon"]
                         + " | " + str(r["stt_ppct"])
                         + " | " + r["ten_bai"] + " |"
@@ -1877,7 +1887,8 @@ with sub_t3:
 def hien_thi_lich_theo_ngay(lich):
     for thu in ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]:
         bai_trong_ngay = [r for r in lich if r["thu"].lower().startswith(thu.lower()[:5])]
-        if not bai_trong_ngay: continue
+        if not bai_trong_ngay:
+            continue
         ngay = bai_trong_ngay[0].get("ngay", "")
         st.markdown("### 📅 **" + thu + (" — " + ngay if ngay else "") + "**")
         st.markdown("| Tiết | Lớp | Môn | Tên bài | Tiết |")
