@@ -22,7 +22,8 @@ _ensure("pypdf", "pypdf")
 import streamlit as st
 from docx import Document
 from docx.shared import Pt, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.oxml.ns import qn
 import io
 import re
 import csv
@@ -47,7 +48,7 @@ except Exception:
 
 st.set_page_config(page_title="Trợ lý Giáo viên THCS", page_icon="🧠", layout="wide")
 st.title("🧠 Trợ lý Giáo viên THCS")
-st.caption("Bộ não tự động • Bám mẫu giáo án • Lịch báo giảng • Xuất Word")
+st.caption("Bộ não tự động • Bám mẫu CV 5512 • Lịch báo giảng • Xuất Word")
 
 
 def cfg(key, default=""):
@@ -465,7 +466,6 @@ with st.sidebar:
 
     if GITHUB_TOKEN:
         st.success("💾 Đã có GITHUB_TOKEN")
-        st.caption("Repo: " + GITHUB_REPO)
         if st.button("🧪 Test GitHub", use_container_width=True):
             ok, msg = gh_test()
             if ok:
@@ -544,7 +544,7 @@ with tab_up:
         ["Mẫu (định dạng)", "Nguồn (nội dung)", "PPCT", "TKB"],
         horizontal=True,
     )
-    up_name = st.text_input("Tên file", placeholder="mau_bai_soan")
+    up_name = st.text_input("Tên file", placeholder="mau_bai_soan_cv5512")
     up_files = st.file_uploader(
         "Chọn file",
         type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc",
@@ -647,20 +647,20 @@ with tab_kho:
         st.divider()
 
 
-# ============ PROMPT BÁM MẪU GIÁO ÁN ============
+# ============ PROMPT BÁM MẪU CV 5512 ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
     tpl_text = ""
     for f in plan.get("template_files", []):
         if f in st.session_state["templates"]:
-            tpl_text += "\n=== FILE MẪU (BẮT BUỘC BÁM SÁT) ===\n" + st.session_state["templates"][f][:20000]
+            tpl_text += "\n=== FILE MẪU (BÁM SÁT TUYỆT ĐỐI) ===\n" + st.session_state["templates"][f][:20000]
     src_text = ""
     for f in plan.get("source_files", []):
         if f in st.session_state["sources"]:
             src_text += "\n=== NGUỒN NỘI DUNG (SGK) ===\n" + st.session_state["sources"][f][:25000]
 
     prompt = "Bạn là trợ lý chuyên môn cao cấp cho giáo viên THCS Việt Nam.\n\n"
-    prompt += "NHIỆM VỤ: Soạn KẾ HOẠCH BÀI DẠY theo ĐÚNG mẫu giáo án.\n\n"
+    prompt += "NHIỆM VỤ: Soạn KẾ HOẠCH BÀI DẠY theo ĐÚNG mẫu giáo án Công văn 5512.\n\n"
     prompt += "THÔNG TIN:\n"
     prompt += "- Giáo viên: " + mem.get("teacher_name", "") + "\n"
     prompt += "- Trường: " + mem.get("school", "") + "\n"
@@ -673,73 +673,69 @@ def build_exec_prompt(plan):
     if src_text:
         prompt += src_text + "\n"
 
-    prompt += "=== CẤU TRÚC BẮT BUỘC CỦA BÀI SOẠN ===\n\n"
+    prompt += "=== CẤU TRÚC BẮT BUỘC (BÁM SÁT 100%) ===\n\n"
 
-    prompt += "**I. MỤC TIÊU**\n"
-    prompt += "1. Kiến thức: [nêu kiến thức trọng tâm từ SGK]\n"
-    prompt += "2. Năng lực:\n"
-    prompt += "   - Năng lực riêng: [2-3 năng lực đặc thù]\n"
-    prompt += "   - Năng lực chung: Năng lực tư duy và lập luận toán học; năng lực giao tiếp toán học tự học; năng lực giải quyết vấn đề toán học, năng lực tư duy sáng tạo, năng lực hợp tác.\n"
-    prompt += "3. Phẩm chất: Bồi dưỡng hứng thú học tập, ý thức làm việc nhóm, ý thức tìm tòi, khám phá và sáng tạo cho HS => độc lập, tự tin và tự chủ.\n\n"
+    prompt += "**TÊN BÀI DẠY: " + plan.get("topic", "") + "**\n"
+    prompt += "**Môn: " + plan.get("subject", "") + " - Lớp " + plan.get("grade", "") + "**\n"
+    prompt += "**Thời gian thực hiện: " + (plan.get("period") or "1") + "**\n\n"
 
-    prompt += "**II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU**\n"
-    prompt += "1. GV: Bài giảng, khbd.\n"
-    prompt += "   (KHÔNG dùng từ 'máy chiếu'. Nếu cần thiết bị hiển thị, dùng 'tivi' hoặc 'máy vi tính'.)\n"
-    prompt += "2. HS: SGK; Đồ dùng học tập; Ôn tập khái niệm về [kiến thức liên quan đã học].\n\n"
+    prompt += "**I. Mục tiêu**\n"
+    prompt += "1. Về kiến thức:\n"
+    prompt += "+ [2-4 gạch đầu dòng kiến thức trọng tâm từ SGK]\n"
+    prompt += "2. Về năng lực:\n"
+    prompt += "+ Năng lực chung: Năng lực tự chủ và tự học, năng lực giao tiếp và hợp tác, năng lực giải quyết vấn đề và sáng tạo.\n"
+    prompt += "+ Năng lực đặc thù: [liệt kê năng lực toán học cụ thể]\n"
+    prompt += "3. Về phẩm chất:\n"
+    prompt += "+ Chăm chỉ, trung thực, trách nhiệm.\n\n"
 
-    prompt += "**III. TIẾN TRÌNH DẠY HỌC**\n\n"
+    prompt += "**II. Thiết bị dạy học và học liệu**\n"
+    prompt += "1. Đối với giáo viên: Kế hoạch bài dạy, SGK, SGV, phiếu học tập, thước kẻ, phấn màu, "
+    prompt += "tivi (hoặc máy vi tính) nếu cần trình chiếu.\n"
+    prompt += "2. Đối với học sinh: SGK, vở ghi, đồ dùng học tập, ôn tập kiến thức đã học.\n\n"
 
-    prompt += "**A. HOẠT ĐỘNG KHỞI ĐỘNG (MỞ ĐẦU)**\n"
-    prompt += "a) Mục tiêu: [2 gạch đầu dòng: gây hứng thú + gợi mở nội dung]\n"
-    prompt += "b) Nội dung: HS chú ý lắng nghe và thực hiện yêu cầu.\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm:\n"
-    prompt += "- Bước 1: Chuyển giao nhiệm vụ: [GV đặt vấn đề bằng bài toán mở đầu SGK]\n"
-    prompt += "- Bước 2: Thực hiện nhiệm vụ: HS đọc, suy nghĩ, thảo luận nhóm và suy đoán, giải thích.\n"
-    prompt += "- Bước 3: Báo cáo, thảo luận: GV gọi một số HS trả lời, HS khác nhận xét.\n"
-    prompt += "- Bước 4: Kết luận, nhận định: GV đánh giá kết quả của HS, dẫn dắt vào bài mới.\n\n"
+    prompt += "**III. Tiến trình dạy học**\n\n"
 
-    prompt += "**B. HÌNH THÀNH KIẾN THỨC MỚI**\n\n"
-    prompt += "Với MỖI Hoạt động (Hoạt động 1, 2, 3...), trình bày ĐẦY ĐỦ:\n\n"
-    prompt += "**Hoạt động N: [Tên hoạt động]**\n"
-    prompt += "a) Mục tiêu: [3-4 gạch đầu dòng cụ thể]\n"
-    prompt += "b) Nội dung: HS quan sát SGK để tìm hiểu nội dung kiến thức theo yêu cầu của GV.\n"
+    prompt += "**1. Hoạt động 1: Mở đầu (Khởi động)**\n"
+    prompt += "a) Mục tiêu: [2 gạch đầu dòng]\n"
+    prompt += "b) Nội dung: [Mô tả ngắn gọn]\n"
     prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
-
-    prompt += "**BẮT BUỘC dùng BẢNG 2 CỘT:**\n"
-    prompt += "| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM |\n"
+    prompt += "BẢNG 2 CỘT:\n"
+    prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| - Bước 1: Chuyển giao nhiệm vụ:<br>+ GV hướng dẫn...<br>+ GV phân tích... | **N. [Tên kiến thức]**<br>* [Nội dung cụ thể]<br>+ Ví dụ 1: [chi tiết]<br>+ Ư(24) = {1; 2; 3; 4; 6; 8; 12; 24}<br>+ Ư(28) = {1; 2; 4; 7; 14; 28}<br>+ ƯC(24; 28) = {1; 2; 4} |\n"
-    prompt += "| - Bước 2: Thực hiện nhiệm vụ:<br>+ HS chú ý lắng nghe...<br>+ GV quan sát và trợ giúp HS | [Sản phẩm tiếp] |\n"
-    prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS: Chú ý, thảo luận và phát biểu... | [Sản phẩm tiếp] |\n"
-    prompt += "| - Bước 4: Kết luận, nhận định: GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính: ... | [Tổng kết] |\n\n"
+    prompt += "| - Bước 1: Chuyển giao nhiệm vụ:<br>+ GV đặt vấn đề... | [Sản phẩm dự kiến] |\n"
+    prompt += "| - Bước 2: Thực hiện nhiệm vụ:<br>+ HS suy nghĩ, thảo luận... | |\n"
+    prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS trả lời... | |\n"
+    prompt += "| - Bước 4: Kết luận, nhận định:<br>+ GV đánh giá, dẫn dắt vào bài mới | |\n\n"
 
-    prompt += "**C. HOẠT ĐỘNG LUYỆN TẬP**\n"
+    prompt += "**2. Hoạt động 2: Hình thành kiến thức mới**\n"
+    prompt += "a) Mục tiêu: [mục tiêu]\n"
+    prompt += "b) Nội dung: [nội dung kiến thức]\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+    prompt += "BẢNG 2 CỘT:\n"
+    prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
+    prompt += "|---|---|\n"
+    prompt += "| - Bước 1: Chuyển giao nhiệm vụ:<br>+ GV hướng dẫn và yêu cầu HS thực hiện... | **1. [Tên kiến thức]**<br>[Nội dung chi tiết từ SGK]<br>+ Ví dụ 1: ...<br>+ Ví dụ 2: ... |\n"
+    prompt += "| - Bước 2: Thực hiện nhiệm vụ:<br>+ HS chú ý lắng nghe, thực hiện yêu cầu của GV.<br>+ GV quan sát và trợ giúp HS | |\n"
+    prompt += "| - Bước 3: Báo cáo, thảo luận:<br>+ HS thảo luận và phát biểu, nhận xét và bổ sung cho nhau | |\n"
+    prompt += "| - Bước 4: Kết luận, nhận định:<br>+ GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính | |\n\n"
+
+    prompt += "**3. Hoạt động 3: Luyện tập**\n"
     prompt += "a) Mục tiêu: Học sinh củng cố lại kiến thức thông qua một số bài tập.\n"
     prompt += "b) Nội dung: HS dựa vào kiến thức đã học vận dụng làm BT.\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm:\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
     prompt += "BẢNG 2 CỘT:\n"
-    prompt += "| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM |\n"
+    prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
     prompt += "| - GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK).<br>- HS tiếp nhận nhiệm vụ... | **Bài [số]:**<br>[Lời giải chi tiết] |\n\n"
 
-    prompt += "**D. HOẠT ĐỘNG VẬN DỤNG**\n"
+    prompt += "**4. Hoạt động 4: Vận dụng**\n"
     prompt += "a) Mục tiêu: Học sinh thực hiện làm bài tập vận dụng để củng cố kiến thức và áp dụng kiến thức vào thực tế đời sống.\n"
     prompt += "b) Nội dung: HS sử dụng SGK và vận dụng kiến thức đã học để hoàn thành bài tập.\n"
-    prompt += "c) Tổ chức thực hiện và sản phẩm: BẢNG 2 CỘT:\n"
-    prompt += "| HOẠT ĐỘNG CỦA GV VÀ HS | SẢN PHẨM |\n"
+    prompt += "c) Tổ chức thực hiện và sản phẩm:\n\n"
+    prompt += "BẢNG 2 CỘT:\n"
+    prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| - GV cho HS đọc...<br>- GV yêu cầu HS hoàn thành... | **Bài [số]:** [Lời giải chi tiết] |\n\n"
-
-    prompt += "**\\* HƯỚNG DẪN VỀ NHÀ**\n"
-    prompt += "- Đọc và ghi nhớ nội dung chính của bài.\n"
-    prompt += "- Vận dụng kiến thức làm bài tập [số] (SGK- tr[XX]).\n"
-    prompt += "- Chuẩn bị bài mới \"[tên bài tiếp theo]\".\n\n"
-
-    prompt += "**KẾT BÀI (ghi ở cuối cùng, căn phải):**\n"
-    prompt += "Sông Đốc, ngày ... tháng ... năm ...\n"
-    prompt += "NGƯỜI SOẠN\n"
-    prompt += "(Ký tên)\n"
-    prompt += mem.get("teacher_name", "") + "\n\n"
+    prompt += "| - GV cho HS đọc và tìm hiểu...<br>- GV yêu cầu HS hoàn thành... | **Bài [số]:** [Lời giải chi tiết] |\n\n"
 
     prompt += "=== QUY TẮC BẮT BUỘC ===\n"
     prompt += "1. NỘI DUNG PHẢI LẤY TỪ NGUỒN SGK. KHÔNG bịa.\n"
@@ -747,8 +743,12 @@ def build_exec_prompt(plan):
     prompt += "3. Ký hiệu toán Unicode: x², x³, √, ≤, ≥, ∈, π, Ư (KHÔNG LaTeX).\n"
     prompt += "4. Phân số viết dạng a/b.\n"
     prompt += "5. Tiếng Việt có dấu đầy đủ.\n"
-    prompt += "6. Trong ô bảng: dùng <br> để xuống dòng, **bold** để in đậm.\n"
+    prompt += "6. Trong ô bảng: dùng <br> để xuống dòng.\n"
     prompt += "7. Độ dài tối thiểu: 1500 từ.\n"
+    prompt += "8. KHÔNG viết '---', '===', '***' trong bài.\n"
+    prompt += "9. KHÔNG dùng HTML tag <div>, <span>, <p>.\n"
+    prompt += "10. KHÔNG viết phần 'Người soạn', 'Ký tên', 'Sông Đốc' ở cuối bài.\n"
+    prompt += "11. Kết thúc bài bằng phần '4. Hoạt động 4'.\n"
     return prompt
 
 
@@ -765,14 +765,43 @@ def fix_math(text):
     return text
 
 
+def _set_run_font(run, size=14, bold=False):
+    """Đặt font Times New Roman cho run."""
+    run.bold = bold
+    run.font.name = "Times New Roman"
+    run.font.size = Pt(size)
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = rpr.makeelement(qn("w:rFonts"), {})
+        rpr.append(rfonts)
+    rfonts.set(qn("w:ascii"), "Times New Roman")
+    rfonts.set(qn("w:hAnsi"), "Times New Roman")
+    rfonts.set(qn("w:eastAsia"), "Times New Roman")
+    rfonts.set(qn("w:cs"), "Times New Roman")
+
+
 def add_para(doc, text, style=None):
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
     p = doc.add_paragraph(style=style) if style else doc.add_paragraph()
-    for part in re.split(r"(\*\*[^*]+\*\*)", text):
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    if style is None:
+        p.paragraph_format.first_line_indent = Inches(0.39)
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+
+    for part in re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*)", text):
         if part.startswith("**") and part.endswith("**") and len(part) > 4:
-            p.add_run(part[2:-2]).bold = True
+            run = p.add_run(part[2:-2])
+            _set_run_font(run, 14, bold=True)
+        elif part.startswith("*") and part.endswith("*") and len(part) > 2:
+            run = p.add_run(part[1:-1])
+            run.italic = True
+            _set_run_font(run, 14, bold=False)
         else:
-            p.add_run(part)
+            run = p.add_run(part)
+            _set_run_font(run, 14, bold=False)
     return p
 
 
@@ -787,21 +816,97 @@ def add_table(doc, rows):
             c = t.cell(i, j)
             c.text = ""
             p = c.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
             val = (row[j] if j < len(row) else "").replace("<br>", "\n")
             for part in re.split(r"(\*\*[^*]+\*\*)", val):
                 if part.startswith("**") and part.endswith("**") and len(part) > 4:
-                    p.add_run(part[2:-2]).bold = True
+                    run = p.add_run(part[2:-2])
+                    _set_run_font(run, 14, bold=True)
                 else:
-                    p.add_run(part)
+                    run = p.add_run(part)
+                    _set_run_font(run, 14, bold=False)
+
+
+def _add_heading(doc, text):
+    """Heading in đậm, Times New Roman 14, cách trên/dưới 6pt."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.first_line_indent = Inches(0)
+
+    run = p.add_run(text)
+    _set_run_font(run, 14, bold=True)
+    return p
 
 
 def write_content_to_doc(d, content):
     content = fix_math(content)
+
+    # Làm sạch HTML
+    for tag in ["div", "strong", "span", "p", "em"]:
+        content = re.sub(r"<" + tag + r"[^>]*>", "", content)
+        content = re.sub(r"</" + tag + r">", "", content)
+
+    # Cắt bỏ tiêu đề đầu bài
+    lines = content.splitlines()
+    start_idx = 0
+    for idx, line in enumerate(lines):
+        s = line.strip()
+        if re.match(r"^\**\s*TÊN\s*BÀI\s*DẠY", s, re.IGNORECASE):
+            start_idx = idx
+            break
+        if re.match(r"^\**\s*I\.\s*(Mục|MỤC)", s, re.IGNORECASE):
+            start_idx = idx
+            break
+
+    if start_idx > 0:
+        first = lines[start_idx].strip()
+        if re.match(r"^\**\s*I\.\s*(Mục|MỤC)", first, re.IGNORECASE):
+            lines = lines[start_idx:]
+        else:
+            for k in range(start_idx, len(lines)):
+                if re.match(r"^\**\s*I\.\s*(Mục|MỤC)", lines[k].strip(), re.IGNORECASE):
+                    lines = lines[k:]
+                    break
+
+    # Cắt bỏ kết bài
+    cleaned = []
+    for line in lines:
+        s = line.strip()
+        if re.match(r"^Sông\s+Đốc", s, re.IGNORECASE):
+            break
+        if re.search(r"NGƯỜI\s*SOẠN", s, re.IGNORECASE):
+            break
+        if re.search(r"KÝ\s*DUYỆT", s, re.IGNORECASE):
+            break
+        if re.match(r"^\(?Ký\s*tên\)?\s*$", s, re.IGNORECASE):
+            break
+        if re.match(r"^-{3,}\s*$", s):
+            continue
+        cleaned.append(line)
+    content = "\n".join(cleaned)
+
+    # Ghi vào Word
     lines = content.splitlines()
     i = 0
     while i < len(lines):
-        line = lines[i].strip()
-        if line.startswith("|") and line.endswith("|"):
+        line = lines[i].rstrip()
+        stripped = line.strip()
+
+        if stripped == "":
+            if i > 0 and lines[i-1].strip() != "":
+                p = d.add_paragraph("")
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(0)
+            i += 1
+            continue
+
+        # Bảng markdown
+        if stripped.startswith("|") and stripped.endswith("|"):
             tl = []
             j = i
             while j < len(lines) and lines[j].strip().startswith("|") and lines[j].strip().endswith("|"):
@@ -816,20 +921,62 @@ def write_content_to_doc(d, content):
                 add_table(d, rows)
             i = j
             continue
-        if line.startswith("### "):
-            d.add_heading(line[4:], 3)
-        elif line.startswith("## "):
-            d.add_heading(line[3:], 2)
-        elif line.startswith("# "):
-            d.add_heading(line[2:], 1)
-        elif line.startswith("- "):
-            add_para(d, line[2:], style="List Bullet")
-        elif re.match(r"^\d+[\.\)] ", line):
-            add_para(d, re.sub(r"^\d+[\.\)] ", "", line), style="List Number")
-        elif line == "":
-            pass
+
+        # HEADING — Bám mẫu CV 5512
+        # I. / II. / III. / IV. / V. — cấp 1
+        if re.match(r"^\**\s*(I|II|III|IV|V)\.\s+\S", stripped):
+            text = re.sub(r"^\**\s*", "", stripped).rstrip("*")
+            _add_heading(d, text)
+            i += 1
+            continue
+
+        # 1. / 2. / 3. / 4. — cấp 2 (nhưng không phải số ở đầu bài toán)
+        if re.match(r"^\**\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and len(stripped) < 100:
+            text = re.sub(r"^\**\s*", "", stripped).rstrip("*")
+            _add_heading(d, text)
+            i += 1
+            continue
+
+        # a) / b) / c) — cấp 3
+        if re.match(r"^\**\s*[a-z]\)\s+\S", stripped):
+            text = re.sub(r"^\**\s*", "", stripped).rstrip("*")
+            _add_heading(d, text)
+            i += 1
+            continue
+
+        # Markdown heading
+        if stripped.startswith("#### "):
+            text = re.sub(r"[*\\]", "", stripped[5:].strip())
+            _add_heading(d, text)
+        elif stripped.startswith("### "):
+            text = re.sub(r"[*\\]", "", stripped[4:].strip())
+            _add_heading(d, text)
+        elif stripped.startswith("## "):
+            text = re.sub(r"[*\\]", "", stripped[3:].strip())
+            _add_heading(d, text)
+        elif stripped.startswith("# "):
+            text = re.sub(r"[*\\]", "", stripped[2:].strip())
+            _add_heading(d, text)
+
+        # Bullet
+        elif re.match(r"^[-*+]\s+", stripped):
+            text = re.sub(r"^[-*+]\s+", "", stripped)
+            text = re.sub(r"^[*\\]+\s*", "", text)
+            add_para(d, text, style="List Bullet")
+
+        # Số
+        elif re.match(r"^\d+[\.\)]\s+", stripped):
+            text = re.sub(r"^\d+[\.\)]\s+", "", stripped)
+            add_para(d, text, style="List Number")
+
+        # Dòng thường
         else:
-            add_para(d, line)
+            text = stripped
+            text = re.sub(r"^\*\*\\?\*?\s*", "", text)
+            text = re.sub(r"\s*\*\*\\?\*?$", "", text)
+            if text:
+                add_para(d, text)
+
         i += 1
 
 
@@ -840,8 +987,25 @@ def make_doc(title, body):
     s.bottom_margin = Inches(0.7)
     s.left_margin = Inches(0.8)
     s.right_margin = Inches(0.8)
-    d.styles["Normal"].font.name = "Times New Roman"
-    d.styles["Normal"].font.size = Pt(12)
+
+    # Font mặc định
+    style = d.styles["Normal"]
+    style.font.name = "Times New Roman"
+    style.font.size = Pt(14)
+    rpr = style.element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = rpr.makeelement(qn("w:rFonts"), {})
+        rpr.append(rfonts)
+    rfonts.set(qn("w:ascii"), "Times New Roman")
+    rfonts.set(qn("w:hAnsi"), "Times New Roman")
+    rfonts.set(qn("w:eastAsia"), "Times New Roman")
+    rfonts.set(qn("w:cs"), "Times New Roman")
+    pf = style.paragraph_format
+    pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(0)
+
     d.add_heading(title, 0)
     mem = st.session_state.get("memory", {})
     if mem.get("school"):
@@ -849,6 +1013,8 @@ def make_doc(title, body):
     if mem.get("teacher_name"):
         d.add_paragraph("Người thực hiện: " + mem["teacher_name"])
     d.add_paragraph("Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
+    d.add_paragraph("")
+
     write_content_to_doc(d, body)
     b = io.BytesIO()
     d.save(b)
@@ -859,26 +1025,26 @@ def make_doc(title, body):
 def add_phieu_bao_giang(doc, lich, tuan_start):
     mem = st.session_state.get("memory", {})
 
-    # Dòng ngày tháng (căn phải)
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     now = datetime.now()
-    p.add_run("Sông Đốc, ngày " + now.strftime("%d") + " tháng " + now.strftime("%m") + " năm " + now.strftime("%Y"))
+    run = p.add_run("Sông Đốc, ngày " + now.strftime("%d") + " tháng " + now.strftime("%m") + " năm " + now.strftime("%Y"))
+    _set_run_font(run, 14, bold=False)
 
-    # Tiêu đề
     h = doc.add_heading("PHIẾU BÁO GIẢNG", 0)
     h.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run("Tuần: ").bold = True
+    run = p.add_run("Tuần: ")
+    _set_run_font(run, 14, bold=True)
     end_date = tuan_start + timedelta(days=6)
-    p.add_run("Từ " + tuan_start.strftime("%d/%m/%Y")
-              + " đến " + end_date.strftime("%d/%m/%Y"))
+    run2 = p.add_run("Từ " + tuan_start.strftime("%d/%m/%Y")
+                     + " đến " + end_date.strftime("%d/%m/%Y"))
+    _set_run_font(run2, 14, bold=False)
 
     doc.add_paragraph()
 
-    # Bảng phiếu báo giảng — 7 cột
     table = doc.add_table(rows=1, cols=7)
     table.style = "Table Grid"
     hdr = table.rows[0].cells
@@ -887,7 +1053,7 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
     for i, h_text in enumerate(headers):
         hdr[i].text = ""
         run = hdr[i].paragraphs[0].add_run(h_text)
-        run.bold = True
+        _set_run_font(run, 14, bold=True)
 
     prev_ngay = ""
     for r in lich:
@@ -907,17 +1073,19 @@ def add_phieu_bao_giang(doc, lich, tuan_start):
 
     doc.add_paragraph()
 
-    # Ký duyệt
     p = doc.add_paragraph()
-    p.add_run("KÝ DUYỆT").bold = True
+    run = p.add_run("KÝ DUYỆT")
+    _set_run_font(run, 14, bold=True)
     p2 = doc.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p2.add_run("NGƯỜI SOẠN").bold = True
+    run = p2.add_run("NGƯỜI SOẠN")
+    _set_run_font(run, 14, bold=True)
     doc.add_paragraph()
     doc.add_paragraph()
     p3 = doc.add_paragraph()
     p3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p3.add_run(mem.get("teacher_name", ""))
+    run = p3.add_run(mem.get("teacher_name", ""))
+    _set_run_font(run, 14, bold=False)
 
 
 # ============ SOẠN 1 BÀI ============
@@ -1093,7 +1261,6 @@ def parse_tkb(text):
 
 
 def parse_ppct(text):
-    """Parse PPCT — GỘP bài nhiều tiết."""
     raw_list = []
     for line in text.strip().splitlines():
         line = line.strip()
@@ -1130,22 +1297,16 @@ def parse_ppct(text):
                 except Exception:
                     pass
         raw_list.append({
-            "stt": stt,
-            "tiet_bd": stt,
-            "ten_bai": ten_bai,
-            "so_tiet": n_tiet,
-            "tuan": tuan,
-            "tuan_start": tuan_start,
-            "tuan_end": tuan_end,
+            "stt": stt, "tiet_bd": stt, "ten_bai": ten_bai,
+            "so_tiet": n_tiet, "tuan": tuan,
+            "tuan_start": tuan_start, "tuan_end": tuan_end,
         })
 
-    # GỘP bài có cùng tên (bài nhiều tiết)
     merged = []
     i = 0
     while i < len(raw_list):
         bai = raw_list[i]
-        ten_goc = bai["ten_bai"]
-        ten_chuan = re.sub(r"\s*\(Tiết\s*\d+\)", "", ten_goc).strip()
+        ten_chuan = re.sub(r"\s*\(Tiết\s*\d+\)", "", bai["ten_bai"]).strip()
         so_tiet_gop = 0
         j = i
         while j < len(raw_list):
@@ -1156,16 +1317,12 @@ def parse_ppct(text):
             else:
                 break
         merged.append({
-            "stt": bai["stt"],
-            "tiet_bd": bai["tiet_bd"],
-            "ten_bai": ten_chuan,
-            "so_tiet": so_tiet_gop,
-            "tuan": bai["tuan"],
-            "tuan_start": bai["tuan_start"],
+            "stt": bai["stt"], "tiet_bd": bai["tiet_bd"],
+            "ten_bai": ten_chuan, "so_tiet": so_tiet_gop,
+            "tuan": bai["tuan"], "tuan_start": bai["tuan_start"],
             "tuan_end": bai["tuan_end"],
         })
         i = j if so_tiet_gop > 0 else i + 1
-
     return merged
 
 
@@ -1189,11 +1346,9 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
             tkb_raw = text
         elif not tkb_raw and selected_tkb != "(Không dùng)":
             tkb_raw = st.session_state["tkb"][selected_tkb]
-            st.info("📘 Dùng TKB: " + selected_tkb)
         elif not tkb_raw and st.session_state["tkb"]:
             first = list(st.session_state["tkb"].keys())[0]
             tkb_raw = st.session_state["tkb"][first]
-            st.info("📘 Dùng TKB đã lưu: " + first)
 
         ppct_raw = ppct_manual.strip()
         if ppct_file:
@@ -1201,11 +1356,9 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
             ppct_raw = text
         elif not ppct_raw and selected_ppct != "(Không dùng)":
             ppct_raw = st.session_state["ppct"][selected_ppct]
-            st.info("📗 Dùng PPCT: " + selected_ppct)
         elif not ppct_raw and st.session_state["ppct"]:
             first = list(st.session_state["ppct"].keys())[0]
             ppct_raw = st.session_state["ppct"][first]
-            st.info("📗 Dùng PPCT đã lưu: " + first)
 
         if not tkb_raw or not ppct_raw:
             st.error("Cần TKB và PPCT.")
@@ -1217,14 +1370,8 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                 with st.spinner("🧠 AI đang đọc TKB..."):
                     tkb_clean = ai_extract_tkb(tkb_raw)
 
-            with st.spinner("🧠 AI đang đọc PPCT (tách tuần, gộp bài)..."):
+            with st.spinner("🧠 AI đang đọc PPCT..."):
                 ppct_clean = ai_extract_ppct(ppct_raw)
-
-            with st.expander("📋 Xem kết quả AI trích xuất", expanded=False):
-                st.markdown("**TKB đã chuẩn hóa:**")
-                st.code(tkb_clean)
-                st.markdown("**PPCT đã chuẩn hóa:**")
-                st.code(ppct_clean)
 
             tkb = parse_tkb(tkb_clean)
             ppct = parse_ppct(ppct_clean)
@@ -1234,16 +1381,14 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
             else:
                 target = datetime.combine(start_date, datetime.min.time())
                 week_bais, week_number = find_week_ppct(ppct, target)
-
                 if week_bais:
-                    st.success("✅ Tìm thấy **Tuần " + str(week_number)
-                               + "** — " + str(len(week_bais)) + " bài")
+                    st.success("✅ Tuần " + str(week_number)
+                               + " — " + str(len(week_bais)) + " bài")
                     ppct_week = week_bais
                 else:
                     st.warning("⚠️ Không tìm thấy tuần khớp.")
                     ppct_week = ppct
 
-                # Tạo ppct_tiets — mỗi bài chiếm n tiết
                 ppct_tiets = []
                 for bai in ppct_week:
                     for k in range(bai["so_tiet"]):
@@ -1273,7 +1418,6 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                                     "lop": item["lop"], "mon": item["mon"],
                                 })
 
-                # Ghép slot với tiết — GIỮ ĐỦ tất cả slot
                 lich = []
                 for idx, slot in enumerate(all_slots):
                     thu_lower = slot["thu"].lower()
@@ -1289,11 +1433,11 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                     tong_tiet = 1
                     stt_ppct = ""
                     if idx < len(ppct_tiets):
-                        tiet_info = ppct_tiets[idx]
-                        ten_bai = tiet_info["ten_bai"]
-                        tiet_trong_bai = tiet_info["tiet_trong_bai"]
-                        tong_tiet = tiet_info["tong_tiet"]
-                        stt_ppct = tiet_info.get("stt_ppct", "")
+                        ti = ppct_tiets[idx]
+                        ten_bai = ti["ten_bai"]
+                        tiet_trong_bai = ti["tiet_trong_bai"]
+                        tong_tiet = ti["tong_tiet"]
+                        stt_ppct = ti.get("stt_ppct", "")
 
                     lich.append({
                         "thu": slot["thu"],
@@ -1335,7 +1479,7 @@ def hien_thi_lich_theo_ngay(lich):
 if st.session_state.get("lich_bao_giang"):
     lich = st.session_state["lich_bao_giang"]
     st.divider()
-    st.subheader("📋 Lịch báo giảng — Tuần (" + str(len(lich)) + " tiết)")
+    st.subheader("📋 Lịch báo giảng — " + str(len(lich)) + " tiết")
 
     st.markdown("#### 📊 Bảng tổng hợp")
     st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài | Tiết |")
@@ -1347,7 +1491,6 @@ if st.session_state.get("lich_bao_giang"):
                     + " | " + r["ten_bai"]
                     + " | " + str(r["tiet_trong_bai"]) + "/" + str(r["tong_tiet"]) + " |")
 
-    st.markdown("")
     st.markdown("#### 📅 Chi tiết theo ngày")
     hien_thi_lich_theo_ngay(lich)
 
@@ -1356,7 +1499,6 @@ if st.session_state.get("lich_bao_giang"):
         if not available_providers:
             st.error("Chưa có API key.")
         else:
-            # Gom bài KHÔNG trùng để soạn
             bai_can_soan = {}
             for r in lich:
                 if not r["ten_bai"]:
@@ -1373,7 +1515,7 @@ if st.session_state.get("lich_bao_giang"):
                         bai_can_soan[key]["cac_lop"].append(r["lop"])
 
             st.info("📚 Có **" + str(len(bai_can_soan)) + " bài** không trùng cần soạn "
-                    + "(trong " + str(len(lich)) + " tiết dạy).")
+                    + "(trong " + str(len(lich)) + " tiết).")
 
             progress = st.progress(0)
             status_text = st.empty()
@@ -1430,8 +1572,23 @@ if st.session_state.get("weekly_results"):
         s.bottom_margin = Inches(0.7)
         s.left_margin = Inches(0.8)
         s.right_margin = Inches(0.8)
-        d.styles["Normal"].font.name = "Times New Roman"
-        d.styles["Normal"].font.size = Pt(12)
+
+        style = d.styles["Normal"]
+        style.font.name = "Times New Roman"
+        style.font.size = Pt(14)
+        rpr = style.element.get_or_add_rPr()
+        rfonts = rpr.find(qn("w:rFonts"))
+        if rfonts is None:
+            rfonts = rpr.makeelement(qn("w:rFonts"), {})
+            rpr.append(rfonts)
+        rfonts.set(qn("w:ascii"), "Times New Roman")
+        rfonts.set(qn("w:hAnsi"), "Times New Roman")
+        rfonts.set(qn("w:eastAsia"), "Times New Roman")
+        rfonts.set(qn("w:cs"), "Times New Roman")
+        pf = style.paragraph_format
+        pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
+        pf.space_before = Pt(0)
+        pf.space_after = Pt(0)
 
         if lich:
             add_phieu_bao_giang(d, lich, st.session_state["start_date_val"])
@@ -1439,19 +1596,15 @@ if st.session_state.get("weekly_results"):
         for idx, r in enumerate(results):
             d.add_page_break()
             lop_str = ", ".join(r.get("cac_lop", []))
-            d.add_heading("BÀI " + str(idx + 1) + ": " + r.get("ten_bai", ""), 1)
+            h = d.add_heading("BÀI " + str(idx + 1) + ": " + r.get("ten_bai", ""), 1)
             p_info = d.add_paragraph()
-            p_info.add_run("Lớp: ").bold = True
-            p_info.add_run(lop_str)
-            p_info.add_run(" | Số tiết: ").bold = True
-            p_info.add_run(str(r.get("tong_tiet", 1)))
-            d.add_paragraph("---")
+            run = p_info.add_run("Lớp: " + lop_str + " | Số tiết: " + str(r.get("tong_tiet", 1)))
+            _set_run_font(run, 14, bold=False)
             write_content_to_doc(d, r.get("content", ""))
 
         bio = io.BytesIO()
         d.save(bio)
-        st.success("✅ File Word: Phiếu báo giảng + " + str(len(results))
-                   + " bài soạn (không trùng)")
+        st.success("✅ File Word: Phiếu báo giảng + " + str(len(results)) + " bài soạn")
         st.download_button(
             "⬇️ Tải file Word tuần",
             bio.getvalue(),
