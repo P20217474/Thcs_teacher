@@ -47,7 +47,7 @@ except Exception:
 
 st.set_page_config(page_title="Trợ lý Giáo viên THCS", page_icon="🧠", layout="wide")
 st.title("🧠 Trợ lý Giáo viên THCS")
-st.caption("Bộ não tự động • Đọc ảnh SGK • Lịch báo giảng • Soạn tuần • Xuất Word")
+st.caption("Bộ não tự động • Đọc ảnh SGK • Lịch báo giảng theo tuần • Xuất Word")
 
 
 # ============ CẤU HÌNH ============
@@ -69,7 +69,6 @@ for _k, _v in PROVIDER_KEYS.items():
     if _v:
         os.environ[_k] = _v
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
-
 GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
 PREFERRED_MODELS = {
@@ -225,22 +224,17 @@ def save_history(task, topic, content):
 
 # ============ OCR ẢNH BẰNG GEMINI VISION ============
 def ocr_image_with_gemini(data, fname):
-    """Dùng Gemini Vision đọc text trong ảnh."""
     if not GEMINI_KEY:
-        return ("[" + fname + ": cần GEMINI_API_KEY để đọc ảnh. "
-                "Vào Secrets thêm GEMINI_API_KEY = \"AIzaSy...\"]")
+        return "[" + fname + ": cần GEMINI_API_KEY để đọc ảnh]"
     if not HAS_GEMINI_VISION:
-        return "[" + fname + ": chưa cài google-generativeai. Thêm vào requirements.txt]"
+        return "[" + fname + ": chưa cài google-generativeai]"
     if not HAS_PIL:
         return "[" + fname + ": chưa cài pillow]"
-
     try:
         genai_vision.configure(api_key=GEMINI_KEY)
         img = Image.open(io.BytesIO(data))
-
         models_to_try = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"]
         last_err = None
-
         for model_name in models_to_try:
             try:
                 model = genai_vision.GenerativeModel(model_name)
@@ -254,12 +248,11 @@ def ocr_image_with_gemini(data, fname):
                 response = model.generate_content([prompt, img])
                 text = response.text.strip()
                 if len(text) < 20:
-                    return "[" + fname + ": AI không đọc được text trong ảnh]"
+                    return "[" + fname + ": AI không đọc được text]"
                 return text
             except Exception as e:
                 last_err = e
                 continue
-
         return "[" + fname + ": Lỗi OCR — " + str(last_err) + "]"
     except Exception as e:
         return "[" + fname + ": Lỗi OCR — " + str(e) + "]"
@@ -298,17 +291,18 @@ def _read_pdf_safe(data):
         texts = []
         for page in reader.pages:
             try:
-                t = page.extract_text() or ""
+                t = ""
+                try:
+                    t = page.extract_text(extraction_mode="layout") or ""
+                except TypeError:
+                    t = page.extract_text() or ""
                 if t.strip():
                     texts.append(t)
             except Exception:
                 continue
         full = "\n".join(texts)
         if len(full.strip()) < 50:
-            return (
-                "[PDF scan, không có text. Hãy dùng tính năng OCR ảnh: "
-                "chụp ảnh từng trang → upload dạng .jpg/.png → AI đọc.]\n" + full
-            )
+            return "[PDF scan, không có text. Dùng OCR ảnh.]\n" + full
         return full
     except Exception as e:
         return "[Lỗi đọc pdf: " + str(e) + "]"
@@ -384,7 +378,6 @@ def _read_txt_safe(data):
 
 
 def read_file(file, use_ocr=True):
-    """Đọc file. Nếu là ảnh → dùng Gemini Vision OCR."""
     if file is None:
         return ("", "", 0)
     try:
@@ -399,7 +392,6 @@ def read_file(file, use_ocr=True):
     magic = data[:8]
     text = ""
 
-    # Ảnh → dùng OCR
     if nl.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
         if use_ocr:
             text = ocr_image_with_gemini(data, name)
@@ -476,9 +468,9 @@ with st.sidebar:
         st.error("❌ Chưa có GITHUB_TOKEN")
 
     if GEMINI_KEY:
-        st.success("🔍 Gemini Vision sẵn sàng đọc ảnh")
+        st.success("🔍 Gemini Vision sẵn sàng")
     else:
-        st.warning("⚠️ Chưa có GEMINI_API_KEY — không đọc được ảnh")
+        st.warning("⚠️ Chưa có GEMINI_API_KEY")
 
     mem["teacher_name"] = st.text_input("Giáo viên", value=mem.get("teacher_name", ""))
     mem["school"] = st.text_input("Trường", value=mem.get("school", ""))
@@ -534,54 +526,45 @@ def call_ai(prompt, system=""):
 tab_up, tab_kho = st.tabs(["📤 Upload mẫu/nguồn", "📂 Kho tri thức"])
 
 with tab_up:
-    st.markdown("### 📤 Upload file")
-    st.info(
-        "💡 **MẪU** = định dạng bài soạn (bảng 2 cột). "
-        "**NGUỒN** = nội dung SGK. "
-        "Ảnh chụp SGK sẽ được **Gemini Vision** đọc tự động."
-    )
+    st.info("💡 MẪU = định dạng bài soạn. NGUỒN = nội dung SGK. Ảnh sẽ được Gemini Vision đọc.")
     up_type = st.radio("Loại", ["Mẫu (định dạng)", "Nguồn (nội dung)"], horizontal=True)
-    up_name = st.text_input("Tên file", placeholder="toan6_bai11_ocr")
+    up_name = st.text_input("Tên file", placeholder="toan6_tuan6")
     up_files = st.file_uploader(
-        "Chọn file (ảnh chụp SGK / PDF / DOCX / XLSX / CSV / TXT)",
+        "Chọn file",
         type=["docx", "pdf", "txt", "md", "csv", "xlsx", "xls", "doc",
               "png", "jpg", "jpeg", "webp", "bmp"],
-        accept_multiple_files=True,
-        key="up_files",
+        accept_multiple_files=True, key="up_files",
     )
     up_paste = st.text_area("Hoặc dán nội dung", height=120, key="up_paste")
 
     if up_files:
-        st.markdown("**📋 Trạng thái file:**")
+        st.markdown("**📋 Trạng thái:**")
         for f in up_files:
             nl = f.name.lower()
             if nl.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")):
-                st.write("🖼️ " + f.name + " — ảnh, sẽ dùng Gemini Vision đọc")
+                st.write("🖼️ " + f.name + " — ảnh, sẽ OCR")
             elif nl.endswith(".pdf"):
-                st.write("📄 " + f.name + " — PDF, sẽ tự đọc text (nếu có)")
-            elif nl.endswith((".docx", ".doc")):
-                st.write("📝 " + f.name + " — Word")
+                st.write("📄 " + f.name + " — PDF")
             else:
                 st.write("📎 " + f.name)
 
     if st.button("💾 Lưu lên GitHub", type="primary", use_container_width=True):
         ok0, msg0 = gh_test()
         if not ok0:
-            st.error("❌ Lỗi kết nối: " + msg0)
+            st.error("❌ " + msg0)
         else:
             st.success("✅ " + msg0)
             parts = []
             if up_paste.strip():
                 parts.append(up_paste.strip())
-
             for f in (up_files or []):
                 nl = f.name.lower()
                 if nl.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")):
-                    with st.spinner("🔍 AI đang đọc ảnh " + f.name + "..."):
+                    with st.spinner("🔍 AI đọc ảnh " + f.name + "..."):
                         data = f.read()
                         txt = ocr_image_with_gemini(data, f.name)
                     parts.append("--- " + f.name + " (OCR) ---\n" + txt)
-                    st.info("📖 Đã đọc " + f.name + ": " + str(len(txt)) + " ký tự")
+                    st.info("📖 " + f.name + ": " + str(len(txt)) + " ký tự")
                 else:
                     _, txt, _ = read_file(f, use_ocr=False)
                     parts.append("--- " + f.name + " ---\n" + txt)
@@ -595,18 +578,15 @@ with tab_up:
                     safe = "file_" + datetime.now().strftime("%Y%m%d_%H%M%S")
                 folder = "templates" if "Mẫu" in up_type else "sources"
                 path = f"data/{folder}/{safe}.md"
-
                 with st.spinner("💾 Đang lưu..."):
                     ok, msg = gh_save(path, full, f"Upload {safe}")
-
                 if ok:
                     st.success("✅ " + msg)
-                    st.info("Đã lưu " + str(len(full)) + " ký tự")
                     st.session_state["templates"] = load_templates()
                     st.session_state["sources"] = load_sources()
                     st.rerun()
                 else:
-                    st.error("❌ Lỗi: " + msg)
+                    st.error("❌ " + msg)
 
 with tab_kho:
     st.subheader("📐 Mẫu đã lưu")
@@ -684,7 +664,6 @@ def build_exec_prompt(plan):
     prompt += "Môn: " + plan.get("subject", "") + " | Khối: " + plan.get("grade", "") + "\n"
     prompt += "Tên bài: " + plan.get("topic", "") + "\n"
     prompt += "Thời lượng: " + (plan.get("period") or "Chưa xác định") + "\n\n"
-
     if tpl_text:
         prompt += tpl_text + "\n"
     if src_text:
@@ -695,23 +674,15 @@ def build_exec_prompt(plan):
     prompt += "2. Nếu nguồn thiếu: ghi [Cần bổ sung: ...]. KHÔNG bịa.\n"
     prompt += "3. Chi tiết, cụ thể, dùng được ngay. Tối thiểu 1500 từ.\n"
     prompt += "4. Mỗi hoạt động dạy học phải có: mục tiêu, cách tổ chức, sản phẩm.\n\n"
-
     prompt += "YÊU CẦU ĐỊNH DẠNG (BÁM THEO MẪU):\n"
     prompt += "5. Nếu mẫu có mục nào → bài soạn phải có mục đó, đúng thứ tự.\n"
-    prompt += "6. Nếu mẫu dùng bảng → dùng bảng markdown tương ứng.\n"
-    prompt += "7. Bảng hoạt động dạy học: ĐÚNG 2 CỘT.\n"
+    prompt += "6. Bảng hoạt động dạy học: ĐÚNG 2 CỘT:\n"
     prompt += "   | Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "   |---|---|\n"
-    prompt += "8. Trong ô: dùng <br> xuống dòng, **bold** in đậm.\n\n"
-
-    prompt += "KÝ HIỆU TOÁN (dùng Unicode):\n"
-    prompt += "9. x², x³, √x, H₂O, ≤, ≥, ≠, ∈, π, °, α, β\n"
-    prompt += "10. KHÔNG dùng LaTeX.\n\n"
-
-    prompt += "ĐỊNH DẠNG MARKDOWN:\n"
-    prompt += "11. '# ' cấp 1, '## ' cấp 2, '### ' cấp 3\n"
-    prompt += "12. '- ' bullet, '1. ' số\n"
-    prompt += "13. Tiếng Việt có dấu đầy đủ.\n"
+    prompt += "7. Trong ô: dùng <br> xuống dòng, **bold** in đậm.\n\n"
+    prompt += "KÝ HIỆU TOÁN: x², x³, √x, H₂O, ≤, ≥, ≠, ∈, π, ° (KHÔNG LaTeX).\n"
+    prompt += "MARKDOWN: '# ' cấp 1, '## ' cấp 2, '### ' cấp 3, '- ' bullet, '1. ' số.\n"
+    prompt += "Tiếng Việt có dấu đầy đủ.\n"
     return prompt
 
 
@@ -945,6 +916,7 @@ start_date = st.date_input("📆 Ngày bắt đầu tuần (thứ 2)",
 st.session_state["start_date_val"] = start_date
 
 
+# --- Hàm xử lý AI ---
 def ai_extract_tkb(raw):
     system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
     prompt = "Doc TKB sau, chuyen thanh moi dong: Thu | Tiet | Lop | Mon\n\nNOI DUNG:\n"
@@ -957,13 +929,51 @@ def ai_extract_tkb(raw):
 
 
 def ai_extract_ppct(raw):
-    system = "Ban la tro ly doc bang. Tra ve CHI text theo format."
-    prompt = "Doc PPCT sau, chuyen thanh moi dong: Tiet | Ten bai | So tiet\n\nNOI DUNG:\n"
-    prompt += raw[:12000] + "\n\nCHI tra ve cac dong."
+    """AI đọc PPCT — QUAN TRỌNG: điền tuần cho các dòng merge."""
+    system = "Bạn là trợ lý đọc bảng. Chỉ trả về text theo format, không giải thích."
+    prompt = """Đọc bảng PHÂN PHỐI CHƯƠNG TRÌNH sau. Bảng có 5 cột:
+STT | Bài học | Số tiết | Thời điểm | Ghi chú
+
+Cột "Thời điểm" chứa mốc tuần và ngày tháng, ví dụ:
+"Tuần: 1 (7/09/2026 - 13/09/2026)"
+"Tuần: 2 (14/09/2026 - 20/09/2026)"
+
+QUAN TRỌNG: Cột "Thời điểm" thường bị GỘP Ô (merge cell) — nghĩa là
+nhiều bài liên tiếp dùng chung 1 tuần. Trong file gốc, ô này chỉ xuất hiện
+1 lần ở đầu nhóm, các dòng sau để trống.
+
+Nhiệm vụ của bạn: ĐIỀN tuần cho TẤT CẢ các bài, kể cả khi ô trống.
+
+Trả về MỖI BÀI 1 DÒNG theo format CHÍNH XÁC:
+STT | Tên bài | Số tiết | Tuần | Ngày bắt đầu | Ngày kết thúc
+
+Ví dụ ĐÚNG:
+1 | Bài 1. Tập hợp | 1 | 1 | 07/09/2026 | 13/09/2026
+2 | Bài 2. Cách ghi số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
+3 | Bài 3. Thứ tự trong tập hợp số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
+4 | Bài 4. Phép cộng và phép trừ số tự nhiên | 1 | 1 | 07/09/2026 | 13/09/2026
+5 | Bài 5. Phép nhân và phép chia số tự nhiên (Tiết 1) | 1 | 2 | 14/09/2026 | 20/09/2026
+
+CHỈ trả về các dòng theo format trên. KHÔNG giải thích. KHÔNG thêm header.
+
+NỘI DUNG PPCT:
+""" + raw[:15000]
+
     try:
         result = call_ai(prompt, system)
-        return "\n".join([l.strip() for l in result.splitlines() if "|" in l and len(l.split("|")) >= 2])
-    except Exception:
+        lines = []
+        for line in result.splitlines():
+            line = line.strip()
+            if "|" not in line:
+                continue
+            low = line.lower()
+            if "stt" in low and "bài" in low:
+                continue
+            if "---" in line:
+                continue
+            lines.append(line)
+        return "\n".join(lines)
+    except Exception as e:
         return ""
 
 
@@ -1010,22 +1020,63 @@ def parse_tkb(text):
 
 
 def parse_ppct(text):
+    """Parse PPCT format: STT | Tên bài | Số tiết | Tuần | Ngày BĐ | Ngày KT."""
     result = []
     for line in text.strip().splitlines():
         line = line.strip()
         if not line or "|" not in line:
             continue
         parts = [p.strip() for p in line.split("|")]
-        if len(parts) < 2:
+        if len(parts) < 3:
             continue
-        m2 = re.search(r"(\d+)", parts[0])
-        tiet_start = int(m2.group(1)) if m2 else 0
-        so_tiet_str = parts[2] if len(parts) > 2 else "1 tiết"
+        if parts[0].lower() == "stt":
+            continue
+        m_stt = re.search(r"(\d+)", parts[0])
+        if not m_stt:
+            continue
+        stt = int(m_stt.group(1))
+        ten_bai = parts[1]
+        so_tiet_str = parts[2] if len(parts) > 2 else "1"
         m = re.search(r"(\d+)", so_tiet_str)
         n_tiet = int(m.group(1)) if m else 1
-        result.append({"tiet_bd": tiet_start, "ten_bai": parts[1], "so_tiet": n_tiet})
-    result.sort(key=lambda x: x["tiet_bd"])
+        tuan = parts[3].strip() if len(parts) > 3 else ""
+        tuan_start = None
+        tuan_end = None
+        if len(parts) >= 5:
+            d1 = re.search(r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", parts[4])
+            if d1:
+                try:
+                    tuan_start = datetime(int(d1.group(3)), int(d1.group(2)), int(d1.group(1)))
+                except Exception:
+                    pass
+        if len(parts) >= 6:
+            d2 = re.search(r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", parts[5])
+            if d2:
+                try:
+                    tuan_end = datetime(int(d2.group(3)), int(d2.group(2)), int(d2.group(1)))
+                except Exception:
+                    pass
+        result.append({
+            "stt": stt,
+            "tiet_bd": stt,
+            "ten_bai": ten_bai,
+            "so_tiet": n_tiet,
+            "tuan": tuan,
+            "tuan_start": tuan_start,
+            "tuan_end": tuan_end,
+        })
     return result
+
+
+def find_week_ppct(ppct, target_date):
+    """Tìm các bài trong PPCT thuộc tuần chứa target_date."""
+    for bai in ppct:
+        if bai.get("tuan_start") and bai.get("tuan_end"):
+            if bai["tuan_start"] <= target_date <= bai["tuan_end"]:
+                tuan_target = bai["tuan"]
+                cung_tuan = [b for b in ppct if str(b.get("tuan")) == str(tuan_target)]
+                return cung_tuan, tuan_target
+    return None, None
 
 
 if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_width=True):
@@ -1051,16 +1102,13 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                 with st.spinner("🧠 AI đang đọc TKB..."):
                     tkb_clean = ai_extract_tkb(tkb_raw)
 
-            with st.spinner("🧠 AI đang đọc PPCT..."):
-                if ppct_raw and "|" in ppct_raw:
-                    ppct_clean = ppct_raw
-                else:
-                    ppct_clean = ai_extract_ppct(ppct_raw)
+            with st.spinner("🧠 AI đang đọc PPCT (tách tuần)..."):
+                ppct_clean = ai_extract_ppct(ppct_raw)
 
-            with st.expander("📋 Xem kết quả AI trích xuất"):
-                st.markdown("**TKB:**")
+            with st.expander("📋 Xem kết quả AI trích xuất", expanded=True):
+                st.markdown("**TKB đã chuẩn hóa:**")
                 st.code(tkb_clean)
-                st.markdown("**PPCT:**")
+                st.markdown("**PPCT đã chuẩn hóa (có tuần):**")
                 st.code(ppct_clean)
 
             tkb = parse_tkb(tkb_clean)
@@ -1069,6 +1117,27 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
             if not tkb or not ppct:
                 st.error("Không parse được.")
             else:
+                target = datetime.combine(start_date, datetime.min.time())
+                week_bais, week_number = find_week_ppct(ppct, target)
+
+                if week_bais:
+                    st.success("✅ Tìm thấy **Tuần " + str(week_number)
+                               + "** — " + str(len(week_bais)) + " bài")
+                    ppct_week = week_bais
+                else:
+                    st.warning("⚠️ Không tìm thấy tuần khớp. Kiểm tra cột Thời điểm.")
+                    ppct_week = ppct
+
+                ppct_tiets = []
+                for bai in ppct_week:
+                    for k in range(bai["so_tiet"]):
+                        ppct_tiets.append({
+                            "ten_bai": bai["ten_bai"],
+                            "tiet_trong_bai": k + 1,
+                            "tong_tiet": bai["so_tiet"],
+                            "tuan": bai.get("tuan", ""),
+                        })
+
                 days_map = {
                     "thứ 2": 0, "thu 2": 0, "thứ hai": 0, "2": 0,
                     "thứ 3": 1, "thu 3": 1, "thứ ba": 1, "3": 1,
@@ -1086,15 +1155,6 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                                     "thu": k, "tiet": item["tiet"],
                                     "lop": item["lop"], "mon": item["mon"],
                                 })
-
-                ppct_tiets = []
-                for bai in ppct:
-                    for k in range(bai["so_tiet"]):
-                        ppct_tiets.append({
-                            "ten_bai": bai["ten_bai"],
-                            "tiet_trong_bai": k + 1,
-                            "tong_tiet": bai["so_tiet"],
-                        })
 
                 lich = []
                 for idx, slot in enumerate(all_slots):
@@ -1117,6 +1177,7 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
                         "ten_bai": tiet_info["ten_bai"],
                         "tiet_trong_bai": tiet_info["tiet_trong_bai"],
                         "tong_tiet": tiet_info["tong_tiet"],
+                        "tuan": tiet_info.get("tuan", ""),
                     })
 
                 st.session_state["lich_bao_giang"] = lich
@@ -1126,8 +1187,14 @@ if st.button("📅 Tạo lịch báo giảng", type="primary", use_container_wid
 # ============ HIỂN THỊ LỊCH ============
 if st.session_state.get("lich_bao_giang"):
     lich = st.session_state["lich_bao_giang"]
+    tuan_hien_thi = lich[0].get("tuan", "") if lich else ""
     st.divider()
-    st.subheader("📋 Lịch báo giảng — " + str(len(lich)) + " tiết")
+    if tuan_hien_thi:
+        st.subheader("📋 Lịch báo giảng — Tuần " + str(tuan_hien_thi)
+                     + " (" + str(len(lich)) + " tiết)")
+    else:
+        st.subheader("📋 Lịch báo giảng — " + str(len(lich)) + " tiết")
+
     st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tên bài | Tiết |")
     st.markdown("|---|---|---|---|---|---|---|")
     for r in lich:
@@ -1145,7 +1212,8 @@ if st.session_state.get("lich_bao_giang"):
             status_text = st.empty()
             results = []
             for idx, r in enumerate(lich):
-                status_text.write("⏳ Soạn bài " + str(idx + 1) + "/" + str(len(lich)) + ": " + r["ten_bai"])
+                status_text.write("⏳ Soạn bài " + str(idx + 1) + "/" + str(len(lich))
+                                  + ": " + r["ten_bai"])
                 plan = {
                     "task": "Soạn kế hoạch bài dạy",
                     "subject": r["mon"],
