@@ -1184,7 +1184,7 @@ def build_exec_prompt(plan):
     return "\n".join(p)
 # ============ KẾT THÚC PHẦN 3/6 ============
 # ============================================================
-# PHẦN 4/6: SIDEBAR + 7 TAB + CALL AI
+# PHẦN 4/6: SIDEBAR + 8 TAB + CALL AI
 # ============================================================
 
 with st.sidebar:
@@ -1355,17 +1355,18 @@ def call_ai_cached(prompt, system=""):
     return result
 
 
-# 7 TAB
-tab_sgk, tab_manual, tab_kho, tab_mau, tab_matrix, tab_despec, tab_exam = \
-    st.tabs([
-        "📤 Upload SGK gốc",
-        "📚 Nạp bài đã tách",
-        "📂 Kho tri thức",
-        "📐 Nạp mẫu giáo án",
-        "🧩 Nạp ma trận đề",
-        "📋 Tạo đặc tả đề",
-        "📝 Tạo đề + đáp án",
-    ])
+# 8 TAB
+(tab_sgk, tab_manual, tab_kho, tab_mau,
+ tab_matrix, tab_despec, tab_exam, tab_edit) = st.tabs([
+    "📤 Upload SGK gốc",
+    "📚 Nạp bài đã tách",
+    "📂 Kho tri thức",
+    "📐 Nạp mẫu giáo án",
+    "🧩 Nạp ma trận đề",
+    "📋 Tạo đặc tả đề",
+    "📝 Tạo đề + đáp án",
+    "✏️ Sửa bài SGK",
+])
 
 # ---------- TAB 1: UPLOAD SGK GỐC ----------
 with tab_sgk:
@@ -1422,7 +1423,11 @@ with tab_sgk:
                 progress.progress(20)
                 boundaries = detect_chapter_boundaries(pdf_bytes)
                 if not boundaries:
-                    st.warning("⚠️ Không dò được ranh giới bài tự động.")
+                    st.warning(
+                        "⚠️ Không dò được ranh giới bài tự động. "
+                        "Bạn có thể dùng tab **✏️ Sửa bài SGK** để "
+                        "chỉnh sửa thủ công sau khi tách."
+                    )
                 else:
                     st.success(f"✅ Tìm được {len(boundaries)} bài")
                     status.write("✂️ Đang tách...")
@@ -1437,7 +1442,10 @@ with tab_sgk:
                     progress.progress(100)
                     status.write("✅ Hoàn tất!")
                     if metadata:
-                        st.success(f"✅ Đã tách {metadata['so_bai']} bài.")
+                        st.success(
+                            f"✅ Đã tách {metadata['so_bai']} bài. "
+                            "Kiểm tra và sửa ở tab **✏️ Sửa bài SGK**."
+                        )
                         st.balloons()
                     else:
                         st.error("❌ Tách thất bại.")
@@ -1662,6 +1670,7 @@ with tab_mau:
 # ---------- TAB 5: NẠP MA TRẬN ĐỀ ----------
 with tab_matrix:
     st.markdown("### 🧩 Nạp ma trận đề kiểm tra")
+    st.info("💡 Upload ma trận đề (Excel/CSV/Word) hoặc nhập tay.")
 
     _c1, _c2, _c3 = st.columns([1, 1, 1])
     with _c1:
@@ -1752,6 +1761,7 @@ with tab_matrix:
 # ---------- TAB 6: TẠO ĐẶC TẢ ĐỀ ----------
 with tab_despec:
     st.markdown("### 📋 Tạo đặc tả đề từ ma trận")
+    st.info("💡 Chọn ma trận → AI sinh **bảng đặc tả đề**.")
 
     _mt_keys_all = [k.replace("matran_", "")
                     for k in st.session_state.keys()
@@ -1857,6 +1867,7 @@ YÊU CẦU:
 # ---------- TAB 7: TẠO ĐỀ + ĐÁP ÁN ----------
 with tab_exam:
     st.markdown("### 📝 Tạo đề kiểm tra + đáp án")
+    st.info("💡 Chọn **đặc tả đề** → AI tạo **đề + đáp án + biểu điểm**.")
 
     if not st.session_state.get("dacta_hientai"):
         st.warning("⚠️ Chưa có đặc tả. Vào tab **📋 Tạo đặc tả đề** trước.")
@@ -1950,7 +1961,192 @@ YÊU CẦU:
                     file_name=f"DeKiemTra_{_slugify(_ex_now.get('mon', ''))}_"
                               f"{_ex_now.get('lop', '')}.txt",
                     mime="text/plain", use_container_width=True)
+
+# ---------- TAB 8: SỬA BÀI SGK ----------
+with tab_edit:
+    st.markdown("### ✏️ Sửa thông tin bài SGK đã tách")
+    st.info(
+        "💡 Chỉnh sửa tên bài, trang PDF bắt đầu / kết thúc trực tiếp. "
+        "Bấm **💾 Lưu thay đổi** để ghi vào `metadata.json`."
+    )
+
+    _ds_edit = list_sgk_da_tach()
+    if not _ds_edit:
+        st.warning("⚠️ Chưa có SGK nào. Vào tab **📤 Upload SGK gốc** trước.")
+    else:
+        _sgk_edit_name = st.selectbox(
+            "Chọn SGK cần sửa",
+            [s["sgk_name"] for s in _ds_edit],
+            key="edit_sgk_sel",
+        )
+
+        _meta_edit = load_sgk_metadata(_sgk_edit_name)
+        if not _meta_edit or not _meta_edit.get("ds_bai"):
+            st.warning("SGK này chưa có bài nào.")
+        else:
+            _ds_bai = _meta_edit["ds_bai"]
+            st.caption(f"📚 **{_sgk_edit_name}** — {len(_ds_bai)} bài")
+
+            # Nút hành động
+            _c1, _c2, _c3 = st.columns([1, 1, 2])
+            with _c1:
+                _btn_add = st.button("➕ Thêm bài", key="edit_add_bai",
+                                     use_container_width=True)
+            with _c2:
+                _btn_reset = st.button("↩️ Tải lại", key="edit_reload",
+                                        use_container_width=True)
+            with _c3:
+                st.caption("Sửa trực tiếp các ô bên dưới → bấm Lưu.")
+
+            if _btn_add:
+                _ds_bai.append({
+                    "file": "",
+                    "ten_bai": "",
+                    "so_bai": len(_ds_bai) + 1,
+                    "page_pdf_start": 1,
+                    "page_pdf_end": 1,
+                })
+                _meta_edit["ds_bai"] = _ds_bai
+                _meta_edit["so_bai"] = len(_ds_bai)
+                _save_meta_path = os.path.join(
+                    SGK_BAI_DIR, _sgk_edit_name, "metadata.json")
+                with open(_save_meta_path, "w", encoding="utf-8") as _f:
+                    json.dump(_meta_edit, _f,
+                              ensure_ascii=False, indent=2)
+                st.success("✅ Đã thêm 1 dòng trống ở cuối.")
+                st.rerun()
+
+            if _btn_reset:
+                st.rerun()
+
+            st.markdown("---")
+
+            # Bảng sửa
+            _h1, _h2, _h3, _h4, _h5 = st.columns([0.5, 3, 1, 1, 0.7])
+            with _h1:
+                st.markdown("**STT**")
+            with _h2:
+                st.markdown("**Tên bài**")
+            with _h3:
+                st.markdown("**Trang BĐ**")
+            with _h4:
+                st.markdown("**Trang KT**")
+            with _h5:
+                st.markdown("**Xóa**")
+
+            _deleted_idx = None
+
+            for _i, _b in enumerate(_ds_bai):
+                _cols = st.columns([0.5, 3, 1, 1, 0.7])
+
+                with _cols[0]:
+                    st.write(f"**{_i+1}**")
+
+                with _cols[1]:
+                    _new_ten = st.text_input(
+                        "Tên bài",
+                        value=_b.get("ten_bai", ""),
+                        key=f"edit_ten_{_i}",
+                        label_visibility="collapsed",
+                    )
+                    _b["ten_bai"] = _new_ten
+
+                with _cols[2]:
+                    _new_bd = st.number_input(
+                        "Trang BĐ",
+                        min_value=0, max_value=9999,
+                        value=int(_b.get("page_pdf_start", 0) or 0),
+                        step=1,
+                        key=f"edit_bd_{_i}",
+                        label_visibility="collapsed",
+                    )
+                    _b["page_pdf_start"] = int(_new_bd)
+
+                with _cols[3]:
+                    _new_kt = st.number_input(
+                        "Trang KT",
+                        min_value=0, max_value=9999,
+                        value=int(_b.get("page_pdf_end", 0) or 0),
+                        step=1,
+                        key=f"edit_kt_{_i}",
+                        label_visibility="collapsed",
+                    )
+                    _b["page_pdf_end"] = int(_new_kt)
+
+                with _cols[4]:
+                    if st.button("🗑️", key=f"edit_del_{_i}",
+                                 use_container_width=True):
+                        _deleted_idx = _i
+                        st.rerun()
+
+            # Xử lý xóa
+            if _deleted_idx is not None:
+                _ds_bai.pop(_deleted_idx)
+                for _k, _bk in enumerate(_ds_bai):
+                    _bk["so_bai"] = _k + 1
+                _meta_edit["ds_bai"] = _ds_bai
+                _meta_edit["so_bai"] = len(_ds_bai)
+                _save_meta_path = os.path.join(
+                    SGK_BAI_DIR, _sgk_edit_name, "metadata.json")
+                with open(_save_meta_path, "w", encoding="utf-8") as _f:
+                    json.dump(_meta_edit, _f,
+                              ensure_ascii=False, indent=2)
+                st.success("✅ Đã xóa bài.")
+                st.rerun()
+
+            st.markdown("---")
+
+            # Nút lưu
+            _c1, _c2 = st.columns([1, 1])
+            with _c1:
+                if st.button("💾 Lưu thay đổi", type="primary",
+                             use_container_width=True,
+                             key="edit_save_meta"):
+                    _errs = []
+                    for _k, _bk in enumerate(_ds_bai):
+                        if not _bk.get("ten_bai", "").strip():
+                            _errs.append(f"Dòng {_k+1}: Thiếu tên bài")
+                        if _bk.get("page_pdf_start", 0) > \
+                           _bk.get("page_pdf_end", 0):
+                            _errs.append(
+                                f"Dòng {_k+1}: Trang BĐ > Trang KT")
+                        _bk["so_bai"] = _k + 1
+
+                    if _errs:
+                        for _e in _errs:
+                            st.error("❌ " + _e)
+                    else:
+                        _meta_edit["ds_bai"] = _ds_bai
+                        _meta_edit["so_bai"] = len(_ds_bai)
+                        _save_meta_path = os.path.join(
+                            SGK_BAI_DIR, _sgk_edit_name, "metadata.json")
+                        with open(_save_meta_path, "w",
+                                  encoding="utf-8") as _f:
+                            json.dump(_meta_edit, _f,
+                                      ensure_ascii=False, indent=2)
+                        st.success(
+                            f"✅ Đã lưu {len(_ds_bai)} bài vào "
+                            f"`{_sgk_edit_name}/metadata.json`.")
+                        st.balloons()
+
+            with _c2:
+                if st.button("🔄 Tải lại từ file", use_container_width=True,
+                             key="edit_reload_full"):
+                    st.rerun()
+
+            # Tải metadata.json xuống
+            st.markdown("---")
+            st.download_button(
+                "⬇️ Tải metadata.json",
+                json.dumps(_meta_edit, ensure_ascii=False, indent=2)
+                    .encode("utf-8"),
+                file_name=f"{_sgk_edit_name}_metadata.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
 # ============ KẾT THÚC PHẦN 4/6 ============
+
 # ============================================================
 # PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI
 # ============================================================
