@@ -1702,9 +1702,7 @@ with tab_matrix:
             if _mt_session_key in st.session_state:
                 st.caption("Xem trước:")
                 st.text(
-                    st.session_state[_mt_session_key].get(
-                        "noi_dung", ""
-                    )[:500]
+                    str(st.session_state.get(_mt_session_key, {})).replace("{", "").replace("}", "")[:500]
                 )
             else:
                 st.warning(
