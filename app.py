@@ -725,8 +725,17 @@ def render_danh_sach_bai(sgk_name, expanded=False):
     st.dataframe(rows, use_container_width=True, hide_index=True)
 # ============ KẾT THÚC PHẦN 2/6 ============
 # ============================================================
-# PHẦN 3/6: RULES 11 MÔN + MẪU 5512 + PROMPT
+# PHẦN 3/6: RULES 12 MÔN + MẪU 5512 + PROMPT
 # ============================================================
+# Chức năng:
+#   - SUBJECT_RULES: bộ quy tắc 12 môn THCS
+#   - MAU_5512_MAC_DINH: mẫu 5512 hardcode
+#   - get_subject_rules, _chuan_hoa_ten_mon
+#   - detect_end_of_chapter, detect_luyen_tap_chung
+#   - kiem_tra_mau_5512, get_mau_dang_dung
+#   - build_exec_prompt
+# ============================================================
+
 MAU_5512_MAC_DINH = {
     "ten_mau": "Mẫu CV 5512 chuẩn Bộ GD",
     "che_do": "mac_dinh",
@@ -787,7 +796,8 @@ SUBJECT_RULES = {
             "Năng lực giải quyết vấn đề toán học",
             "Năng lực giao tiếp toán học",
             "Năng lực mô hình hóa toán học",
-            "Năng lực sử dụng công cụ, phương tiện học toán"],
+            "Năng lực sử dụng công cụ, phương tiện học toán",
+        ],
         "phuong_phap": ["Khám phá quy luật", "Giải quyết vấn đề",
                         "Luyện tập phân hóa"],
         "san_pham": ["Lời giải", "Phép tính, biểu thức", "Hình vẽ",
@@ -811,6 +821,42 @@ SUBJECT_RULES = {
                      "Viết đoạn/bài văn", "Trình bày, thảo luận"],
         "khong_nen": ("Ép mọi bài vào quy trình phân tích tác phẩm hoặc "
                       "đưa bài văn mẫu để HS học thuộc."),
+    },
+    "Tiếng Anh": {
+        "ten_goi_khac": ["tieng anh", "anh", "english", "ta", "tiếng anh"],
+        "ky_hieu": "🇬🇧 🔤 🗣️",
+        "nang_luc_rieng": [
+            "Năng lực giao tiếp bằng tiếng Anh",
+            "Năng lực ngôn ngữ (ngữ âm, từ vựng, ngữ pháp)",
+            "Năng lực liên văn hóa",
+            "Năng lực tự chủ và tự học ngoại ngữ",
+        ],
+        "phuong_phap": [
+            "Nghe - Nói - Đọc - Viết tích hợp",
+            "Luyện tập theo cặp/nhóm",
+            "Học qua tình huống giao tiếp",
+            "Trò chơi ngôn ngữ, đóng vai",
+            "Sử dụng học liệu số, nghe nhìn",
+        ],
+        "san_pham": [
+            "Đoạn hội thoại theo chủ đề",
+            "Bài nghe - nói (role-play)",
+            "Đoạn văn viết theo gợi ý",
+            "Phiếu học tập từ vựng - ngữ pháp",
+            "Sản phẩm dự án (poster, video, presentation)",
+        ],
+        "danh_gia": [
+            "Nghe hiểu thông tin chính",
+            "Nói theo chủ đề, phát âm rõ",
+            "Đọc hiểu văn bản ngắn",
+            "Viết đoạn văn đơn giản",
+            "Sử dụng từ vựng, ngữ pháp phù hợp",
+        ],
+        "khong_nen": (
+            "Chỉ dạy ngữ pháp và dịch câu mà bỏ qua 4 kỹ năng Nghe - Nói "
+            "- Đọc - Viết; hoặc bắt HS học thuộc lòng đoạn hội thoại "
+            "mẫu mà không có hoạt động giao tiếp thực tế."
+        ),
     },
     "Khoa học tự nhiên": {
         "ten_goi_khac": ["khtn", "khoa hoc tu nhien", "khoa học tự nhiên",
@@ -988,6 +1034,7 @@ SUBJECT_RULES = {
 
 
 def _chuan_hoa_ten_mon(ten_mon):
+    """Chuẩn hóa tên môn: bỏ dấu, lowercase."""
     if not ten_mon:
         return ""
     ten_mon = ten_mon.strip().lower()
@@ -999,16 +1046,26 @@ def _chuan_hoa_ten_mon(ten_mon):
 
 
 def get_subject_rules(ten_mon):
+    """Tra bộ quy tắc theo tên môn.
+    Linh hoạt với viết hoa, dấu, viết tắt.
+    Trả về (tên_chuẩn, rules) hoặc (None, None).
+    """
     if not ten_mon:
         return (None, None)
     ten_chuan = _chuan_hoa_ten_mon(ten_mon)
+
+    # 1. Khớp chính xác tên môn
     for key, rules in SUBJECT_RULES.items():
         if _chuan_hoa_ten_mon(key) == ten_chuan:
             return (key, rules)
+
+    # 2. Khớp tên gọi khác
     for key, rules in SUBJECT_RULES.items():
         for alias in rules.get("ten_goi_khac", []):
             if _chuan_hoa_ten_mon(alias) == ten_chuan:
                 return (key, rules)
+
+    # 3. Khớp mờ
     for key, rules in SUBJECT_RULES.items():
         key_chuan = _chuan_hoa_ten_mon(key)
         if key_chuan in ten_chuan or ten_chuan in key_chuan:
@@ -1018,16 +1075,21 @@ def get_subject_rules(ten_mon):
             if len(alias_chuan) >= 3 and (alias_chuan in ten_chuan or
                                           ten_chuan in alias_chuan):
                 return (key, rules)
+
     return (None, None)
 
 
 def detect_end_of_chapter(topic):
+    """Nhận diện bài cuối chương qua từ khóa."""
     if not topic:
         return False
     t = topic.lower()
-    keywords = ["bài tập cuối chương", "ôn tập chương", "ôn tập học kì",
-                "củng cố, mở rộng", "tổng kết chương", "review",
-                "looking back", "trưng bày sản phẩm", "bài tập ôn chương"]
+    keywords = [
+        "bài tập cuối chương", "ôn tập chương", "ôn tập học kì",
+        "củng cố, mở rộng", "tổng kết chương", "review",
+        "looking back", "trưng bày sản phẩm", "bài tập ôn chương",
+        "ôn tập cuối năm", "tổng kết năm học",
+    ]
     for kw in keywords:
         if kw in t:
             return True
@@ -1035,16 +1097,22 @@ def detect_end_of_chapter(topic):
 
 
 def detect_luyen_tap_chung(topic):
+    """Nhận diện bài luyện tập chung."""
     if not topic:
         return False
     return "luyện tập chung" in topic.lower()
 
 
 def kiem_tra_mau_5512(mau_text):
+    """Kiểm tra mẫu có đủ cấu trúc 5512 không.
+    Trả về (ok, msg).
+    """
     if not mau_text:
         return (False, "Mẫu rỗng")
+
     text_lower = mau_text.lower()
     errors = []
+
     if "mục tiêu" not in text_lower:
         errors.append("Thiếu 'I. Mục tiêu'")
     if "thiết bị dạy học" not in text_lower and \
@@ -1053,18 +1121,22 @@ def kiem_tra_mau_5512(mau_text):
     if "tiến trình dạy học" not in text_lower and \
        "tiến trình" not in text_lower:
         errors.append("Thiếu 'III. Tiến trình dạy học'")
+
     for i in [1, 2, 3, 4]:
         if ("hoạt động " + str(i)) not in text_lower:
             errors.append("Thiếu 'Hoạt động " + str(i) + "'")
+
     if "hoạt động của gv" not in text_lower and \
        "hoạt động của giáo viên" not in text_lower:
         errors.append("Thiếu bảng 'Hoạt động của GV và HS'")
+
     if errors:
         return (False, " | ".join(errors))
     return (True, "OK")
 
 
 def get_mau_dang_dung():
+    """Lấy mẫu 5512 đang dùng (hardcode hoặc user nạp)."""
     mau = st.session_state.get("mau_5512_dang_dung")
     if mau:
         return mau
@@ -1072,10 +1144,14 @@ def get_mau_dang_dung():
 
 
 def build_exec_prompt(plan):
+    """Xây prompt 5512 tối ưu token."""
     mem = st.session_state["memory"]
+
+    # 1. Tra môn
     ten_mon_input = plan.get("subject", "") or \
         mem.get("default_subject", "")
     matched_key, rules = get_subject_rules(ten_mon_input)
+
     if matched_key:
         ten_mon_chuan = matched_key
     else:
@@ -1088,9 +1164,15 @@ def build_exec_prompt(plan):
             "danh_gia": ["Kiến thức", "Kỹ năng", "Thái độ"],
             "khong_nen": "",
         }
+
+    # 2. Lấy mẫu 5512
     mau = get_mau_dang_dung()
     mau_text = mau.get("cau_truc", "")[:2000]
+
+    # 3. Lấy đoạn SGK (nếu có)
     sgk_text = plan.get("sgk_excerpt", "")[:8000]
+
+    # 4. Xác định HĐ2
     topic = plan.get("topic", "")
     if detect_end_of_chapter(topic):
         hd2_title = "Hệ thống kiến thức"
@@ -1099,6 +1181,7 @@ def build_exec_prompt(plan):
     else:
         hd2_title = "Giải quyết vấn đề từ Hoạt động 1"
 
+    # 5. Xây prompt
     p = []
     p.append("Bạn là trợ lý soạn KẾ HOẠCH BÀI DẠY THCS chuẩn CV 5512.")
     p.append("")
@@ -1110,6 +1193,8 @@ def build_exec_prompt(plan):
     p.append("- Tên bài: " + topic)
     p.append("- Số tiết: " + str(plan.get("period", "1")))
     p.append("")
+
+    # Đặc trưng môn
     p.append("=== ĐẶC TRƯNG MÔN " + ten_mon_chuan.upper() + " ===")
     p.append("Ký hiệu: " + rules.get("ky_hieu", ""))
     p.append("Năng lực riêng: " +
@@ -1121,13 +1206,19 @@ def build_exec_prompt(plan):
     if rules.get("khong_nen"):
         p.append("KHÔNG NÊN: " + rules["khong_nen"])
     p.append("")
+
+    # Nguồn SGK
     if sgk_text:
         p.append("=== NGUỒN SGK (BẮT BUỘC DÙNG) ===")
         p.append(sgk_text)
         p.append("")
+
+    # Mẫu 5512
     p.append("=== CẤU TRÚC 5512 (BẮT BUỘC) ===")
     p.append(mau_text)
     p.append("")
+
+    # Tiêu đề bài dạy
     p.append("=== TIÊU ĐỀ BÀI DẠY (DÙNG ĐÚNG FORMAT) ===")
     tieu_de = topic
     if plan.get("trang_sgk"):
@@ -1141,9 +1232,13 @@ def build_exec_prompt(plan):
     p.append("**Thời gian thực hiện: (" +
              str(plan.get("period", "1")) + " tiết)**")
     p.append("")
+
+    # HĐ2 title
     p.append("=== HOẠT ĐỘNG 2 PHẢI ĐẶT TÊN: ===")
     p.append("**2. Hoạt động 2: " + hd2_title + "**")
     p.append("")
+
+    # Quy tắc nghiêm ngặt
     p.append("=== QUY TẮC BẮT BUỘC ===")
     p.append("1. Mục I (Mục tiêu):")
     p.append("   1. Kiến thức: ...")
@@ -1170,7 +1265,8 @@ def build_exec_prompt(plan):
     p.append("5. TUYỆT ĐỐI KHÔNG BỊA kiến thức không có trong SGK.")
     p.append("   Nếu SGK không có → ghi '[SGK không cung cấp]'.")
     p.append("")
-    p.append("6. Trong ô bảng dùng <br> để xuống dòng.")
+    p.append("6. Trong ô bảng dùng <br> để xuống dòng. "
+             "Mỗi bước riêng dòng.")
     p.append("")
     p.append("7. Ký hiệu Unicode: x², √, ≤, ≥, π, ∈.")
     p.append("")
@@ -1181,8 +1277,12 @@ def build_exec_prompt(plan):
     p.append("   - Làm bài tập SGK")
     p.append("   - Chuẩn bị bài mới")
     p.append("")
+
     return "\n".join(p)
+
+
 # ============ KẾT THÚC PHẦN 3/6 ============
+
 # ============================================================
 # PHẦN 4/6: SIDEBAR + 8 TAB + CALL AI
 # ============================================================
