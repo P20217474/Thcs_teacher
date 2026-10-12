@@ -7,7 +7,7 @@
 # - Đọc secrets (API keys, GitHub token)
 # - GitHub API: get, save, delete, list, test
 # - Load memory/templates/sources/schedule
-# - Khởi tạo session_state
+# - Khởi tạo session_state (bao gồm ma trận/đặc tả/đề)
 # ============================================================
 
 import os
@@ -60,7 +60,9 @@ st.set_page_config(
 )
 
 st.title("🧠 Trợ lý Giáo viên THCS")
-st.caption("Bộ não tự học • Mẫu CV 5512 • Sách Kết nối tri thức • Xuất Word")
+st.caption(
+    "Bộ não tự học • Mẫu CV 5512 • Sách Kết nối tri thức • Xuất Word"
+)
 
 # ---------- ĐỌC SECRETS ----------
 def cfg(key, default=""):
@@ -292,29 +294,48 @@ def save_history(task, topic, content):
         f"History {topic}",
     )
 
-# ---------- KHỞI TẠO SESSION STATE ----------
+# ============================================================
+# KHỞI TẠO SESSION STATE
+# ============================================================
+
 # Reset session nếu version thay đổi
-if "app_started_v21" not in st.session_state:
+if "app_started_v22" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or \
            k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v21"] = True
+    st.session_state["app_started_v22"] = True
 
 # Giá trị mặc định
 defaults = {
+    # Bộ nhớ giáo viên
     "memory": load_memory(),
+    # Kho tri thức trên GitHub
     "templates": load_templates(),
     "sources": load_sources(),
     "schedule": load_schedule(),
+
+    # Soạn 1 bài
     "draft": "",
     "last_topic": "",
+
+    # Soạn tuần
     "weekly_results": [],
     "lich_bao_giang": [],
-    # Mẫu 5512 đang dùng
-    "mau_5512_dang_dung": None,   # None = dùng hardcode
+
+    # Mẫu 5512 đang dùng (None = hardcode)
+    "mau_5512_dang_dung": None,
+
     # Cache OCR trong session
     "ocr_session_cache": {},
+
+    # ── MA TRẬN ĐỀ / ĐẶC TẢ / ĐỀ KIỂM TRA ──
+    "matran_hientai": None,         # ma trận đang thao tác
+    "dacta_hientai": None,          # đặc tả đề vừa sinh
+    "de_kiem_tra_hientai": None,    # đề + đáp án vừa sinh
+
+    # ── CACHE PROMPT AI ──
+    "ai_prompt_cache": {},
 }
 
 for k, v in defaults.items():
@@ -920,17 +941,15 @@ def suggest_sgk_name(mon, lop):
 # PHẦN 3/6: SIDEBAR + UPLOAD + CALL AI
 # ============================================================
 # Chức năng:
-#   - Sidebar: test GitHub, memory, thống kê SGK đã tách, dọn dẹp
-#   - Tab Upload SGK gốc: upload PDF → tách tự động
-#   - Tab Nạp bài thủ công: upload file bài riêng
-#   - Tab Kho tri thức
-#   - Hàm call_ai() đa provider
+# - Sidebar: test GitHub, memory, thống kê, dọn dẹp
+# - 7 tab: SGK gốc, bài thủ công, kho, mẫu GA, ma trận, đặc tả, đề
+# - Hàm call_ai() đa provider + fallback
 # ============================================================
-
 
 # ============================================================
 # PHẦN A: SIDEBAR
 # ============================================================
+
 with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
@@ -972,8 +991,11 @@ with st.sidebar:
 
     # Thống kê
     st.subheader("📊 Thống kê")
-    for label, key in [("Mẫu", "templates"), ("Nguồn", "sources"),
-                       ("Lịch BG", "schedule")]:
+    for label, key in [
+        ("Mẫu", "templates"),
+        ("Nguồn", "sources"),
+        ("Lịch BG", "schedule"),
+    ]:
         st.write(label + ": " + str(len(st.session_state[key])) + " file")
 
     # Danh sách SGK đã tách
@@ -982,9 +1004,11 @@ with st.sidebar:
     if ds_sgk:
         with st.expander("📚 Xem SGK đã tách", expanded=False):
             for sgk in ds_sgk:
-                st.write("• " + sgk["sgk_name"] + " — "
-                         + str(sgk["so_bai"]) + " bài ("
-                         + sgk["nguon"] + ")")
+                st.write(
+                    "• " + sgk["sgk_name"] + " --- "
+                    + str(sgk["so_bai"]) + " bài ("
+                    + sgk["nguon"] + ")"
+                )
 
     if st.button("🔄 Tải lại", use_container_width=True):
         st.session_state["templates"] = load_templates()
@@ -1001,24 +1025,32 @@ with st.sidebar:
     with st.expander("🗑️ Dọn rác và cache", expanded=False):
         st.caption("Chọn mục cần dọn:")
 
-        if st.button("🧼 Xóa phiên làm việc tạm",
-                     use_container_width=True, key="clean_session"):
-            for k in ["draft", "last_topic", "weekly_results",
-                      "lich_bao_giang", "ocr_session_cache"]:
+        if st.button(
+            "🧼 Xóa phiên làm việc tạm",
+            use_container_width=True, key="clean_session",
+        ):
+            for k in [
+                "draft", "last_topic", "weekly_results",
+                "lich_bao_giang", "ocr_session_cache",
+            ]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.success("✅ Đã xóa phiên làm việc tạm")
             st.rerun()
 
-        if st.button("♻️ Xóa cache Streamlit",
-                     use_container_width=True, key="clean_cache"):
+        if st.button(
+            "♻️ Xóa cache Streamlit",
+            use_container_width=True, key="clean_cache",
+        ):
             st.cache_data.clear()
             st.cache_resource.clear()
             st.success("✅ Đã xóa cache Streamlit")
             st.rerun()
 
-        if st.button("🗑️ Xóa cache OCR local",
-                     use_container_width=True, key="clean_ocr"):
+        if st.button(
+            "🗑️ Xóa cache OCR local",
+            use_container_width=True, key="clean_ocr",
+        ):
             deleted = 0
             if os.path.exists(OCR_CACHE_DIR):
                 for f in os.listdir(OCR_CACHE_DIR):
@@ -1028,33 +1060,54 @@ with st.sidebar:
                     except Exception:
                         pass
             st.session_state["ocr_session_cache"] = {}
-            st.success("✅ Đã xóa " + str(deleted) + " file OCR cache")
+            st.success(f"✅ Đã xóa {deleted} file OCR cache")
+            st.rerun()
+
+        if st.button(
+            "🧹 Xóa ma trận + đặc tả + đề",
+            use_container_width=True, key="clean_exam",
+        ):
+            _deleted = 0
+            for k in list(st.session_state.keys()):
+                if k.startswith("matran_") or k in [
+                    "dacta_hientai",
+                    "de_kiem_tra_hientai",
+                    "matran_hientai",
+                ]:
+                    del st.session_state[k]
+                    _deleted += 1
+            st.success(f"✅ Đã xóa {_deleted} mục.")
+            st.rerun()
 
         if GITHUB_TOKEN:
-            if st.button("📜 Xóa lịch sử soạn bài",
-                         use_container_width=True, key="clean_history"):
+            if st.button(
+                "📜 Xóa lịch sử soạn bài",
+                use_container_width=True, key="clean_history",
+            ):
                 files = gh_list("data/history")
                 deleted = 0
                 for f in files:
                     ok, _ = gh_delete(f"data/history/{f}")
                     if ok:
                         deleted += 1
-                st.success("✅ Đã xóa " + str(deleted) + " file lịch sử")
+                st.success(f"✅ Đã xóa {deleted} file lịch sử")
 
-        st.divider()
-        st.caption("⚠️ **Cảnh báo**: các nút dưới đây xóa VĨNH VIỄN")
+    st.divider()
+    st.caption("⚠️ **Cảnh báo**: các nút dưới đây xóa VĨNH VIỄN")
 
-        if st.button("🔴 Reset toàn bộ app",
-                     use_container_width=True, key="reset_all"):
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
-            st.success("✅ Đã reset. Đang tải lại...")
-            st.rerun()
-
+    if st.button(
+        "🔴 Reset toàn bộ app",
+        use_container_width=True, key="reset_all",
+    ):
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.success("✅ Đã reset. Đang tải lại...")
+        st.rerun()
 
 # ============================================================
 # PHẦN B: HÀM GỌI AI (ĐA PROVIDER + FALLBACK)
 # ============================================================
+
 def call_ai(prompt, system=""):
     """Gọi AI đa provider với fallback.
     - Ưu tiên provider theo danh sách available_providers
@@ -1074,7 +1127,8 @@ def call_ai(prompt, system=""):
         for mn in PREFERRED_MODELS.get(pk, []):
             try:
                 resp = llm.chat(msgs, model=mn)
-                t = getattr(resp, "text", None) or getattr(resp, "content", "")
+                t = getattr(resp, "text", None) or \
+                    getattr(resp, "content", "")
                 if t and len(t.strip()) > 50:
                     return t
             except Exception as e:
@@ -1084,12 +1138,12 @@ def call_ai(prompt, system=""):
     # Fallback cuối
     try:
         resp = llm.chat(msgs, model="auto")
-        return getattr(resp, "text", None) or getattr(resp, "content", "")
+        return getattr(resp, "text", None) or \
+            getattr(resp, "content", "")
     except Exception as e:
         if last_err:
             raise last_err
         raise e
-
 
 def call_ai_cached(prompt, system=""):
     """Gọi AI có cache theo hash prompt."""
@@ -1097,27 +1151,29 @@ def call_ai_cached(prompt, system=""):
         (system + "||" + prompt).encode("utf-8")
     ).hexdigest()
 
-    # Kiểm tra session cache
     cache_store = st.session_state.setdefault("ai_prompt_cache", {})
     if cache_key in cache_store:
         return cache_store[cache_key]
 
-    # Gọi AI
     result = call_ai(prompt, system)
     if result:
         cache_store[cache_key] = result
     return result
 
-
 # ============================================================
-# PHẦN C: UPLOAD — 3 TAB (SGK GỐC, BÀI THỦ CÔNG, KHO)
+# PHẦN C: 7 TAB UPLOAD
 # ============================================================
-tab_sgk, tab_manual, tab_kho = st.tabs([
-    "📤 Upload SGK gốc",
-    "📚 Nạp bài đã tách",
-    "📂 Kho tri thức",
-])
 
+tab_sgk, tab_manual, tab_kho, tab_mau, tab_matrix, tab_despec, tab_exam = \
+    st.tabs([
+        "📤 Upload SGK gốc",
+        "📚 Nạp bài đã tách",
+        "📂 Kho tri thức",
+        "📐 Nạp mẫu giáo án",
+        "🧩 Nạp ma trận đề",
+        "📋 Tạo đặc tả đề",
+        "📝 Tạo đề + đáp án",
+    ])
 
 # ---------- TAB 1: UPLOAD SGK GỐC + TÁCH TỰ ĐỘNG ----------
 with tab_sgk:
@@ -1145,35 +1201,36 @@ with tab_sgk:
 
     if sgk_file:
         sgk_name_goi_y = suggest_sgk_name(sgk_mon, sgk_lop)
-        st.caption("📝 Tên SGK sẽ lưu: **" + sgk_name_goi_y + "**")
+        st.caption(f"📝 Tên SGK sẽ lưu: **{sgk_name_goi_y}**")
 
-        # Kiểm tra đã tách chưa
         existing = load_sgk_metadata(sgk_name_goi_y)
         if existing:
-            st.warning("⚠️ SGK này đã có " + str(existing.get("so_bai", 0))
-                       + " bài. Upload sẽ ghi đè.")
+            st.warning(
+                "⚠️ SGK này đã có "
+                + str(existing.get("so_bai", 0))
+                + " bài. Upload sẽ ghi đè."
+            )
             ghi_de = st.checkbox("Xác nhận ghi đè", key="overwrite_sgk")
         else:
             ghi_de = True
 
-        if st.button("🚀 Tách SGK tự động", type="primary",
-                     use_container_width=True, key="btn_split_sgk"):
+        if st.button(
+            "🚀 Tách SGK tự động", type="primary",
+            use_container_width=True, key="btn_split_sgk",
+        ):
             if not HAS_PYMUPDF:
-                st.error("❌ Chưa cài pymupdf. Cài: pip install pymupdf")
+                st.error("❌ Chưa cài pymupdf.")
             elif not GEMINI_KEY:
                 st.error("❌ Cần GEMINI_API_KEY để OCR mục lục.")
             elif not ghi_de:
                 st.warning("⚠️ Bạn chưa xác nhận ghi đè.")
             else:
-                # Đọc PDF
                 pdf_bytes = sgk_file.read()
                 total_pages = get_pdf_total_pages(pdf_bytes)
-                st.info("📄 File có **" + str(total_pages) + " trang**")
+                st.info(f"📄 File có **{total_pages} trang**")
 
-                # Bước 1: Dò ranh giới bài
                 progress = st.progress(0)
                 status = st.empty()
-
                 status.write("🔍 Đang OCR mục lục để dò ranh giới bài...")
                 progress.progress(20)
 
@@ -1182,21 +1239,23 @@ with tab_sgk:
                 if not boundaries:
                     st.warning(
                         "⚠️ Không dò được ranh giới bài tự động. "
-                        "Bạn có thể dùng tab **Nạp bài đã tách** để upload thủ công."
+                        "Bạn có thể dùng tab **Nạp bài đã tách** "
+                        "để upload thủ công."
                     )
                 else:
-                    st.success("✅ Tìm được " + str(len(boundaries)) + " bài")
-
-                    with st.expander("👁️ Xem danh sách bài", expanded=True):
+                    st.success(
+                        f"✅ Tìm được {len(boundaries)} bài"
+                    )
+                    with st.expander("👁️ Xem danh sách bài",
+                                     expanded=True):
                         for b in boundaries:
                             st.write(
-                                "• **Bài " + str(b["so_bai"]) + "**: "
-                                + b["ten_bai"]
-                                + " (trang PDF " + str(b["page_pdf_start"])
-                                + "-" + str(b["page_pdf_end"]) + ")"
+                                f"• **Bài {b['so_bai']}**: "
+                                f"{b['ten_bai']} "
+                                f"(trang PDF {b['page_pdf_start']}"
+                                f"-{b['page_pdf_end']})"
                             )
 
-                    # Bước 2: Tách file
                     status.write("✂️ Đang tách thành file bài riêng...")
                     progress.progress(50)
 
@@ -1213,13 +1272,12 @@ with tab_sgk:
 
                     if metadata:
                         st.success(
-                            "✅ Đã tách " + str(metadata["so_bai"])
-                            + " bài. Lưu vào: cache/sgk_bai/" + sgk_name_goi_y
+                            f"✅ Đã tách {metadata['so_bai']} bài. "
+                            f"Lưu vào: cache/sgk_bai/{sgk_name_goi_y}"
                         )
                         st.balloons()
                     else:
                         st.error("❌ Tách thất bại.")
-
 
 # ---------- TAB 2: NẠP BÀI THỦ CÔNG ----------
 with tab_manual:
@@ -1229,8 +1287,6 @@ with tab_manual:
         "(bằng Adobe/Foxit/Smallpdf) → upload lên đây."
     )
 
-    # Chọn SGK đích
-    ds_sgk_hien_co = [s["sgk_name"] for s in list_sgk_da_tach()]
     sgk_manual_mon = st.text_input(
         "Môn học",
         value=st.session_state["memory"].get("default_subject", "Toán"),
@@ -1242,7 +1298,7 @@ with tab_manual:
         key="manual_sgk_lop",
     )
     sgk_manual_name = suggest_sgk_name(sgk_manual_mon, sgk_manual_lop)
-    st.caption("📝 SGK đích: **" + sgk_manual_name + "**")
+    st.caption(f"📝 SGK đích: **{sgk_manual_name}**")
 
     manual_files = st.file_uploader(
         "Upload nhiều file PDF bài (chọn nhiều file cùng lúc)",
@@ -1280,13 +1336,13 @@ with tab_manual:
                     "page_kt": p_kt,
                 })
 
-        if st.button("💾 Lưu bài đã tách", type="primary",
-                     use_container_width=True, key="btn_save_manual"):
-            # Tạo thư mục SGK
+        if st.button(
+            "💾 Lưu bài đã tách", type="primary",
+            use_container_width=True, key="btn_save_manual",
+        ):
             sgk_dir = os.path.join(SGK_BAI_DIR, sgk_manual_name)
             os.makedirs(sgk_dir, exist_ok=True)
 
-            # Load metadata cũ (nếu có)
             meta = load_sgk_metadata(sgk_manual_name) or {
                 "sgk_name": sgk_manual_name,
                 "nguon": "manual",
@@ -1296,19 +1352,16 @@ with tab_manual:
 
             saved = 0
             for i, info in enumerate(manual_info):
-                # Tên file an toàn
                 safe = _slugify(info["ten_bai"])[:40] or f"bai_{i+1:02d}"
                 fname = f"bai_{i+1:02d}_{safe}.pdf"
                 fpath = os.path.join(sgk_dir, fname)
 
-                # Lưu file
                 try:
                     with open(fpath, "wb") as fo:
                         fo.write(info["file_obj"].read())
                 except Exception:
                     continue
 
-                # Cập nhật metadata
                 meta["ds_bai"].append({
                     "file": fname,
                     "ten_bai": info["ten_bai"],
@@ -1321,15 +1374,12 @@ with tab_manual:
             meta["so_bai"] = len(meta["ds_bai"])
             meta["nguon"] = "manual"
 
-            # Lưu metadata
             meta_path = os.path.join(sgk_dir, "metadata.json")
             with open(meta_path, "w", encoding="utf-8") as fo:
                 json.dump(meta, fo, ensure_ascii=False, indent=2)
 
-            st.success("✅ Đã nạp " + str(saved) + " bài vào "
-                       + sgk_manual_name)
+            st.success(f"✅ Đã nạp {saved} bài vào {sgk_manual_name}")
             st.balloons()
-
 
 # ---------- TAB 3: KHO TRI THỨC ----------
 with tab_kho:
@@ -1343,33 +1393,38 @@ with tab_kho:
     ]:
         st.subheader(label + " đã lưu")
         data_dict = st.session_state[key]
-
         if data_dict:
             for name in list(data_dict.keys()):
                 col1, col2 = st.columns([5, 1])
                 with col1:
                     with st.expander("📄 " + name):
                         content = data_dict[name]
-                        st.caption("Kích thước: " + str(len(content))
-                                   + " ký tự")
+                        st.caption(
+                            f"Kích thước: {len(content)} ký tự"
+                        )
                         st.text(content[:2000])
                 with col2:
                     if st.button("🗑️", key=f"del_{key}_{name}"):
                         with st.spinner("Đang xóa..."):
-                            ok, msg = gh_delete(f"data/{folder}/" + name)
+                            ok, msg = gh_delete(
+                                f"data/{folder}/" + name
+                            )
                             if ok:
                                 st.session_state[key] = load_folder(folder)
                                 st.rerun()
 
-            if st.button("🗑️ Xóa TẤT CẢ " + label,
-                         key=f"del_all_{key}"):
+            if st.button(
+                "🗑️ Xóa TẤT CẢ " + label,
+                key=f"del_all_{key}",
+            ):
                 for name in list(data_dict.keys()):
                     gh_delete(f"data/{folder}/" + name)
                 st.session_state[key] = load_folder(folder)
                 st.rerun()
         else:
             st.info("Chưa có " + label.lower() + ".")
-        st.divider()
+
+    st.divider()
 
     # SGK đã tách (local)
     st.subheader("📚 SGK đã tách (local)")
@@ -1378,9 +1433,10 @@ with tab_kho:
         for sgk in ds_sgk_local:
             col1, col2 = st.columns([5, 1])
             with col1:
-                st.write("• **" + sgk["sgk_name"] + "** — "
-                         + str(sgk["so_bai"]) + " bài ("
-                         + sgk["nguon"] + ")")
+                st.write(
+                    f"• **{sgk['sgk_name']}** --- "
+                    f"{sgk['so_bai']} bài ({sgk['nguon']})"
+                )
             with col2:
                 if st.button("🗑️", key="del_sgk_" + sgk["sgk_name"]):
                     import shutil
@@ -1395,8 +1451,552 @@ with tab_kho:
     else:
         st.info("Chưa có SGK nào được tách.")
 
+# ---------- TAB 4: NẠP MẪU GIÁO ÁN ----------
+with tab_mau:
+    st.markdown("### 📐 Nạp mẫu giáo án (CV 5512 hoặc mẫu riêng)")
+    st.info(
+        "💡 Upload mẫu giáo án của trường/tổ chuyên môn. "
+        "App sẽ dùng mẫu này thay cho mẫu hardcode khi soạn bài. "
+        "Hỗ trợ: `.docx`, `.txt`, `.md`."
+    )
 
-# ---------- KẾT THÚC PHẦN 3/6 ----------
+    _mau_files = st.file_uploader(
+        "Chọn 1 hoặc nhiều file mẫu",
+        type=["docx", "txt", "md"],
+        accept_multiple_files=True,
+        key="mau_upload",
+    )
+
+    if _mau_files:
+        for _mf in _mau_files:
+            with st.expander(f"📄 {_mf.name}", expanded=True):
+                try:
+                    _raw = _mf.read()
+                    if _mf.name.lower().endswith(".docx"):
+                        _mau_text = _read_docx_safe(_raw)
+                    else:
+                        _mau_text = _raw.decode("utf-8", errors="ignore")
+
+                    _ok, _msg = kiem_tra_mau_5512(_mau_text)
+
+                    _c1, _c2 = st.columns([3, 1])
+                    with _c1:
+                        st.caption(
+                            f"Kích thước: **{len(_mau_text)}** ký tự | "
+                            f"Kiểm tra 5512: "
+                            + ("✅ **OK**" if _ok else f"⚠️ {_msg}")
+                        )
+                        st.text_area(
+                            "Xem trước nội dung mẫu",
+                            _mau_text[:3000],
+                            height=200,
+                            key=f"preview_mau_{_mf.name}",
+                        )
+                    with _c2:
+                        st.write("")
+                        st.write("")
+                        if st.button(
+                            "✅ Dùng mẫu này",
+                            key=f"use_mau_{_mf.name}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            st.session_state["mau_5512_dang_dung"] = {
+                                "ten_mau": _mf.name,
+                                "che_do": "user",
+                                "nguon": "upload",
+                                "cau_truc": _mau_text,
+                            }
+                            if GITHUB_TOKEN:
+                                gh_save(
+                                    f"data/templates/{_mf.name}",
+                                    _mau_text,
+                                    f"Upload template {_mf.name}",
+                                )
+                                st.session_state["templates"] = \
+                                    load_templates()
+                            st.success(
+                                f"✅ Đã đặt **{_mf.name}** "
+                                "làm mẫu đang dùng."
+                            )
+                            st.rerun()
+
+                        if st.button(
+                            "🗑️ Xóa khỏi kho",
+                            key=f"del_mau_{_mf.name}",
+                            use_container_width=True,
+                        ):
+                            if GITHUB_TOKEN:
+                                gh_delete(f"data/templates/{_mf.name}")
+                                st.session_state["templates"] = \
+                                    load_templates()
+                                st.success("✅ Đã xóa khỏi GitHub.")
+                                st.rerun()
+                except Exception as _e:
+                    st.error(f"❌ Lỗi đọc mẫu: {_e}")
+
+    # Hiển thị mẫu đang dùng
+    _mau_now = st.session_state.get("mau_5512_dang_dung")
+    st.markdown("---")
+    if _mau_now:
+        st.success(
+            f"📌 **Mẫu đang dùng:** `{_mau_now.get('ten_mau', 'N/A')}` "
+            f"(nguồn: {_mau_now.get('nguon', 'N/A')})"
+        )
+        if st.button(
+            "↩️ Quay lại mẫu mặc định",
+            key="reset_mau",
+            use_container_width=True,
+        ):
+            st.session_state["mau_5512_dang_dung"] = None
+            st.success("✅ Đã quay lại mẫu 5512 mặc định.")
+            st.rerun()
+    else:
+        st.info("📌 Đang dùng **mẫu 5512 hardcode** (mặc định).")
+
+    # Danh sách mẫu đã lưu trên GitHub
+    if st.session_state["templates"]:
+        st.markdown("### 📚 Mẫu đã lưu trên GitHub")
+        for _tname in list(st.session_state["templates"].keys()):
+            _c1, _c2 = st.columns([5, 1])
+            with _c1:
+                with st.expander(f"📄 {_tname}"):
+                    st.text(
+                        st.session_state["templates"][_tname][:2000]
+                    )
+            with _c2:
+                if st.button(
+                    "✅ Dùng",
+                    key=f"use_saved_mau_{_tname}",
+                    use_container_width=True,
+                ):
+                    st.session_state["mau_5512_dang_dung"] = {
+                        "ten_mau": _tname,
+                        "che_do": "user",
+                        "nguon": "github",
+                        "cau_truc": st.session_state["templates"][_tname],
+                    }
+                    st.success(f"✅ Đã dùng mẫu **{_tname}**.")
+                    st.rerun()
+
+# ---------- TAB 5: NẠP MA TRẬN ĐỀ ----------
+with tab_matrix:
+    st.markdown("### 🧩 Nạp ma trận đề kiểm tra")
+    st.info(
+        "💡 Upload ma trận đề (Excel/CSV/Word) hoặc nhập tay. "
+        "App sẽ dùng ma trận này để sinh **đặc tả đề** "
+        "và **đề kiểm tra**."
+    )
+
+    _c1, _c2, _c3 = st.columns([1, 1, 1])
+    with _c1:
+        _mt_mon = st.text_input(
+            "Môn",
+            value=st.session_state["memory"].get(
+                "default_subject", "Toán"
+            ),
+            key="mt_mon",
+        )
+    with _c2:
+        _mt_lop = st.text_input(
+            "Lớp",
+            value=st.session_state["memory"].get("default_grade", "6"),
+            key="mt_lop",
+        )
+    with _c3:
+        _mt_loai = st.selectbox(
+            "Loại đề",
+            ["Giữa kì 1", "Cuối kì 1", "Giữa kì 2", "Cuối kì 2",
+             "15 phút", "1 tiết", "Khác"],
+            key="mt_loai",
+        )
+
+    _mt_file = st.file_uploader(
+        "Upload file ma trận",
+        type=["xlsx", "xls", "csv", "docx", "txt"],
+        key="mt_upload",
+    )
+
+    _mt_text = ""
+    if _mt_file:
+        try:
+            _mt_bytes = _mt_file.read()
+            _n = _mt_file.name.lower()
+            if _n.endswith((".xlsx", ".xls", ".xlsm")):
+                _mt_text = _read_excel_safe(_mt_bytes)
+            elif _n.endswith(".csv"):
+                _mt_text = _read_csv_safe(_mt_bytes)
+            elif _n.endswith(".docx"):
+                _mt_text = _read_docx_safe(_mt_bytes)
+            else:
+                _mt_text = _mt_bytes.decode("utf-8", errors="ignore")
+            st.success(f"✅ Đã đọc ma trận ({len(_mt_text)} ký tự).")
+        except Exception as _e:
+            st.error(f"❌ Lỗi đọc file: {_e}")
+
+    _mt_manual = st.text_area(
+        "Hoặc dán ma trận vào đây",
+        value=_mt_text,
+        height=250,
+        key="mt_manual",
+        placeholder=(
+            "VD:\n"
+            "| Chủ đề | Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao |\n"
+            "| Ước chung lớn nhất | 2 câu | 1 câu | 1 câu | 0 |\n"
+        ),
+    )
+
+    _c_save, _c_view = st.columns([1, 1])
+    with _c_save:
+        if st.button(
+            "💾 Lưu ma trận",
+            type="primary",
+            use_container_width=True,
+            key="mt_save",
+        ):
+            if not _mt_manual.strip():
+                st.warning("⚠️ Chưa có nội dung ma trận.")
+            else:
+                _mt_key = (
+                    f"{_slugify(_mt_mon).title().replace('_', '')}_"
+                    f"{_mt_lop}_{_slugify(_mt_loai)}"
+                )
+                st.session_state[f"matran_{_mt_key}"] = {
+                    "mon": _mt_mon,
+                    "lop": _mt_lop,
+                    "loai": _mt_loai,
+                    "noi_dung": _mt_manual,
+                }
+                if GITHUB_TOKEN:
+                    gh_save(
+                        f"data/schedule/matran_{_mt_key}.md",
+                        _mt_manual,
+                        f"Ma trận {_mt_key}",
+                    )
+                    st.session_state["schedule"] = load_schedule()
+                st.success(f"✅ Đã lưu ma trận `{_mt_key}`.")
+                st.rerun()
+
+    with _c_view:
+        _mt_keys = [
+            k.replace("matran_", "")
+            for k in st.session_state.keys()
+            if k.startswith("matran_")
+        ]
+        if _mt_keys:
+            _mt_sel = st.selectbox(
+                "Ma trận đã lưu trong phiên",
+                _mt_keys,
+                key="mt_saved_sel",
+            )
+            st.caption("Xem trước:")
+            st.text(
+                st.session_state[f"matran_{_mt_sel}"]["noi_dung"][:500]
+            )
+
+# ---------- TAB 6: TẠO ĐẶC TẢ ĐỀ ----------
+with tab_despec:
+    st.markdown("### 📋 Tạo đặc tả đề từ ma trận")
+    st.info(
+        "💡 Chọn ma trận đã nạp → AI sinh **bảng đặc tả đề** "
+        "(mô tả yêu cầu cần đạt, số câu, mức độ, điểm)."
+    )
+
+    _mt_keys_all = [
+        k.replace("matran_", "")
+        for k in st.session_state.keys()
+        if k.startswith("matran_")
+    ]
+
+    if not _mt_keys_all:
+        st.warning(
+            "⚠️ Chưa có ma trận nào. Vào tab **🧩 Nạp ma trận đề** trước."
+        )
+    else:
+        _dt_key = st.selectbox(
+            "Chọn ma trận",
+            _mt_keys_all,
+            key="dt_mt_sel",
+        )
+        _dt_mt = st.session_state[f"matran_{_dt_key}"]
+
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            st.caption(
+                f"📚 Môn: **{_dt_mt['mon']}** | "
+                f"Lớp: **{_dt_mt['lop']}** | "
+                f"Loại: **{_dt_mt['loai']}**"
+            )
+        with _c2:
+            _dt_tg = st.text_input(
+                "Thời gian làm bài (phút)",
+                value="45",
+                key="dt_tg",
+            )
+
+        if st.button(
+            "🚀 Sinh đặc tả đề",
+            type="primary",
+            use_container_width=True,
+            key="dt_run",
+        ):
+            if not available_providers:
+                st.error("❌ Chưa có API key.")
+            else:
+                _dt_prompt = f"""Bạn là chuyên gia khảo thí THCS.
+
+NHIỆM VỤ: Từ MA TRẬN ĐỀ dưới đây, hãy sinh **BẢNG ĐẶC TẢ ĐỀ KIỂM TRA**
+theo đúng chuẩn Bộ GD&ĐT (Công văn 7991/BGDĐT-GDTrH).
+
+THÔNG TIN:
+- Môn: {_dt_mt['mon']}
+- Lớp: {_dt_mt['lop']}
+- Loại đề: {_dt_mt['loai']}
+- Thời gian: {_dt_tg} phút
+
+MA TRẬN ĐỀ GỐC:
+\"\"\"
+{_dt_mt['noi_dung']}
+\"\"\"
+
+YÊU CẦU ĐẦU RA:
+1. Bảng đặc tả gồm các cột:
+   | TT | Chủ đề | Mạch kiến thức | Yêu cầu cần đạt |
+   Số câu theo mức độ (NB/TH/VD/VDC) | Điểm | Câu hỏi minh họa |
+2. Mỗi dòng = 1 đơn vị kiến thức trong ma trận.
+3. Cột "Yêu cầu cần đạt" mô tả cụ thể HS phải làm được gì.
+4. Cột "Câu hỏi minh họa" ghi 1 câu hỏi mẫu (không cần đáp án).
+5. Cuối bảng có dòng TỔNG: tổng số câu, tổng điểm.
+6. Dùng bảng Markdown, KHÔNG viết giải thích ngoài bảng.
+7. Ký hiệu: NB = Nhận biết, TH = Thông hiểu, VD = Vận dụng,
+   VDC = Vận dụng cao.
+"""
+                with st.spinner("🤖 Đang sinh đặc tả đề..."):
+                    try:
+                        _dt_result = call_ai(_dt_prompt)
+                        st.session_state["dacta_hientai"] = {
+                            "ma_tran_key": _dt_key,
+                            "mon": _dt_mt["mon"],
+                            "lop": _dt_mt["lop"],
+                            "loai": _dt_mt["loai"],
+                            "noi_dung": _dt_result,
+                        }
+                        save_history(
+                            "Đặc tả đề",
+                            f"{_dt_mt['mon']} {_dt_mt['lop']} "
+                            f"{_dt_mt['loai']}",
+                            _dt_result,
+                        )
+                        st.success("✅ Đã sinh đặc tả.")
+                    except Exception as _e:
+                        st.error(f"❌ Lỗi AI: {_e}")
+
+        # Hiển thị đặc tả
+        if st.session_state.get("dacta_hientai"):
+            _dt_now = st.session_state["dacta_hientai"]
+            st.markdown("---")
+            st.markdown("### 📄 Đặc tả đề")
+            st.text_area(
+                "Nội dung (có thể sửa)",
+                _dt_now["noi_dung"],
+                height=400,
+                key="dt_edit",
+            )
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                st.download_button(
+                    "⬇️ Tải đặc tả (Word)",
+                    make_doc(
+                        "Đặc tả đề",
+                        _dt_now["noi_dung"],
+                        subject_name=_dt_now["mon"],
+                    ),
+                    file_name=(
+                        f"DacTa_{_slugify(_dt_now['mon'])}_"
+                        f"{_dt_now['lop']}_{_slugify(_dt_now['loai'])}"
+                        f".docx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    type="primary",
+                    use_container_width=True,
+                )
+            with _c2:
+                st.download_button(
+                    "⬇️ Tải đặc tả (TXT)",
+                    _dt_now["noi_dung"].encode("utf-8"),
+                    file_name=(
+                        f"DacTa_{_slugify(_dt_now['mon'])}_"
+                        f"{_dt_now['lop']}.txt"
+                    ),
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+
+# ---------- TAB 7: TẠO ĐỀ + ĐÁP ÁN ----------
+with tab_exam:
+    st.markdown("### 📝 Tạo đề kiểm tra + đáp án")
+    st.info(
+        "💡 Chọn **đặc tả đề** đã sinh → AI tạo "
+        "**đề kiểm tra hoàn chỉnh + đáp án + biểu điểm**."
+    )
+
+    if not st.session_state.get("dacta_hientai"):
+        st.warning(
+            "⚠️ Chưa có đặc tả nào. Vào tab **📋 Tạo đặc tả đề** trước."
+        )
+    else:
+        _dt_now = st.session_state["dacta_hientai"]
+
+        _c1, _c2, _c3 = st.columns(3)
+        with _c1:
+            _ex_hinhthuc = st.selectbox(
+                "Hình thức",
+                ["Trắc nghiệm 100%", "Tự luận 100%",
+                 "Trắc nghiệm + Tự luận"],
+                key="ex_hinhthuc",
+            )
+        with _c2:
+            _ex_socau = st.text_input(
+                "Tổng số câu",
+                value="20",
+                key="ex_socau",
+            )
+        with _c3:
+            _ex_thangdiem = st.text_input(
+                "Thang điểm",
+                value="10",
+                key="ex_thangdiem",
+            )
+
+        _ex_yeucau = st.text_area(
+            "Yêu cầu bổ sung (tùy chọn)",
+            value="",
+            height=80,
+            key="ex_yeucau",
+            placeholder=(
+                "VD: Có 4 mã đề, câu hỏi có hình ảnh minh họa, "
+                "tránh trùng lặp câu hỏi trong SGK..."
+            ),
+        )
+
+        if st.button(
+            "🚀 Sinh đề + đáp án",
+            type="primary",
+            use_container_width=True,
+            key="ex_run",
+        ):
+            if not available_providers:
+                st.error("❌ Chưa có API key.")
+            else:
+                _ex_prompt = f"""Bạn là chuyên gia khảo thí THCS.
+
+NHIỆM VỤ: Từ ĐẶC TẢ ĐỀ dưới đây, sinh **ĐỀ KIỂM TRA HOÀN CHỈNH**
+và **ĐÁP ÁN + BIỂU ĐIỂM**.
+
+THÔNG TIN:
+- Môn: {_dt_now['mon']}
+- Lớp: {_dt_now['lop']}
+- Loại đề: {_dt_now['loai']}
+- Hình thức: {_ex_hinhthuc}
+- Tổng số câu: {_ex_socau}
+- Thang điểm: {_ex_thangdiem}
+- Yêu cầu bổ sung: {_ex_yeucau or "Không"}
+
+ĐẶC TẢ ĐỀ:
+\"\"\"
+{_dt_now['noi_dung']}
+\"\"\"
+
+YÊU CẦU ĐẦU RA (theo đúng thứ tự):
+
+### PHẦN A: ĐỀ KIỂM TRA
+- Ghi rõ: Môn, Lớp, Loại đề, Thời gian, Họ tên HS, Điểm.
+- Câu hỏi đánh số liên tục.
+- Nếu trắc nghiệm: 4 lựa chọn A/B/C/D.
+- Nếu tự luận: có gợi ý làm bài.
+- Nếu có hình ảnh: mô tả bằng [HÌNH: mô tả].
+
+### PHẦN B: ĐÁP ÁN + BIỂU ĐIỂM
+- Bảng trắc nghiệm: Câu | Đáp án | Điểm
+- Tự luận: chi tiết từng bước, thang điểm từng ý
+- Có hướng dẫn chấm chung cuối cùng.
+
+YÊU CẦU BẮT BUỘC:
+1. Câu hỏi phải bám sát đặc tả, đúng mức độ NB/TH/VD/VDC.
+2. KHÔNG trùng câu hỏi với SGK hoặc ví dụ trong bài học.
+3. Dùng Unicode toán: x², √, ≤, ≥, π, ∈.
+4. Không viết "Người ra đề", "Ký tên" cuối đề.
+5. Bảng Markdown cho phần trắc nghiệm.
+"""
+                with st.spinner("🤖 Đang sinh đề + đáp án..."):
+                    try:
+                        _ex_result = call_ai(_ex_prompt)
+                        st.session_state["de_kiem_tra_hientai"] = {
+                            "mon": _dt_now["mon"],
+                            "lop": _dt_now["lop"],
+                            "loai": _dt_now["loai"],
+                            "noi_dung": _ex_result,
+                        }
+                        save_history(
+                            "Đề kiểm tra",
+                            f"{_dt_now['mon']} {_dt_now['lop']} "
+                            f"{_dt_now['loai']}",
+                            _ex_result,
+                        )
+                        st.success("✅ Đã sinh đề + đáp án.")
+                    except Exception as _e:
+                        st.error(f"❌ Lỗi AI: {_e}")
+
+        # Hiển thị đề
+        if st.session_state.get("de_kiem_tra_hientai"):
+            _ex_now = st.session_state["de_kiem_tra_hientai"]
+            st.markdown("---")
+            st.markdown("### 📄 Đề kiểm tra + Đáp án")
+            st.text_area(
+                "Nội dung (có thể sửa)",
+                _ex_now["noi_dung"],
+                height=500,
+                key="ex_edit",
+            )
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                st.download_button(
+                    "⬇️ Tải đề (Word)",
+                    make_doc(
+                        "Đề kiểm tra",
+                        _ex_now["noi_dung"],
+                        subject_name=_ex_now["mon"],
+                    ),
+                    file_name=(
+                        f"DeKiemTra_{_slugify(_ex_now['mon'])}_"
+                        f"{_ex_now['lop']}_{_slugify(_ex_now['loai'])}"
+                        f".docx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    type="primary",
+                    use_container_width=True,
+                )
+            with _c2:
+                st.download_button(
+                    "⬇️ Tải đề (TXT)",
+                    _ex_now["noi_dung"].encode("utf-8"),
+                    file_name=(
+                        f"DeKiemTra_{_slugify(_ex_now['mon'])}_"
+                        f"{_ex_now['lop']}.txt"
+                    ),
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+
+# ============================================================
+# KẾT THÚC PHẦN 3/6
+# ============================================================
 # ============================================================
 # PHẦN 4/6: RULES 11 MÔN + MẪU 5512 + PROMPT TỐI ƯU
 # ============================================================
@@ -2609,7 +3209,8 @@ if st.session_state.get("draft"):
 # PHẦN 6/6: LỊCH BÁO GIẢNG + SOẠN TUẦN + XUẤT WORD
 # ============================================================
 # Chức năng:
-# - Nhập lịch báo giảng (tuần, buổi, thứ, tiết, môn, bài, trang SGK)
+# - Nạp lịch báo giảng thủ công (Excel/CSV/Word/TXT)
+# - Nhập lịch báo giảng trực tiếp trên bảng
 # - Tự động lấy nội dung SGK theo trang
 # - Soạn hàng loạt bài trong tuần
 # - Xuất Word: giáo án cả tuần + lịch báo giảng
@@ -2619,13 +3220,320 @@ if st.session_state.get("draft"):
 st.divider()
 st.subheader("📅 Soạn cả tuần + Lịch báo giảng")
 
-# --- Khởi tạo session ---
+# ============================================================
+# MỤC A: NẠP LỊCH BÁO GIẢNG THỦ CÔNG
+# ============================================================
+
+st.markdown("### 📥 Nạp lịch báo giảng có sẵn")
+
+with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False):
+    st.caption(
+        "💡 Upload file lịch báo giảng đã có sẵn. "
+        "App sẽ tự đọc và điền vào bảng bên dưới. "
+        "Hỗ trợ: `.xlsx`, `.xls`, `.csv`, `.docx`, `.txt`."
+    )
+
+    _lbg_file = st.file_uploader(
+        "Chọn file lịch báo giảng",
+        type=["xlsx", "xls", "csv", "docx", "txt"],
+        key="lbg_upload",
+    )
+
+    # Cột mapping (tùy chọn)
+    with st.expander("⚙️ Tùy chỉnh cột (nâng cao)", expanded=False):
+        st.caption(
+            "Nếu file của bạn có tên cột khác, hãy nhập đúng tên cột "
+            "(phân cách bằng dấu phẩy). Để trống = dùng mặc định."
+        )
+        _col_buoi = st.text_input(
+            "Cột Buổi", value="Buổi,Sáng/Chiều",
+            key="lbg_col_buoi",
+        )
+        _col_thu = st.text_input(
+            "Cột Thứ", value="Thứ,Thứ trong tuần,Ngày",
+            key="lbg_col_thu",
+        )
+        _col_tiet = st.text_input(
+            "Cột Tiết", value="Tiết,Tiết PPCT,PPCT",
+            key="lbg_col_tiet",
+        )
+        _col_mon = st.text_input(
+            "Cột Môn", value="Môn,Môn học,Subject",
+            key="lbg_col_mon",
+        )
+        _col_lop = st.text_input(
+            "Cột Lớp", value="Lớp,Khối,Class",
+            key="lbg_col_lop",
+        )
+        _col_bai = st.text_input(
+            "Cột Tên bài", value="Tên bài,Bài,Tên bài dạy,Chủ đề",
+            key="lbg_col_bai",
+        )
+        _col_trang = st.text_input(
+            "Cột Trang SGK", value="Trang,Trang SGK,Trang PDF",
+            key="lbg_col_trang",
+        )
+        _col_sotiet = st.text_input(
+            "Cột Số tiết", value="Số tiết,Số tiết dạy,Thời lượng",
+            key="lbg_col_sotiet",
+        )
+
+    def _norm_header(s):
+        """Chuẩn hóa tên cột để so khớp."""
+        s = str(s or "").strip().lower()
+        s = unicodedata.normalize("NFD", s)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        s = s.replace("đ", "d")
+        s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+        return s
+
+    def _find_col(headers, candidates_csv):
+        """Tìm chỉ số cột khớp với danh sách tên ứng viên."""
+        cands = [
+            _norm_header(c) for c in candidates_csv.split(",") if c.strip()
+        ]
+        for i, h in enumerate(headers):
+            hn = _norm_header(h)
+            if hn in cands:
+                return i
+        # Khớp mờ
+        for i, h in enumerate(headers):
+            hn = _norm_header(h)
+            for c in cands:
+                if c and (c in hn or hn in c):
+                    return i
+        return None
+
+    def _parse_lbg_rows(headers, rows):
+        """Chuyển list rows thô → list dict lịch báo giảng."""
+        idx_buoi = _find_col(headers, _col_buoi)
+        idx_thu = _find_col(headers, _col_thu)
+        idx_tiet = _find_col(headers, _col_tiet)
+        idx_mon = _find_col(headers, _col_mon)
+        idx_lop = _find_col(headers, _col_lop)
+        idx_bai = _find_col(headers, _col_bai)
+        idx_trang = _find_col(headers, _col_trang)
+        idx_sotiet = _find_col(headers, _col_sotiet)
+
+        out = []
+        for r in rows:
+            def _get(idx, default=""):
+                if idx is None or idx >= len(r):
+                    return default
+                return str(r[idx] or "").strip()
+
+            ten_bai = _get(idx_bai)
+            if not ten_bai:
+                continue  # bỏ dòng rỗng
+
+            out.append({
+                "buoi": _get(idx_buoi, "Sáng") or "Sáng",
+                "thu": _get(idx_thu, "Thứ 2") or "Thứ 2",
+                "tiet": _get(idx_tiet),
+                "mon": _get(idx_mon, "Toán") or "Toán",
+                "lop": _get(idx_lop, "6") or "6",
+                "ten_bai": ten_bai,
+                "trang_sgk": _get(idx_trang),
+                "so_tiet": _get(idx_sotiet, "1") or "1",
+            })
+        return out
+
+    def _read_lbg_excel(data):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+        ws = wb[wb.sheetnames[0]]
+        all_rows = [
+            [str(c) if c is not None else "" for c in row]
+            for row in ws.iter_rows(values_only=True)
+        ]
+        all_rows = [r for r in all_rows if any(c.strip() for c in r)]
+        if not all_rows:
+            return []
+        headers = all_rows[0]
+        return _parse_lbg_rows(headers, all_rows[1:])
+
+    def _read_lbg_csv(data):
+        text = None
+        for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1258"]:
+            try:
+                text = data.decode(enc)
+                break
+            except Exception:
+                continue
+        if text is None:
+            text = data.decode("utf-8", errors="ignore")
+        sample = text[:2000]
+        delim = "," if sample.count(",") >= sample.count(";") else ";"
+        rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+        rows = [r for r in rows if any(c.strip() for c in r)]
+        if not rows:
+            return []
+        headers = rows[0]
+        return _parse_lbg_rows(headers, rows[1:])
+
+    def _read_lbg_docx(data):
+        d = Document(io.BytesIO(data))
+        # Ưu tiên đọc bảng
+        if d.tables:
+            t = d.tables[0]
+            all_rows = []
+            for row in t.rows:
+                all_rows.append([c.text.strip() for c in row.cells])
+            if len(all_rows) >= 2:
+                return _parse_lbg_rows(all_rows[0], all_rows[1:])
+        # Không có bảng → parse từng dòng text
+        out = []
+        for p in d.paragraphs:
+            line = p.text.strip()
+            if not line:
+                continue
+            parts = re.split(r"\t|\s{2,}|\|", line)
+            parts = [x.strip() for x in parts if x.strip()]
+            if len(parts) >= 3:
+                out.append({
+                    "buoi": "Sáng",
+                    "thu": parts[0] if len(parts) > 0 else "Thứ 2",
+                    "tiet": parts[1] if len(parts) > 1 else "",
+                    "mon": parts[2] if len(parts) > 2 else "Toán",
+                    "lop": parts[3] if len(parts) > 3 else "6",
+                    "ten_bai": parts[4] if len(parts) > 4 else "",
+                    "trang_sgk": parts[5] if len(parts) > 5 else "",
+                    "so_tiet": parts[6] if len(parts) > 6 else "1",
+                })
+        return out
+
+    def _read_lbg_txt(data):
+        text = None
+        for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1258"]:
+            try:
+                text = data.decode(enc)
+                break
+            except Exception:
+                continue
+        if text is None:
+            text = data.decode("utf-8", errors="ignore")
+
+        lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            return []
+
+        # Thử tách theo tab hoặc nhiều space
+        first_parts = re.split(r"\t|\s{2,}|\|", lines[0])
+        first_parts = [x.strip() for x in first_parts if x.strip()]
+
+        # Nếu dòng đầu giống header
+        if len(first_parts) >= 3 and any(
+            _norm_header(x) in [
+                "buoi", "thu", "tiet", "mon", "lop",
+                "ten bai", "trang", "so tiet",
+            ]
+            for x in first_parts
+        ):
+            headers = first_parts
+            body_rows = []
+            for ln in lines[1:]:
+                parts = re.split(r"\t|\s{2,}|\|", ln)
+                body_rows.append([x.strip() for x in parts if x.strip()])
+            return _parse_lbg_rows(headers, body_rows)
+
+        # Không có header → tự đoán
+        out = []
+        for ln in lines:
+            parts = re.split(r"\t|\s{2,}|\|", ln)
+            parts = [x.strip() for x in parts if x.strip()]
+            if len(parts) < 3:
+                continue
+            out.append({
+                "buoi": "Sáng",
+                "thu": parts[0],
+                "tiet": parts[1] if len(parts) > 1 else "",
+                "mon": parts[2] if len(parts) > 2 else "Toán",
+                "lop": parts[3] if len(parts) > 3 else "6",
+                "ten_bai": parts[4] if len(parts) > 4 else "",
+                "trang_sgk": parts[5] if len(parts) > 5 else "",
+                "so_tiet": parts[6] if len(parts) > 6 else "1",
+            })
+        return out
+
+    if _lbg_file is not None:
+        _lbg_name = _lbg_file.name.lower()
+        try:
+            _lbg_bytes = _lbg_file.read()
+            _parsed = []
+
+            if _lbg_name.endswith((".xlsx", ".xls", ".xlsm")):
+                _parsed = _read_lbg_excel(_lbg_bytes)
+            elif _lbg_name.endswith(".csv"):
+                _parsed = _read_lbg_csv(_lbg_bytes)
+            elif _lbg_name.endswith(".docx"):
+                _parsed = _read_lbg_docx(_lbg_bytes)
+            elif _lbg_name.endswith(".txt"):
+                _parsed = _read_lbg_txt(_lbg_bytes)
+            else:
+                st.error("❌ Định dạng file không được hỗ trợ.")
+
+            if _parsed:
+                st.success(
+                    f"✅ Đã đọc được **{len(_parsed)}** dòng "
+                    f"từ file `{_lbg_file.name}`."
+                )
+
+                with st.expander("👁️ Xem trước", expanded=True):
+                    _preview = []
+                    for _r in _parsed[:10]:
+                        _preview.append({
+                            "Buổi": _r["buoi"],
+                            "Thứ": _r["thu"],
+                            "Tiết": _r["tiet"],
+                            "Môn": _r["mon"],
+                            "Lớp": _r["lop"],
+                            "Tên bài": _r["ten_bai"][:40],
+                            "Trang SGK": _r["trang_sgk"],
+                            "Số tiết": _r["so_tiet"],
+                        })
+                    st.dataframe(_preview, use_container_width=True)
+
+                _c_mode, _c_btn = st.columns([2, 1])
+                with _c_mode:
+                    _mode = st.radio(
+                        "Cách nạp:",
+                        ["Thay thế toàn bộ", "Thêm vào cuối"],
+                        horizontal=True,
+                        key="lbg_mode",
+                    )
+                with _c_btn:
+                    if st.button(
+                        "📥 Nạp vào bảng",
+                        type="primary",
+                        use_container_width=True,
+                        key="lbg_apply",
+                    ):
+                        if _mode == "Thay thế toàn bộ":
+                            st.session_state["lich_bao_giang"] = _parsed
+                        else:
+                            st.session_state["lich_bao_giang"].extend(_parsed)
+                        st.success(
+                            f"✅ Đã nạp {len(_parsed)} dòng. "
+                            "Xem/sửa ở bảng bên dưới."
+                        )
+                        st.rerun()
+            elif _parsed is not None and not _parsed:
+                st.warning(
+                    "⚠️ File rỗng hoặc không đọc được dòng nào. "
+                    "Kiểm tra lại tên cột trong mục **Tùy chỉnh cột**."
+                )
+        except Exception as _e:
+            st.error(f"❌ Lỗi đọc file: {_e}")
+
+# ============================================================
+# MỤC B: KHỞI TẠO SESSION + CẤU HÌNH TUẦN
+# ============================================================
+
 if "lich_bao_giang" not in st.session_state:
     st.session_state["lich_bao_giang"] = []
 if "weekly_results" not in st.session_state:
     st.session_state["weekly_results"] = []
 
-# --- Cấu hình tuần ---
 _c1, _c2, _c3, _c4 = st.columns([1, 1.2, 1, 2.5])
 with _c1:
     _tuan_so = st.text_input(
@@ -2651,7 +3559,10 @@ with _c4:
         "để AI soạn toàn bộ. Cột **Trang SGK** giúp AI bám sát nội dung."
     )
 
-# --- Bảng nhập lịch báo giảng ---
+# ============================================================
+# MỤC C: BẢNG NHẬP LỊCH BÁO GIẢNG
+# ============================================================
+
 st.markdown("### 📋 Nhập lịch báo giảng")
 st.caption("Mỗi dòng = 1 tiết dạy. Có thể thêm/xóa dòng tùy ý.")
 
@@ -2659,8 +3570,10 @@ _danh_sach_mon_all = list(SUBJECT_RULES.keys())
 
 # Nút điều khiển bảng
 _c_add, _c_del, _c_clear, _c_auto = st.columns([1, 1, 1, 2])
+
 with _c_add:
-    if st.button("➕ Thêm dòng", key="add_row_lich", use_container_width=True):
+    if st.button("➕ Thêm dòng", key="add_row_lich",
+                 use_container_width=True):
         st.session_state["lich_bao_giang"].append({
             "buoi": "Sáng",
             "thu": "Thứ 2",
@@ -2674,13 +3587,15 @@ with _c_add:
         st.rerun()
 
 with _c_del:
-    if st.button("➖ Xóa dòng cuối", key="del_row_lich", use_container_width=True):
+    if st.button("➖ Xóa dòng cuối", key="del_row_lich",
+                 use_container_width=True):
         if st.session_state["lich_bao_giang"]:
             st.session_state["lich_bao_giang"].pop()
         st.rerun()
 
 with _c_clear:
-    if st.button("🗑️ Xóa tất cả", key="clear_lich", use_container_width=True):
+    if st.button("🗑️ Xóa tất cả", key="clear_lich",
+                 use_container_width=True):
         st.session_state["lich_bao_giang"] = []
         st.session_state["weekly_results"] = []
         st.rerun()
@@ -2689,8 +3604,12 @@ with _c_auto:
     if st.button("⚡ Tạo nhanh 5 buổi sáng (T2→T6)",
                  key="auto_gen_lich", use_container_width=True):
         _thu_list = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"]
-        _mon_default = st.session_state["memory"].get("default_subject", "Toán")
-        _lop_default = st.session_state["memory"].get("default_grade", "6")
+        _mon_default = st.session_state["memory"].get(
+            "default_subject", "Toán"
+        )
+        _lop_default = st.session_state["memory"].get(
+            "default_grade", "6"
+        )
         for _i, _t in enumerate(_thu_list):
             st.session_state["lich_bao_giang"].append({
                 "buoi": "Sáng",
@@ -2785,7 +3704,9 @@ if st.session_state["lich_bao_giang"]:
             _errors_tuan.append("❌ Chưa có API key.")
         for _idx, _row in enumerate(st.session_state["lich_bao_giang"]):
             if not _row.get("ten_bai", "").strip():
-                _errors_tuan.append(f"❌ Dòng {_idx+1}: Chưa nhập tên bài.")
+                _errors_tuan.append(
+                    f"❌ Dòng {_idx+1}: Chưa nhập tên bài."
+                )
 
         if _errors_tuan:
             for _e in _errors_tuan:
@@ -2871,265 +3792,275 @@ if st.session_state["lich_bao_giang"]:
             st.success(f"✅ Đã soạn xong {_ok_n}/{_total_rows} bài.")
             st.balloons()
 
-    # Hiển thị kết quả
-    if st.session_state.get("weekly_results"):
-        st.divider()
-        st.subheader("📄 Kết quả soạn tuần")
+# ============================================================
+# MỤC D: HIỂN THỊ KẾT QUẢ + TẢI XUỐNG
+# ============================================================
 
-        _weekly = st.session_state["weekly_results"]
-        _ok_count = len([r for r in _weekly if r["ok"]])
-        _fail_count = len(_weekly) - _ok_count
+if st.session_state.get("weekly_results"):
+    st.divider()
+    st.subheader("📄 Kết quả soạn tuần")
 
-        st.write(
-            f"✅ Thành công: **{_ok_count}** | ❌ Lỗi: **{_fail_count}**"
-        )
+    _weekly = st.session_state["weekly_results"]
+    _ok_count = len([r for r in _weekly if r["ok"]])
+    _fail_count = len(_weekly) - _ok_count
 
-        # Nút tải xuống
-        _col_dl1, _col_dl2, _col_dl3 = st.columns(3)
+    st.write(
+        f"✅ Thành công: **{_ok_count}** | ❌ Lỗi: **{_fail_count}**"
+    )
 
-        # --- Word gộp cả tuần ---
-        with _col_dl1:
-            if _ok_count > 0:
-                _d_tuan = Document()
-                _s_tuan = _d_tuan.sections[0]
-                _s_tuan.top_margin = Inches(0.7)
-                _s_tuan.bottom_margin = Inches(0.7)
-                _s_tuan.left_margin = Inches(0.8)
-                _s_tuan.right_margin = Inches(0.8)
+    # Nút tải xuống
+    _col_dl1, _col_dl2, _col_dl3 = st.columns(3)
 
-                _style_tuan = _d_tuan.styles["Normal"]
-                _style_tuan.font.name = "Times New Roman"
-                _style_tuan.font.size = Pt(14)
-                _rpr_t = _style_tuan.element.get_or_add_rPr()
-                _rf_t = _rpr_t.find(qn("w:rFonts"))
-                if _rf_t is None:
-                    _rf_t = _rpr_t.makeelement(qn("w:rFonts"), {})
-                    _rpr_t.append(_rf_t)
-                for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
-                    _rf_t.set(qn(_at), "Times New Roman")
-                _pf_t = _style_tuan.paragraph_format
-                _pf_t.line_spacing_rule = WD_LINE_SPACING.SINGLE
-                _pf_t.space_before = Pt(0)
-                _pf_t.space_after = Pt(0)
+    # --- Word gộp cả tuần ---
+    with _col_dl1:
+        if _ok_count > 0:
+            _d_tuan = Document()
+            _s_tuan = _d_tuan.sections[0]
+            _s_tuan.top_margin = Inches(0.7)
+            _s_tuan.bottom_margin = Inches(0.7)
+            _s_tuan.left_margin = Inches(0.8)
+            _s_tuan.right_margin = Inches(0.8)
 
-                _d_tuan.add_heading(f"KẾ HOẠCH BÀI DẠY TUẦN {_tuan_so}", 0)
-                _mem_t = st.session_state.get("memory", {})
-                if _mem_t.get("school"):
-                    _d_tuan.add_paragraph("Đơn vị: " + _mem_t["school"])
-                if _mem_t.get("teacher_name"):
-                    _d_tuan.add_paragraph(
-                        "Người thực hiện: " + _mem_t["teacher_name"]
-                    )
+            _style_tuan = _d_tuan.styles["Normal"]
+            _style_tuan.font.name = "Times New Roman"
+            _style_tuan.font.size = Pt(14)
+            _rpr_t = _style_tuan.element.get_or_add_rPr()
+            _rf_t = _rpr_t.find(qn("w:rFonts"))
+            if _rf_t is None:
+                _rf_t = _rpr_t.makeelement(qn("w:rFonts"), {})
+                _rpr_t.append(_rf_t)
+            for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
+                _rf_t.set(qn(_at), "Times New Roman")
+            _pf_t = _style_tuan.paragraph_format
+            _pf_t.line_spacing_rule = WD_LINE_SPACING.SINGLE
+            _pf_t.space_before = Pt(0)
+            _pf_t.space_after = Pt(0)
+
+            _d_tuan.add_heading(f"KẾ HOẠCH BÀI DẠY TUẦN {_tuan_so}", 0)
+            _mem_t = st.session_state.get("memory", {})
+            if _mem_t.get("school"):
+                _d_tuan.add_paragraph("Đơn vị: " + _mem_t["school"])
+            if _mem_t.get("teacher_name"):
                 _d_tuan.add_paragraph(
-                    "Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M")
+                    "Người thực hiện: " + _mem_t["teacher_name"]
                 )
-                _d_tuan.add_paragraph("")
+            _d_tuan.add_paragraph(
+                "Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M")
+            )
+            _d_tuan.add_paragraph("")
 
-                for _r in _weekly:
-                    if _r["ok"]:
-                        _ri = _r["row"]
-                        _d_tuan.add_page_break()
-                        _d_tuan.add_heading(
-                            f"{_ri['mon']} {_ri['lop']} - {_ri['ten_bai']}", 1
-                        )
-                        write_content_to_doc(_d_tuan, _r["content"])
-
-                _b_tuan = io.BytesIO()
-                _d_tuan.save(_b_tuan)
-
-                st.download_button(
-                    "⬇️ Tải Word cả tuần",
-                    _b_tuan.getvalue(),
-                    file_name=f"KeHoachBaiDay_Tuan{_tuan_so}.docx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
-                    ),
-                    type="primary",
-                    use_container_width=True,
-                )
-            else:
-                st.button("⬇️ Tải Word cả tuần", disabled=True,
-                          use_container_width=True)
-
-        # --- Word lịch báo giảng ---
-        with _col_dl2:
-            if st.session_state["lich_bao_giang"]:
-                _d_lich = Document()
-                _s_lich = _d_lich.sections[0]
-                _s_lich.top_margin = Inches(0.7)
-                _s_lich.bottom_margin = Inches(0.7)
-                _s_lich.left_margin = Inches(0.8)
-                _s_lich.right_margin = Inches(0.8)
-
-                _style_l = _d_lich.styles["Normal"]
-                _style_l.font.name = "Times New Roman"
-                _style_l.font.size = Pt(13)
-                _rpr_l = _style_l.element.get_or_add_rPr()
-                _rf_l = _rpr_l.find(qn("w:rFonts"))
-                if _rf_l is None:
-                    _rf_l = _rpr_l.makeelement(qn("w:rFonts"), {})
-                    _rpr_l.append(_rf_l)
-                for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
-                    _rf_l.set(qn(_at), "Times New Roman")
-
-                _d_lich.add_heading(f"LỊCH BÁO GIẢNG TUẦN {_tuan_so}", 0)
-                _mem_l = st.session_state.get("memory", {})
-                if _mem_l.get("school"):
-                    _d_lich.add_paragraph("Đơn vị: " + _mem_l["school"])
-                if _mem_l.get("teacher_name"):
-                    _d_lich.add_paragraph("Giáo viên: " + _mem_l["teacher_name"])
-                _d_lich.add_paragraph(
-                    "Tuần: " + str(_tuan_so)
-                    + " | Từ ngày: " + _ngay_bd.strftime("%d/%m/%Y")
-                )
-                _d_lich.add_paragraph("")
-
-                _lich_rows = [[
-                    "Buổi", "Thứ", "Tiết", "Môn", "Lớp",
-                    "Tên bài", "Trang SGK", "Số tiết"
-                ]]
-                for _row in st.session_state["lich_bao_giang"]:
-                    _lich_rows.append([
-                        _row.get("buoi", ""),
-                        _row.get("thu", ""),
-                        _row.get("tiet", ""),
-                        _row.get("mon", ""),
-                        _row.get("lop", ""),
-                        _row.get("ten_bai", ""),
-                        _row.get("trang_sgk", ""),
-                        _row.get("so_tiet", "1"),
-                    ])
-
-                _t_lich = _d_lich.add_table(
-                    rows=len(_lich_rows), cols=8
-                )
-                _t_lich.style = "Table Grid"
-
-                for _i, _r in enumerate(_lich_rows):
-                    for _j in range(8):
-                        _cell = _t_lich.cell(_i, _j)
-                        _cell.text = ""
-                        _p = _cell.paragraphs[0]
-                        _p.paragraph_format.line_spacing_rule = \
-                            WD_LINE_SPACING.SINGLE
-                        _p.paragraph_format.space_before = Pt(0)
-                        _p.paragraph_format.space_after = Pt(0)
-
-                        if _i == 0:
-                            _p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            _run = _p.add_run(_r[_j])
-                            _set_run_font(_run, 13, bold=True)
-                        else:
-                            _p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                            _run = _p.add_run(_r[_j])
-                            _set_run_font(_run, 13, bold=False)
-
-                _b_lich = io.BytesIO()
-                _d_lich.save(_b_lich)
-
-                st.download_button(
-                    "⬇️ Tải lịch báo giảng",
-                    _b_lich.getvalue(),
-                    file_name=f"LichBaoGiang_Tuan{_tuan_so}.docx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.button("⬇️ Tải lịch báo giảng", disabled=True,
-                          use_container_width=True)
-
-        # --- TXT cả tuần ---
-        with _col_dl3:
-            if _ok_count > 0:
-                _txt_all = ""
-                for _r in _weekly:
-                    if _r["ok"]:
-                        _ri = _r["row"]
-                        _txt_all += (
-                            f"\n\n{'='*60}\n"
-                            f"{_ri['mon']} {_ri['lop']} - {_ri['ten_bai']}\n"
-                            f"{'='*60}\n\n"
-                            f"{_r['content']}"
-                        )
-
-                st.download_button(
-                    "⬇️ Tải TXT cả tuần",
-                    _txt_all.encode("utf-8"),
-                    file_name=f"KeHoachBaiDay_Tuan{_tuan_so}.txt",
-                    mime="text/plain",
-                    use_container_width=True,
-                )
-            else:
-                st.button("⬇️ Tải TXT cả tuần", disabled=True,
-                          use_container_width=True)
-
-        # --- Chi tiết từng bài ---
-        st.markdown("### 📑 Chi tiết từng bài")
-
-        for _idx, _r in enumerate(_weekly):
-            _ri = _r["row"]
-            _icon = "✅" if _r["ok"] else "❌"
-
-            with st.expander(
-                f"{_icon} {_ri['thu']} - Tiết {_ri['tiet']} - "
-                f"{_ri['mon']} {_ri['lop']}: {_ri['ten_bai'][:50]}",
-                expanded=False,
-            ):
+            for _r in _weekly:
                 if _r["ok"]:
-                    st.caption(
-                        f"Trang SGK: {_ri.get('trang_sgk', '')} | "
-                        f"Số tiết: {_ri.get('so_tiet', '1')}"
+                    _ri = _r["row"]
+                    _d_tuan.add_page_break()
+                    _d_tuan.add_heading(
+                        f"{_ri['mon']} {_ri['lop']} - {_ri['ten_bai']}", 1
+                    )
+                    write_content_to_doc(_d_tuan, _r["content"])
+
+            _b_tuan = io.BytesIO()
+            _d_tuan.save(_b_tuan)
+
+            st.download_button(
+                "⬇️ Tải Word cả tuần",
+                _b_tuan.getvalue(),
+                file_name=f"KeHoachBaiDay_Tuan{_tuan_so}.docx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                type="primary",
+                use_container_width=True,
+            )
+        else:
+            st.button("⬇️ Tải Word cả tuần", disabled=True,
+                      use_container_width=True)
+
+    # --- Word lịch báo giảng ---
+    with _col_dl2:
+        if st.session_state["lich_bao_giang"]:
+            _d_lich = Document()
+            _s_lich = _d_lich.sections[0]
+            _s_lich.top_margin = Inches(0.7)
+            _s_lich.bottom_margin = Inches(0.7)
+            _s_lich.left_margin = Inches(0.8)
+            _s_lich.right_margin = Inches(0.8)
+
+            _style_l = _d_lich.styles["Normal"]
+            _style_l.font.name = "Times New Roman"
+            _style_l.font.size = Pt(13)
+            _rpr_l = _style_l.element.get_or_add_rPr()
+            _rf_l = _rpr_l.find(qn("w:rFonts"))
+            if _rf_l is None:
+                _rf_l = _rpr_l.makeelement(qn("w:rFonts"), {})
+                _rpr_l.append(_rf_l)
+            for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
+                _rf_l.set(qn(_at), "Times New Roman")
+
+            _d_lich.add_heading(f"LỊCH BÁO GIẢNG TUẦN {_tuan_so}", 0)
+            _mem_l = st.session_state.get("memory", {})
+            if _mem_l.get("school"):
+                _d_lich.add_paragraph("Đơn vị: " + _mem_l["school"])
+            if _mem_l.get("teacher_name"):
+                _d_lich.add_paragraph(
+                    "Giáo viên: " + _mem_l["teacher_name"]
+                )
+            _d_lich.add_paragraph(
+                "Tuần: " + str(_tuan_so)
+                + " | Từ ngày: " + _ngay_bd.strftime("%d/%m/%Y")
+            )
+            _d_lich.add_paragraph("")
+
+            _lich_rows = [[
+                "Buổi", "Thứ", "Tiết", "Môn", "Lớp",
+                "Tên bài", "Trang SGK", "Số tiết"
+            ]]
+            for _row in st.session_state["lich_bao_giang"]:
+                _lich_rows.append([
+                    _row.get("buoi", ""),
+                    _row.get("thu", ""),
+                    _row.get("tiet", ""),
+                    _row.get("mon", ""),
+                    _row.get("lop", ""),
+                    _row.get("ten_bai", ""),
+                    _row.get("trang_sgk", ""),
+                    _row.get("so_tiet", "1"),
+                ])
+
+            _t_lich = _d_lich.add_table(
+                rows=len(_lich_rows), cols=8
+            )
+            _t_lich.style = "Table Grid"
+
+            for _i, _r in enumerate(_lich_rows):
+                for _j in range(8):
+                    _cell = _t_lich.cell(_i, _j)
+                    _cell.text = ""
+                    _p = _cell.paragraphs[0]
+                    _p.paragraph_format.line_spacing_rule = \
+                        WD_LINE_SPACING.SINGLE
+                    _p.paragraph_format.space_before = Pt(0)
+                    _p.paragraph_format.space_after = Pt(0)
+
+                    if _i == 0:
+                        _p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        _run = _p.add_run(_r[_j])
+                        _set_run_font(_run, 13, bold=True)
+                    else:
+                        _p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                        _run = _p.add_run(_r[_j])
+                        _set_run_font(_run, 13, bold=False)
+
+            _b_lich = io.BytesIO()
+            _d_lich.save(_b_lich)
+
+            st.download_button(
+                "⬇️ Tải lịch báo giảng",
+                _b_lich.getvalue(),
+                file_name=f"LichBaoGiang_Tuan{_tuan_so}.docx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                use_container_width=True,
+            )
+        else:
+            st.button("⬇️ Tải lịch báo giảng", disabled=True,
+                      use_container_width=True)
+
+    # --- TXT cả tuần ---
+    with _col_dl3:
+        if _ok_count > 0:
+            _txt_all = ""
+            for _r in _weekly:
+                if _r["ok"]:
+                    _ri = _r["row"]
+                    _txt_all += (
+                        f"\n\n{'='*60}\n"
+                        f"{_ri['mon']} {_ri['lop']} - {_ri['ten_bai']}\n"
+                        f"{'='*60}\n\n"
+                        f"{_r['content']}"
                     )
 
-                    _edited = st.text_area(
-                        "Nội dung (có thể sửa)",
-                        _r["content"],
-                        height=300,
-                        key=f"edit_weekly_{_idx}",
-                    )
-                    _r["content"] = _edited
+            st.download_button(
+                "⬇️ Tải TXT cả tuần",
+                _txt_all.encode("utf-8"),
+                file_name=f"KeHoachBaiDay_Tuan{_tuan_so}.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        else:
+            st.button("⬇️ Tải TXT cả tuần", disabled=True,
+                      use_container_width=True)
 
-                    _safe_name_row = re.sub(
-                        r"[^A-Za-z0-9_\-]", "_", _ri["ten_bai"]
-                    )[:45] or "bai"
+    # --- Chi tiết từng bài ---
+    st.markdown("### 📑 Chi tiết từng bài")
 
-                    _col_r1, _col_r2 = st.columns(2)
-                    with _col_r1:
-                        st.download_button(
-                            "⬇️ Tải Word bài này",
-                            make_doc("Tài liệu", _edited,
-                                     subject_name=_ri["mon"]),
-                            file_name=f"{_safe_name_row}.docx",
-                            mime=(
-                                "application/vnd.openxmlformats-"
-                                "officedocument.wordprocessingml.document"
-                            ),
-                            key=f"dl_word_weekly_{_idx}",
-                            use_container_width=True,
-                        )
-                    with _col_r2:
-                        st.download_button(
-                            "⬇️ Tải TXT bài này",
-                            _edited.encode("utf-8"),
-                            file_name=f"{_safe_name_row}.txt",
-                            mime="text/plain",
-                            key=f"dl_txt_weekly_{_idx}",
-                            use_container_width=True,
-                        )
-                else:
-                    st.error(
-                        "Lỗi: " + _r.get("error", "Không rõ nguyên nhân")
+    for _idx, _r in enumerate(_weekly):
+        _ri = _r["row"]
+        _icon = "✅" if _r["ok"] else "❌"
+
+        with st.expander(
+            f"{_icon} {_ri['thu']} - Tiết {_ri['tiet']} - "
+            f"{_ri['mon']} {_ri['lop']}: {_ri['ten_bai'][:50]}",
+            expanded=False,
+        ):
+            if _r["ok"]:
+                st.caption(
+                    f"Trang SGK: {_ri.get('trang_sgk', '')} | "
+                    f"Số tiết: {_ri.get('so_tiet', '1')}"
+                )
+
+                _edited = st.text_area(
+                    "Nội dung (có thể sửa)",
+                    _r["content"],
+                    height=300,
+                    key=f"edit_weekly_{_idx}",
+                )
+                _r["content"] = _edited
+
+                _safe_name_row = re.sub(
+                    r"[^A-Za-z0-9_\-]", "_", _ri["ten_bai"]
+                )[:45] or "bai"
+
+                _col_r1, _col_r2 = st.columns(2)
+                with _col_r1:
+                    st.download_button(
+                        "⬇️ Tải Word bài này",
+                        make_doc("Tài liệu", _edited,
+                                 subject_name=_ri["mon"]),
+                        file_name=f"{_safe_name_row}.docx",
+                        mime=(
+                            "application/vnd.openxmlformats-"
+                            "officedocument.wordprocessingml.document"
+                        ),
+                        key=f"dl_word_weekly_{_idx}",
+                        use_container_width=True,
                     )
+                with _col_r2:
+                    st.download_button(
+                        "⬇️ Tải TXT bài này",
+                        _edited.encode("utf-8"),
+                        file_name=f"{_safe_name_row}.txt",
+                        mime="text/plain",
+                        key=f"dl_txt_weekly_{_idx}",
+                        use_container_width=True,
+                    )
+            else:
+                st.error(
+                    "Lỗi: " + _r.get("error", "Không rõ nguyên nhân")
+                )
+
 else:
-    st.info("💡 Bấm **➕ Thêm dòng** để bắt đầu nhập lịch báo giảng.")
+    st.info(
+        "💡 Bấm **➕ Thêm dòng** hoặc **📥 Nạp từ file** "
+        "để bắt đầu nhập lịch báo giảng."
+    )
 
 # ============================================================
-# PHẦN D: FOOTER + THÔNG TIN
+# MỤC E: FOOTER + THÔNG TIN
 # ============================================================
+
 st.divider()
 
 with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
@@ -3147,9 +4078,11 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
 
         1. **Upload SGK gốc** → Tách tự động theo bài (chỉ tốn ~3K token OCR mục lục)
         2. **Nạp bài đã tách** → Upload thủ công nếu cần
-        3. **Soạn 1 bài** → Nhập lệnh, chọn môn, trang SGK
-        4. **Soạn cả tuần** → Nhập lịch báo giảng, bấm soạn
-        5. **Tải Word** → Xuất file chuẩn 5512
+        3. **Nạp mẫu giáo án** → Dùng mẫu 5512 riêng của trường
+        4. **Nạp ma trận đề** → Sinh đặc tả + đề + đáp án
+        5. **Soạn 1 bài** → Nhập lệnh, chọn môn, trang SGK
+        6. **Soạn cả tuần** → Nhập lịch báo giảng, bấm soạn
+        7. **Tải Word** → Xuất file chuẩn 5512
 
         **⚠️ Lưu ý:**
 
@@ -3168,33 +4101,4 @@ st.caption(
 
 # ============================================================
 # KẾT THÚC PHẦN 6/6
-# ============================================================
-# ============================================================
-# TỔNG KẾT: APP HOÀN CHỈNH (6/6 PHẦN)
-# ============================================================
-# Cấu trúc:
-#   Phần 1/6: Hạ tầng (imports, config, GitHub API, session)
-#   Phần 2/6: Đọc file + OCR + tách SGK theo bài + cache
-#   Phần 3/6: Sidebar + upload + call AI
-#   Phần 4/6: Rules 11 môn + mẫu 5512 + prompt tối ưu
-#   Phần 5/6: Word helpers + nút soạn 1 bài
-#   Phần 6/6: Lịch báo giảng + soạn tuần + xuất Word
-# ============================================================
-# Hướng dẫn deploy:
-#   1. Tạo repo GitHub: P20217474/Thcs_teacher
-#   2. Tạo .streamlit/secrets.toml:
-#      GEMINI_API_KEY = "..."
-#      GROQ_API_KEY = "..."
-#      OPENROUTER_API_KEY = "..."
-#      NVIDIA_API_KEY = "..."
-#      GITHUB_TOKEN = "..."
-#      GITHUB_REPO = "P20217474/Thcs_teacher"
-#      GITHUB_BRANCH = "main"
-#   3. Tạo folder trên GitHub:
-#      data/memory.json
-#      data/templates/
-#      data/sources/
-#      data/schedule/
-#      data/history/
-#   4. Deploy lên Streamlit Cloud
 # ============================================================
