@@ -937,8 +937,563 @@ def suggest_sgk_name(mon, lop):
 
 
 # ---------- KẾT THÚC PHẦN 2/6 ----------
+
 # ============================================================
-# PHẦN 3/6: SIDEBAR + UPLOAD + CALL AI
+# PHẦN 3/6: RULES 11 MÔN + MẪU 5512 + PROMPT TỐI ƯU
+# ============================================================
+# Chức năng:
+#   - SUBJECT_RULES: bộ quy tắc 11 môn THCS
+#   - MAU_5512_MAC_DINH: mẫu 5512 hardcode
+#   - get_subject_rules, _chuan_hoa_ten_mon
+#   - detect_end_of_chapter: nhận diện bài cuối chương
+#   - kiem_tra_mau_5512: kiểm tra mẫu đúng chuẩn
+#   - build_exec_prompt: prompt tối ưu token
+# ============================================================
+
+
+# ============================================================
+# PHẦN A: MẪU 5512 HARDCODE
+# ============================================================
+MAU_5512_MAC_DINH = {
+    "ten_mau": "Mẫu CV 5512 chuẩn Bộ GD",
+    "che_do": "mac_dinh",
+    "nguon": "hardcode",
+    "cau_truc": """TÊN BÀI DẠY: ...
+Môn học: ...; lớp: ...
+Thời gian thực hiện: (... tiết)
+
+I. Mục tiêu
+1. Kiến thức: ...
+2. Năng lực:
+   - Năng lực riêng: ...
+   - Năng lực chung: ...
+3. Phẩm chất: ...
+
+II. Thiết bị dạy học và học liệu
+1. Đối với giáo viên: ...
+2. Đối với học sinh: ...
+
+III. Tiến trình dạy học
+
+1. Hoạt động 1: Mở đầu
+a) Mục tiêu: ...
+b) Nội dung: ...
+c) Tổ chức thực hiện và sản phẩm:
+[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
+
+2. Hoạt động 2: Giải quyết vấn đề từ Hoạt động 1
+a) Mục tiêu: ...
+b) Nội dung: ...
+c) Tổ chức thực hiện và sản phẩm:
+[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
+
+3. Hoạt động 3: Luyện tập
+a) Mục tiêu: ...
+b) Nội dung: ...
+c) Tổ chức thực hiện và sản phẩm:
+[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
+
+4. Hoạt động 4: Vận dụng
+a) Mục tiêu: ...
+b) Nội dung: ...
+c) Tổ chức thực hiện và sản phẩm:
+[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
+
+* HƯỚNG DẪN VỀ NHÀ
+- ...
+""",
+}
+
+
+# ============================================================
+# PHẦN B: BỘ QUY TẮC 11 MÔN THCS (TINH GỌN)
+# ============================================================
+SUBJECT_RULES = {
+    "Toán": {
+        "ten_goi_khac": ["toan", "math", "toán học"],
+        "ky_hieu": "📐 π ∑ √",
+        "nang_luc_rieng": [
+            "Năng lực tư duy và lập luận toán học",
+            "Năng lực giải quyết vấn đề toán học",
+            "Năng lực giao tiếp toán học",
+            "Năng lực mô hình hóa toán học",
+            "Năng lực sử dụng công cụ, phương tiện học toán",
+        ],
+        "phuong_phap": ["Khám phá quy luật", "Giải quyết vấn đề",
+                        "Luyện tập phân hóa"],
+        "san_pham": ["Lời giải", "Phép tính, biểu thức", "Hình vẽ",
+                     "Lập luận/chứng minh", "Mô hình toán học"],
+        "danh_gia": ["Tính chính xác", "Lập luận logic",
+                     "Phương pháp giải", "Vận dụng"],
+        "khong_nen": ("Chỉ trình bày lý thuyết rồi cho bài tập mà "
+                      "không thể hiện quá trình HS hình thành kiến thức."),
+    },
+    "Ngữ văn": {
+        "ten_goi_khac": ["ngu van", "văn", "van", "ngữ văn", "literature"],
+        "ky_hieu": "📖 ✍️ 🎭",
+        "nang_luc_rieng": ["Năng lực ngôn ngữ", "Năng lực văn học",
+                            "Năng lực đọc hiểu", "Năng lực viết",
+                            "Năng lực nói và nghe"],
+        "phuong_phap": ["Đọc hiểu", "Phân tích, thảo luận",
+                        "Thực hành viết", "Đóng vai, trình bày"],
+        "san_pham": ["Phiếu học tập đọc hiểu", "Sơ đồ phân tích",
+                     "Đoạn văn/bài văn", "Bài thuyết trình"],
+        "danh_gia": ["Đọc hiểu", "Phân tích chi tiết, nhân vật",
+                     "Viết đoạn/bài văn", "Trình bày, thảo luận"],
+        "khong_nen": ("Ép mọi bài vào quy trình phân tích tác phẩm hoặc "
+                      "đưa bài văn mẫu để HS học thuộc."),
+    },
+    "Khoa học tự nhiên": {
+        "ten_goi_khac": ["khtn", "khoa hoc tu nhien", "khoa học tự nhiên",
+                          "science"],
+        "ky_hieu": "🔬 🧪 ⚗️",
+        "nang_luc_rieng": ["Năng lực nhận thức KHTN",
+                            "Năng lực tìm hiểu tự nhiên",
+                            "Năng lực vận dụng kiến thức, kỹ năng"],
+        "phuong_phap": ["Quan sát", "Thí nghiệm, thực hành",
+                        "Điều tra, khảo sát", "Phân tích dữ liệu"],
+        "san_pham": ["Báo cáo thí nghiệm", "Bảng quan sát",
+                     "Biểu đồ, sơ đồ", "Bản giải thích hiện tượng",
+                     "Kết luận dựa trên bằng chứng"],
+        "danh_gia": ["Hiểu khái niệm, quy luật", "Quan sát, đặt câu hỏi",
+                     "Dự đoán, giả thuyết", "Thực hiện thí nghiệm",
+                     "Phân tích dữ liệu, kết luận"],
+        "khong_nen": ("Tạo thí nghiệm không có trong điều kiện thiết bị "
+                      "hoặc kết luận không phù hợp dữ liệu."),
+    },
+    "Lịch sử": {
+        "ten_goi_khac": ["lich su", "lịch sử", "history", "ls"],
+        "ky_hieu": "🏛️ 📜 ⏳",
+        "nang_luc_rieng": ["Năng lực tìm hiểu lịch sử",
+                            "Năng lực nhận thức và tư duy lịch sử",
+                            "Năng lực vận dụng kiến thức, kỹ năng"],
+        "phuong_phap": ["Khai thác tư liệu", "Dòng thời gian",
+                        "So sánh sự kiện",
+                        "Phân tích nguyên nhân - diễn biến - kết quả"],
+        "san_pham": ["Dòng thời gian", "Sơ đồ diễn biến", "Bảng so sánh",
+                     "Phiếu khai thác tư liệu", "Bài thuyết trình"],
+        "danh_gia": ["Xác định thời gian, không gian",
+                     "Nhận biết sự kiện, nhân vật",
+                     "Phân tích nguyên nhân, diễn biến, kết quả",
+                     "So sánh sự kiện, giai đoạn"],
+        "khong_nen": ("Bắt HS học thuộc toàn bộ diễn biến mà không phân "
+                      "tích tư liệu, giải thích hoặc so sánh."),
+    },
+    "Địa lí": {
+        "ten_goi_khac": ["dia li", "địa lí", "địa lý", "geography", "dl"],
+        "ky_hieu": "🗺️ 🌍 🧭",
+        "nang_luc_rieng": ["Năng lực nhận thức khoa học địa lí",
+                            "Năng lực tìm hiểu địa lí",
+                            "Năng lực vận dụng kiến thức, kỹ năng"],
+        "phuong_phap": ["Đọc bản đồ, lược đồ",
+                        "Phân tích biểu đồ, số liệu",
+                        "So sánh vùng, quốc gia"],
+        "san_pham": ["Bản đồ được chú giải", "Biểu đồ", "Bảng thống kê",
+                     "Bài nhận xét số liệu", "Sơ đồ phân bố"],
+        "danh_gia": ["Xác định vị trí địa lí",
+                     "Nhận biết đặc điểm tự nhiên, dân cư, KT-XH",
+                     "Đọc và sử dụng bản đồ",
+                     "Phân tích biểu đồ, bảng số liệu",
+                     "Giải thích sự phân bố"],
+        "khong_nen": ("Chỉ yêu cầu đọc lại số liệu hoặc mô tả biểu đồ "
+                      "mà không giải thích xu hướng, mối quan hệ địa lí."),
+    },
+    "Giáo dục công dân": {
+        "ten_goi_khac": ["gdcd", "giao duc cong dan", "giáo dục công dân",
+                          "civic"],
+        "ky_hieu": "⚖️ 🤝 📋",
+        "nang_luc_rieng": ["Năng lực điều chỉnh hành vi",
+                            "Năng lực phát triển bản thân",
+                            "Năng lực tìm hiểu, tham gia hoạt động KT-XH"],
+        "phuong_phap": ["Phân tích tình huống", "Xử lý tình huống",
+                        "Đóng vai", "Thảo luận nhóm"],
+        "san_pham": ["Phiếu xử lý tình huống", "Bảng phân tích hành vi",
+                     "Bài trình bày quan điểm", "Kịch bản đóng vai",
+                     "Kế hoạch rèn luyện cá nhân"],
+        "danh_gia": ["Hiểu khái niệm, chuẩn mực",
+                     "Nhận biết quyền, nghĩa vụ, trách nhiệm",
+                     "Phân tích hành vi đúng/sai",
+                     "Lựa chọn cách ứng xử phù hợp"],
+        "khong_nen": ("Chỉ đưa định nghĩa và yêu cầu học thuộc; "
+                      "đánh giá phẩm chất HS chỉ dựa 1 câu trả lời."),
+    },
+    "Mỹ thuật": {
+        "ten_goi_khac": ["my thuat", "mỹ thuật", "art"],
+        "ky_hieu": "🎨 🖌️ 🖼️",
+        "nang_luc_rieng": ["Năng lực quan sát, nhận thức thẩm mỹ",
+                            "Năng lực sáng tạo, ứng dụng thẩm mỹ",
+                            "Năng lực phân tích, đánh giá thẩm mỹ"],
+        "phuong_phap": ["Quan sát", "Thực hành tạo hình", "Thiết kế",
+                        "Trưng bày, nhận xét sản phẩm"],
+        "san_pham": ["Tranh vẽ", "Sản phẩm tạo hình", "Bản phác thảo",
+                     "Sản phẩm trang trí/thiết kế",
+                     "Bài giới thiệu, nhận xét tác phẩm"],
+        "danh_gia": ["Nhận biết yếu tố tạo hình",
+                     "Quan sát, cảm nhận tác phẩm",
+                     "Lựa chọn chất liệu, công cụ",
+                     "Tạo sản phẩm theo yêu cầu",
+                     "Trình bày ý tưởng, nhận xét"],
+        "khong_nen": ("Đánh giá chỉ dựa trên đẹp/xấu hoặc yêu cầu mọi HS "
+                      "tạo sản phẩm giống hệt nhau."),
+    },
+    "Âm nhạc": {
+        "ten_goi_khac": ["am nhac", "âm nhạc", "music"],
+        "ky_hieu": "🎵 🎼 🎤",
+        "nang_luc_rieng": ["Năng lực thể hiện âm nhạc",
+                            "Năng lực cảm thụ, hiểu biết âm nhạc",
+                            "Năng lực ứng dụng, sáng tạo âm nhạc"],
+        "phuong_phap": ["Nghe mẫu", "Luyện hát, đọc nhạc",
+                        "Thực hành nhạc cụ", "Trò chơi tiết tấu",
+                        "Biểu diễn"],
+        "san_pham": ["Phần trình diễn bài hát", "Bài đọc nhạc",
+                     "Phần biểu diễn nhạc cụ",
+                     "Tiết tấu/đoạn nhạc sáng tạo",
+                     "Bài cảm nhận âm nhạc"],
+        "danh_gia": ["Nhận biết đặc điểm tác phẩm",
+                     "Hát đúng giai điệu, lời ca, nhịp điệu",
+                     "Nghe và cảm nhận",
+                     "Đọc nhạc hoặc sử dụng nhạc cụ",
+                     "Hợp tác trong biểu diễn"],
+        "khong_nen": ("Chỉ trình bày kiến thức tác phẩm mà bỏ qua hoạt "
+                      "động nghe, thực hành, thể hiện âm nhạc."),
+    },
+    "Giáo dục thể chất": {
+        "ten_goi_khac": ["gdtc", "giao duc the chat",
+                          "giáo dục thể chất", "pe", "thể dục"],
+        "ky_hieu": "⚽ 🏃 🏀",
+        "nang_luc_rieng": ["Năng lực vận động cơ bản",
+                            "Năng lực thể thao",
+                            "Năng lực thể chất và sức khỏe"],
+        "phuong_phap": ["Làm mẫu", "Luyện tập", "Sửa lỗi kỹ thuật",
+                        "Trò chơi vận động"],
+        "san_pham": ["Động tác được thực hiện", "Chuỗi vận động",
+                     "Kết quả thực hành", "Bảng theo dõi tiến bộ",
+                     "Kết quả trò chơi vận động"],
+        "danh_gia": ["Hiểu yêu cầu, tác dụng động tác",
+                     "Thực hiện đúng kỹ thuật",
+                     "Phát triển tố chất thể lực",
+                     "Tự tập luyện, điều chỉnh vận động",
+                     "Ý thức an toàn, kỷ luật"],
+        "khong_nen": ("Soạn giáo án chỉ có lời giảng, câu hỏi và bài "
+                      "tập viết cho nội dung cần thực hành vận động."),
+    },
+    "Hoạt động trải nghiệm, hướng nghiệp": {
+        "ten_goi_khac": ["hdtn", "hoat dong trai nghiem", "hướng nghiệp",
+                          "trai nghiem", "experiential"],
+        "ky_hieu": "🧭 🌱 🎯",
+        "nang_luc_rieng": ["Năng lực thích ứng với cuộc sống",
+                            "Năng lực thiết kế, tổ chức hoạt động",
+                            "Năng lực định hướng nghề nghiệp"],
+        "phuong_phap": ["Trải nghiệm thực tế", "Dự án", "Khảo sát",
+                        "Thảo luận nhóm", "Phản hồi, tự đánh giá"],
+        "san_pham": ["Nhật ký trải nghiệm", "Kế hoạch cá nhân",
+                     "Báo cáo khảo sát", "Poster/video",
+                     "Sản phẩm dự án", "Bài trình bày kết quả"],
+        "danh_gia": ["Nhận thức bản thân",
+                     "Giao tiếp và hợp tác",
+                     "Giải quyết vấn đề đời sống",
+                     "Trách nhiệm với gia đình, nhà trường, cộng đồng",
+                     "Tìm hiểu nghề nghiệp"],
+        "khong_nen": ("Biến mọi tiết trải nghiệm thành tiết GV thuyết "
+                      "trình về kỹ năng sống."),
+    },
+    "Tin học": {
+        "ten_goi_khac": ["tin hoc", "tin học", "informatics", "it", "cntt"],
+        "ky_hieu": "💻 🖥️ ⌨️",
+        "nang_luc_rieng": ["Năng lực sử dụng, quản lý phương tiện CNTT",
+                            "Năng lực ứng dụng CNTT trong học và tự học",
+                            "Năng lực giải quyết vấn đề với CNTT",
+                            "Năng lực an toàn, an ninh thông tin"],
+        "phuong_phap": ["Thực hành", "Giải quyết vấn đề",
+                        "Thử nghiệm", "Kiểm thử, sửa lỗi"],
+        "san_pham": ["Tệp văn bản/bảng tính", "Bài trình chiếu",
+                     "Sơ đồ thuật toán", "Chương trình máy tính",
+                     "Kết quả chạy thử", "Sản phẩm số"],
+        "danh_gia": ["Hiểu khái niệm tin học",
+                     "Sử dụng công cụ số",
+                     "Thực hiện thao tác máy tính",
+                     "Phân tích vấn đề, xây dựng thuật toán",
+                     "Viết, kiểm thử, sửa chương trình"],
+        "khong_nen": ("Chỉ cho HS chép mã chương trình mà không giải "
+                      "thích bài toán, thuật toán và cách kiểm tra."),
+    },
+}
+
+
+# ============================================================
+# PHẦN C: HÀM TRA CỨU MÔN
+# ============================================================
+def _chuan_hoa_ten_mon(ten_mon):
+    """Chuẩn hóa tên môn: bỏ dấu, lowercase."""
+    if not ten_mon:
+        return ""
+    ten_mon = ten_mon.strip().lower()
+    ten_mon = unicodedata.normalize("NFD", ten_mon)
+    ten_mon = "".join(c for c in ten_mon
+                      if unicodedata.category(c) != "Mn")
+    ten_mon = ten_mon.replace("đ", "d").replace("Đ", "D")
+    return ten_mon
+
+
+def get_subject_rules(ten_mon):
+    """Tra bộ quy tắc theo tên môn.
+    Linh hoạt với viết hoa, dấu, viết tắt.
+    Trả về (tên_chuẩn, rules) hoặc (None, None).
+    """
+    if not ten_mon:
+        return (None, None)
+    ten_chuan = _chuan_hoa_ten_mon(ten_mon)
+
+    # 1. Khớp chính xác tên môn
+    for key, rules in SUBJECT_RULES.items():
+        if _chuan_hoa_ten_mon(key) == ten_chuan:
+            return (key, rules)
+
+    # 2. Khớp tên gọi khác
+    for key, rules in SUBJECT_RULES.items():
+        for alias in rules.get("ten_goi_khac", []):
+            if _chuan_hoa_ten_mon(alias) == ten_chuan:
+                return (key, rules)
+
+    # 3. Khớp mờ
+    for key, rules in SUBJECT_RULES.items():
+        key_chuan = _chuan_hoa_ten_mon(key)
+        if key_chuan in ten_chuan or ten_chuan in key_chuan:
+            return (key, rules)
+        for alias in rules.get("ten_goi_khac", []):
+            alias_chuan = _chuan_hoa_ten_mon(alias)
+            if len(alias_chuan) >= 3 and (
+                alias_chuan in ten_chuan or ten_chuan in alias_chuan
+            ):
+                return (key, rules)
+
+    return (None, None)
+
+
+# ============================================================
+# PHẦN D: NHẬN DIỆN BÀI CUỐI CHƯƠNG / LUYỆN TẬP CHUNG
+# ============================================================
+def detect_end_of_chapter(topic):
+    """Nhận diện bài cuối chương qua từ khóa.
+    Trả về True nếu là bài cuối chương (cần đổi HĐ2).
+    """
+    if not topic:
+        return False
+    t = topic.lower()
+    keywords = [
+        "bài tập cuối chương",
+        "ôn tập chương",
+        "ôn tập học kì",
+        "củng cố, mở rộng",
+        "tổng kết chương",
+        "review",
+        "looking back",
+        "trưng bày sản phẩm",
+        "bài tập ôn chương",
+    ]
+    for kw in keywords:
+        if kw in t:
+            return True
+    return False
+
+
+def detect_luyen_tap_chung(topic):
+    """Nhận diện bài luyện tập chung."""
+    if not topic:
+        return False
+    return "luyện tập chung" in topic.lower()
+
+
+# ============================================================
+# PHẦN E: KIỂM TRA MẪU 5512
+# ============================================================
+def kiem_tra_mau_5512(mau_text):
+    """Kiểm tra mẫu có đủ cấu trúc 5512 không.
+    Trả về (ok, msg).
+    """
+    if not mau_text:
+        return (False, "Mẫu rỗng")
+
+    text_lower = mau_text.lower()
+    errors = []
+
+    # Kiểm tra 3 mục chính
+    if "mục tiêu" not in text_lower:
+        errors.append("Thiếu 'I. Mục tiêu'")
+    if "thiết bị dạy học" not in text_lower and \
+       "thiết bị" not in text_lower:
+        errors.append("Thiếu 'II. Thiết bị dạy học'")
+    if "tiến trình dạy học" not in text_lower and \
+       "tiến trình" not in text_lower:
+        errors.append("Thiếu 'III. Tiến trình dạy học'")
+
+    # Kiểm tra 4 hoạt động
+    for i in [1, 2, 3, 4]:
+        if ("hoạt động " + str(i)) not in text_lower:
+            errors.append("Thiếu 'Hoạt động " + str(i) + "'")
+
+    # Kiểm tra bảng hoạt động
+    if "hoạt động của gv" not in text_lower and \
+       "hoạt động của giáo viên" not in text_lower:
+        errors.append("Thiếu bảng 'Hoạt động của GV và HS'")
+
+    if errors:
+        return (False, " | ".join(errors))
+    return (True, "OK")
+
+
+def get_mau_dang_dung():
+    """Lấy mẫu 5512 đang dùng (hardcode hoặc user nạp)."""
+    mau = st.session_state.get("mau_5512_dang_dung")
+    if mau:
+        return mau
+    return MAU_5512_MAC_DINH
+
+
+# ============================================================
+# PHẦN F: BUILD PROMPT TỐI ƯU TOKEN
+# ============================================================
+def build_exec_prompt(plan):
+    """Xây prompt 5512 tối ưu token.
+    - Chỉ nhồi rules của môn đang soạn (~200 token)
+    - Chỉ nhồi đoạn SGK cần thiết (~2-3K token)
+    - Prompt tổng: ~3-5K token
+    """
+    mem = st.session_state["memory"]
+
+    # 1. Tra môn
+    ten_mon_input = plan.get("subject", "") or mem.get("default_subject", "")
+    matched_key, rules = get_subject_rules(ten_mon_input)
+
+    if matched_key:
+        ten_mon_chuan = matched_key
+    else:
+        ten_mon_chuan = ten_mon_input or "Chung"
+        rules = {
+            "ky_hieu": "📚",
+            "nang_luc_rieng": ["Năng lực chung", "Năng lực chuyên môn"],
+            "phuong_phap": ["Thuyết trình", "Thảo luận", "Thực hành"],
+            "san_pham": ["Bài trình bày", "Sản phẩm thực hành"],
+            "danh_gia": ["Kiến thức", "Kỹ năng", "Thái độ"],
+            "khong_nen": "",
+        }
+
+    # 2. Lấy mẫu 5512
+    mau = get_mau_dang_dung()
+    mau_text = mau.get("cau_truc", "")[:2000]  # Cắt ngắn
+
+    # 3. Lấy đoạn SGK (nếu có)
+    sgk_text = plan.get("sgk_excerpt", "")[:8000]  # Cắt ngắn
+
+    # 4. Xác định HĐ2
+    topic = plan.get("topic", "")
+    if detect_end_of_chapter(topic):
+        hd2_title = "Hệ thống kiến thức"
+    elif detect_luyen_tap_chung(topic):
+        hd2_title = "Luyện tập"
+    else:
+        hd2_title = "Giải quyết vấn đề từ Hoạt động 1"
+
+    # 5. Xây prompt
+    p = []
+    p.append("Bạn là trợ lý soạn KẾ HOẠCH BÀI DẠY THCS chuẩn CV 5512.")
+    p.append("")
+    p.append("=== THÔNG TIN BÀI DẠY ===")
+    p.append("- GV: " + mem.get("teacher_name", "") +
+             " | Trường: " + mem.get("school", ""))
+    p.append("- Môn: " + ten_mon_chuan +
+             " | Khối: " + str(plan.get("grade", "6")))
+    p.append("- Tên bài: " + topic)
+    p.append("- Số tiết: " + str(plan.get("period", "1")))
+    p.append("")
+
+    # Đặc trưng môn
+    p.append("=== ĐẶC TRƯNG MÔN " + ten_mon_chuan.upper() + " ===")
+    p.append("Ký hiệu: " + rules.get("ky_hieu", ""))
+    p.append("Năng lực riêng: " + " | ".join(rules.get("nang_luc_rieng", [])))
+    p.append("Phương pháp: " + " | ".join(rules.get("phuong_phap", [])))
+    p.append("Sản phẩm: " + " | ".join(rules.get("san_pham", [])))
+    p.append("Đánh giá: " + " | ".join(rules.get("danh_gia", [])))
+    if rules.get("khong_nen"):
+        p.append("KHÔNG NÊN: " + rules["khong_nen"])
+    p.append("")
+
+    # Nguồn SGK
+    if sgk_text:
+        p.append("=== NGUỒN SGK (BẮT BUỘC DÙNG) ===")
+        p.append(sgk_text)
+        p.append("")
+
+    # Mẫu 5512
+    p.append("=== CẤU TRÚC 5512 (BẮT BUỘC) ===")
+    p.append(mau_text)
+    p.append("")
+
+    # Tiêu đề bài dạy
+    p.append("=== TIÊU ĐỀ BÀI DẠY (DÙNG ĐÚNG FORMAT) ===")
+    tieu_de = topic
+    if plan.get("trang_sgk"):
+        tieu_de += " (" + str(plan.get("period", "1")) + " tiết - Tr." + \
+                   str(plan["trang_sgk"]) + " SGK)"
+    else:
+        tieu_de += " (" + str(plan.get("period", "1")) + " tiết)"
+    p.append("**TÊN BÀI DẠY: " + tieu_de + "**")
+    p.append("**Môn học: " + ten_mon_chuan + "; lớp: " +
+             str(plan.get("grade", "6")) + "**")
+    p.append("**Thời gian thực hiện: (" +
+             str(plan.get("period", "1")) + " tiết)**")
+    p.append("")
+
+    # HĐ2 title
+    p.append("=== HOẠT ĐỘNG 2 PHẢI ĐẶT TÊN: ===")
+    p.append("**2. Hoạt động 2: " + hd2_title + "**")
+    p.append("")
+
+    # Quy tắc nghiêm ngặt
+    p.append("=== QUY TẮC BẮT BUỘC ===")
+    p.append("1. Mục I (Mục tiêu):")
+    p.append("   1. Kiến thức: ...")
+    p.append("   2. Năng lực:")
+    p.append("      - Năng lực riêng: ...")
+    p.append("      - Năng lực chung: ...")
+    p.append("   3. Phẩm chất: ...")
+    p.append("")
+    p.append("2. Mỗi hoạt động có: a) Mục tiêu; b) Nội dung; "
+             "c) Tổ chức thực hiện và sản phẩm")
+    p.append("")
+    p.append("3. Mục c) là BẢNG 2 CỘT: | Hoạt động của GV và HS | Sản phẩm |")
+    p.append("   - Bảng có 4 dòng Bước 1, Bước 2, Bước 3, Bước 4")
+    p.append("   - Cột Sản phẩm phải CHI TIẾT, bám sát SGK")
+    p.append("")
+    p.append("4. Cột Sản phẩm mỗi bước phải có:")
+    p.append("   - Kiến thức SGK (kèm số trang)")
+    p.append("   - Các bước giải (nếu có)")
+    p.append("   - Ký hiệu toán/đặc trưng môn")
+    p.append("   - Mô tả hình ảnh (nếu có)")
+    p.append("   - Dự kiến câu trả lời của HS")
+    p.append("")
+    p.append("5. TUYỆT ĐỐI KHÔNG BỊA kiến thức không có trong SGK.")
+    p.append("   Nếu SGK không có → ghi '[SGK không cung cấp]'.")
+    p.append("")
+    p.append("6. Trong ô bảng dùng <br> để xuống dòng. Mỗi bước riêng dòng.")
+    p.append("")
+    p.append("7. Ký hiệu Unicode: x², √, ≤, ≥, π, ∈.")
+    p.append("")
+    p.append("8. KHÔNG viết 'Người soạn', 'Ký tên', 'Sông Đốc' cuối bài.")
+    p.append("")
+    p.append("9. Hướng dẫn về nhà cuối bài gồm 3 gạch đầu dòng:")
+    p.append("   - Đọc và ghi nhớ nội dung chính")
+    p.append("   - Làm bài tập SGK")
+    p.append("   - Chuẩn bị bài mới")
+    p.append("")
+
+    return "\n".join(p)
+
+
+# ---------- KẾT THÚC PHẦN 3/6 ----------
+
+# ============================================================
+# PHẦN 4/6: SIDEBAR + UPLOAD + CALL AI
 # ============================================================
 # Chức năng:
 # - Sidebar: test GitHub, memory, thống kê, dọn dẹp
@@ -2032,561 +2587,9 @@ YÊU CẦU BẮT BUỘC:
                 )
 
 # ============================================================
-# KẾT THÚC PHẦN 3/6
-# ============================================================
-# ============================================================
-# PHẦN 4/6: RULES 11 MÔN + MẪU 5512 + PROMPT TỐI ƯU
-# ============================================================
-# Chức năng:
-#   - SUBJECT_RULES: bộ quy tắc 11 môn THCS
-#   - MAU_5512_MAC_DINH: mẫu 5512 hardcode
-#   - get_subject_rules, _chuan_hoa_ten_mon
-#   - detect_end_of_chapter: nhận diện bài cuối chương
-#   - kiem_tra_mau_5512: kiểm tra mẫu đúng chuẩn
-#   - build_exec_prompt: prompt tối ưu token
+# KẾT THÚC PHẦN 4/6
 # ============================================================
 
-
-# ============================================================
-# PHẦN A: MẪU 5512 HARDCODE
-# ============================================================
-MAU_5512_MAC_DINH = {
-    "ten_mau": "Mẫu CV 5512 chuẩn Bộ GD",
-    "che_do": "mac_dinh",
-    "nguon": "hardcode",
-    "cau_truc": """TÊN BÀI DẠY: ...
-Môn học: ...; lớp: ...
-Thời gian thực hiện: (... tiết)
-
-I. Mục tiêu
-1. Kiến thức: ...
-2. Năng lực:
-   - Năng lực riêng: ...
-   - Năng lực chung: ...
-3. Phẩm chất: ...
-
-II. Thiết bị dạy học và học liệu
-1. Đối với giáo viên: ...
-2. Đối với học sinh: ...
-
-III. Tiến trình dạy học
-
-1. Hoạt động 1: Mở đầu
-a) Mục tiêu: ...
-b) Nội dung: ...
-c) Tổ chức thực hiện và sản phẩm:
-[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
-
-2. Hoạt động 2: Giải quyết vấn đề từ Hoạt động 1
-a) Mục tiêu: ...
-b) Nội dung: ...
-c) Tổ chức thực hiện và sản phẩm:
-[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
-
-3. Hoạt động 3: Luyện tập
-a) Mục tiêu: ...
-b) Nội dung: ...
-c) Tổ chức thực hiện và sản phẩm:
-[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
-
-4. Hoạt động 4: Vận dụng
-a) Mục tiêu: ...
-b) Nội dung: ...
-c) Tổ chức thực hiện và sản phẩm:
-[BẢNG 2 CỘT: Hoạt động của GV và HS | Sản phẩm]
-
-* HƯỚNG DẪN VỀ NHÀ
-- ...
-""",
-}
-
-
-# ============================================================
-# PHẦN B: BỘ QUY TẮC 11 MÔN THCS (TINH GỌN)
-# ============================================================
-SUBJECT_RULES = {
-    "Toán": {
-        "ten_goi_khac": ["toan", "math", "toán học"],
-        "ky_hieu": "📐 π ∑ √",
-        "nang_luc_rieng": [
-            "Năng lực tư duy và lập luận toán học",
-            "Năng lực giải quyết vấn đề toán học",
-            "Năng lực giao tiếp toán học",
-            "Năng lực mô hình hóa toán học",
-            "Năng lực sử dụng công cụ, phương tiện học toán",
-        ],
-        "phuong_phap": ["Khám phá quy luật", "Giải quyết vấn đề",
-                        "Luyện tập phân hóa"],
-        "san_pham": ["Lời giải", "Phép tính, biểu thức", "Hình vẽ",
-                     "Lập luận/chứng minh", "Mô hình toán học"],
-        "danh_gia": ["Tính chính xác", "Lập luận logic",
-                     "Phương pháp giải", "Vận dụng"],
-        "khong_nen": ("Chỉ trình bày lý thuyết rồi cho bài tập mà "
-                      "không thể hiện quá trình HS hình thành kiến thức."),
-    },
-    "Ngữ văn": {
-        "ten_goi_khac": ["ngu van", "văn", "van", "ngữ văn", "literature"],
-        "ky_hieu": "📖 ✍️ 🎭",
-        "nang_luc_rieng": ["Năng lực ngôn ngữ", "Năng lực văn học",
-                            "Năng lực đọc hiểu", "Năng lực viết",
-                            "Năng lực nói và nghe"],
-        "phuong_phap": ["Đọc hiểu", "Phân tích, thảo luận",
-                        "Thực hành viết", "Đóng vai, trình bày"],
-        "san_pham": ["Phiếu học tập đọc hiểu", "Sơ đồ phân tích",
-                     "Đoạn văn/bài văn", "Bài thuyết trình"],
-        "danh_gia": ["Đọc hiểu", "Phân tích chi tiết, nhân vật",
-                     "Viết đoạn/bài văn", "Trình bày, thảo luận"],
-        "khong_nen": ("Ép mọi bài vào quy trình phân tích tác phẩm hoặc "
-                      "đưa bài văn mẫu để HS học thuộc."),
-    },
-    "Khoa học tự nhiên": {
-        "ten_goi_khac": ["khtn", "khoa hoc tu nhien", "khoa học tự nhiên",
-                          "science"],
-        "ky_hieu": "🔬 🧪 ⚗️",
-        "nang_luc_rieng": ["Năng lực nhận thức KHTN",
-                            "Năng lực tìm hiểu tự nhiên",
-                            "Năng lực vận dụng kiến thức, kỹ năng"],
-        "phuong_phap": ["Quan sát", "Thí nghiệm, thực hành",
-                        "Điều tra, khảo sát", "Phân tích dữ liệu"],
-        "san_pham": ["Báo cáo thí nghiệm", "Bảng quan sát",
-                     "Biểu đồ, sơ đồ", "Bản giải thích hiện tượng",
-                     "Kết luận dựa trên bằng chứng"],
-        "danh_gia": ["Hiểu khái niệm, quy luật", "Quan sát, đặt câu hỏi",
-                     "Dự đoán, giả thuyết", "Thực hiện thí nghiệm",
-                     "Phân tích dữ liệu, kết luận"],
-        "khong_nen": ("Tạo thí nghiệm không có trong điều kiện thiết bị "
-                      "hoặc kết luận không phù hợp dữ liệu."),
-    },
-    "Lịch sử": {
-        "ten_goi_khac": ["lich su", "lịch sử", "history", "ls"],
-        "ky_hieu": "🏛️ 📜 ⏳",
-        "nang_luc_rieng": ["Năng lực tìm hiểu lịch sử",
-                            "Năng lực nhận thức và tư duy lịch sử",
-                            "Năng lực vận dụng kiến thức, kỹ năng"],
-        "phuong_phap": ["Khai thác tư liệu", "Dòng thời gian",
-                        "So sánh sự kiện",
-                        "Phân tích nguyên nhân - diễn biến - kết quả"],
-        "san_pham": ["Dòng thời gian", "Sơ đồ diễn biến", "Bảng so sánh",
-                     "Phiếu khai thác tư liệu", "Bài thuyết trình"],
-        "danh_gia": ["Xác định thời gian, không gian",
-                     "Nhận biết sự kiện, nhân vật",
-                     "Phân tích nguyên nhân, diễn biến, kết quả",
-                     "So sánh sự kiện, giai đoạn"],
-        "khong_nen": ("Bắt HS học thuộc toàn bộ diễn biến mà không phân "
-                      "tích tư liệu, giải thích hoặc so sánh."),
-    },
-    "Địa lí": {
-        "ten_goi_khac": ["dia li", "địa lí", "địa lý", "geography", "dl"],
-        "ky_hieu": "🗺️ 🌍 🧭",
-        "nang_luc_rieng": ["Năng lực nhận thức khoa học địa lí",
-                            "Năng lực tìm hiểu địa lí",
-                            "Năng lực vận dụng kiến thức, kỹ năng"],
-        "phuong_phap": ["Đọc bản đồ, lược đồ",
-                        "Phân tích biểu đồ, số liệu",
-                        "So sánh vùng, quốc gia"],
-        "san_pham": ["Bản đồ được chú giải", "Biểu đồ", "Bảng thống kê",
-                     "Bài nhận xét số liệu", "Sơ đồ phân bố"],
-        "danh_gia": ["Xác định vị trí địa lí",
-                     "Nhận biết đặc điểm tự nhiên, dân cư, KT-XH",
-                     "Đọc và sử dụng bản đồ",
-                     "Phân tích biểu đồ, bảng số liệu",
-                     "Giải thích sự phân bố"],
-        "khong_nen": ("Chỉ yêu cầu đọc lại số liệu hoặc mô tả biểu đồ "
-                      "mà không giải thích xu hướng, mối quan hệ địa lí."),
-    },
-    "Giáo dục công dân": {
-        "ten_goi_khac": ["gdcd", "giao duc cong dan", "giáo dục công dân",
-                          "civic"],
-        "ky_hieu": "⚖️ 🤝 📋",
-        "nang_luc_rieng": ["Năng lực điều chỉnh hành vi",
-                            "Năng lực phát triển bản thân",
-                            "Năng lực tìm hiểu, tham gia hoạt động KT-XH"],
-        "phuong_phap": ["Phân tích tình huống", "Xử lý tình huống",
-                        "Đóng vai", "Thảo luận nhóm"],
-        "san_pham": ["Phiếu xử lý tình huống", "Bảng phân tích hành vi",
-                     "Bài trình bày quan điểm", "Kịch bản đóng vai",
-                     "Kế hoạch rèn luyện cá nhân"],
-        "danh_gia": ["Hiểu khái niệm, chuẩn mực",
-                     "Nhận biết quyền, nghĩa vụ, trách nhiệm",
-                     "Phân tích hành vi đúng/sai",
-                     "Lựa chọn cách ứng xử phù hợp"],
-        "khong_nen": ("Chỉ đưa định nghĩa và yêu cầu học thuộc; "
-                      "đánh giá phẩm chất HS chỉ dựa 1 câu trả lời."),
-    },
-    "Mỹ thuật": {
-        "ten_goi_khac": ["my thuat", "mỹ thuật", "art"],
-        "ky_hieu": "🎨 🖌️ 🖼️",
-        "nang_luc_rieng": ["Năng lực quan sát, nhận thức thẩm mỹ",
-                            "Năng lực sáng tạo, ứng dụng thẩm mỹ",
-                            "Năng lực phân tích, đánh giá thẩm mỹ"],
-        "phuong_phap": ["Quan sát", "Thực hành tạo hình", "Thiết kế",
-                        "Trưng bày, nhận xét sản phẩm"],
-        "san_pham": ["Tranh vẽ", "Sản phẩm tạo hình", "Bản phác thảo",
-                     "Sản phẩm trang trí/thiết kế",
-                     "Bài giới thiệu, nhận xét tác phẩm"],
-        "danh_gia": ["Nhận biết yếu tố tạo hình",
-                     "Quan sát, cảm nhận tác phẩm",
-                     "Lựa chọn chất liệu, công cụ",
-                     "Tạo sản phẩm theo yêu cầu",
-                     "Trình bày ý tưởng, nhận xét"],
-        "khong_nen": ("Đánh giá chỉ dựa trên đẹp/xấu hoặc yêu cầu mọi HS "
-                      "tạo sản phẩm giống hệt nhau."),
-    },
-    "Âm nhạc": {
-        "ten_goi_khac": ["am nhac", "âm nhạc", "music"],
-        "ky_hieu": "🎵 🎼 🎤",
-        "nang_luc_rieng": ["Năng lực thể hiện âm nhạc",
-                            "Năng lực cảm thụ, hiểu biết âm nhạc",
-                            "Năng lực ứng dụng, sáng tạo âm nhạc"],
-        "phuong_phap": ["Nghe mẫu", "Luyện hát, đọc nhạc",
-                        "Thực hành nhạc cụ", "Trò chơi tiết tấu",
-                        "Biểu diễn"],
-        "san_pham": ["Phần trình diễn bài hát", "Bài đọc nhạc",
-                     "Phần biểu diễn nhạc cụ",
-                     "Tiết tấu/đoạn nhạc sáng tạo",
-                     "Bài cảm nhận âm nhạc"],
-        "danh_gia": ["Nhận biết đặc điểm tác phẩm",
-                     "Hát đúng giai điệu, lời ca, nhịp điệu",
-                     "Nghe và cảm nhận",
-                     "Đọc nhạc hoặc sử dụng nhạc cụ",
-                     "Hợp tác trong biểu diễn"],
-        "khong_nen": ("Chỉ trình bày kiến thức tác phẩm mà bỏ qua hoạt "
-                      "động nghe, thực hành, thể hiện âm nhạc."),
-    },
-    "Giáo dục thể chất": {
-        "ten_goi_khac": ["gdtc", "giao duc the chat",
-                          "giáo dục thể chất", "pe", "thể dục"],
-        "ky_hieu": "⚽ 🏃 🏀",
-        "nang_luc_rieng": ["Năng lực vận động cơ bản",
-                            "Năng lực thể thao",
-                            "Năng lực thể chất và sức khỏe"],
-        "phuong_phap": ["Làm mẫu", "Luyện tập", "Sửa lỗi kỹ thuật",
-                        "Trò chơi vận động"],
-        "san_pham": ["Động tác được thực hiện", "Chuỗi vận động",
-                     "Kết quả thực hành", "Bảng theo dõi tiến bộ",
-                     "Kết quả trò chơi vận động"],
-        "danh_gia": ["Hiểu yêu cầu, tác dụng động tác",
-                     "Thực hiện đúng kỹ thuật",
-                     "Phát triển tố chất thể lực",
-                     "Tự tập luyện, điều chỉnh vận động",
-                     "Ý thức an toàn, kỷ luật"],
-        "khong_nen": ("Soạn giáo án chỉ có lời giảng, câu hỏi và bài "
-                      "tập viết cho nội dung cần thực hành vận động."),
-    },
-    "Hoạt động trải nghiệm, hướng nghiệp": {
-        "ten_goi_khac": ["hdtn", "hoat dong trai nghiem", "hướng nghiệp",
-                          "trai nghiem", "experiential"],
-        "ky_hieu": "🧭 🌱 🎯",
-        "nang_luc_rieng": ["Năng lực thích ứng với cuộc sống",
-                            "Năng lực thiết kế, tổ chức hoạt động",
-                            "Năng lực định hướng nghề nghiệp"],
-        "phuong_phap": ["Trải nghiệm thực tế", "Dự án", "Khảo sát",
-                        "Thảo luận nhóm", "Phản hồi, tự đánh giá"],
-        "san_pham": ["Nhật ký trải nghiệm", "Kế hoạch cá nhân",
-                     "Báo cáo khảo sát", "Poster/video",
-                     "Sản phẩm dự án", "Bài trình bày kết quả"],
-        "danh_gia": ["Nhận thức bản thân",
-                     "Giao tiếp và hợp tác",
-                     "Giải quyết vấn đề đời sống",
-                     "Trách nhiệm với gia đình, nhà trường, cộng đồng",
-                     "Tìm hiểu nghề nghiệp"],
-        "khong_nen": ("Biến mọi tiết trải nghiệm thành tiết GV thuyết "
-                      "trình về kỹ năng sống."),
-    },
-    "Tin học": {
-        "ten_goi_khac": ["tin hoc", "tin học", "informatics", "it", "cntt"],
-        "ky_hieu": "💻 🖥️ ⌨️",
-        "nang_luc_rieng": ["Năng lực sử dụng, quản lý phương tiện CNTT",
-                            "Năng lực ứng dụng CNTT trong học và tự học",
-                            "Năng lực giải quyết vấn đề với CNTT",
-                            "Năng lực an toàn, an ninh thông tin"],
-        "phuong_phap": ["Thực hành", "Giải quyết vấn đề",
-                        "Thử nghiệm", "Kiểm thử, sửa lỗi"],
-        "san_pham": ["Tệp văn bản/bảng tính", "Bài trình chiếu",
-                     "Sơ đồ thuật toán", "Chương trình máy tính",
-                     "Kết quả chạy thử", "Sản phẩm số"],
-        "danh_gia": ["Hiểu khái niệm tin học",
-                     "Sử dụng công cụ số",
-                     "Thực hiện thao tác máy tính",
-                     "Phân tích vấn đề, xây dựng thuật toán",
-                     "Viết, kiểm thử, sửa chương trình"],
-        "khong_nen": ("Chỉ cho HS chép mã chương trình mà không giải "
-                      "thích bài toán, thuật toán và cách kiểm tra."),
-    },
-}
-
-
-# ============================================================
-# PHẦN C: HÀM TRA CỨU MÔN
-# ============================================================
-def _chuan_hoa_ten_mon(ten_mon):
-    """Chuẩn hóa tên môn: bỏ dấu, lowercase."""
-    if not ten_mon:
-        return ""
-    ten_mon = ten_mon.strip().lower()
-    ten_mon = unicodedata.normalize("NFD", ten_mon)
-    ten_mon = "".join(c for c in ten_mon
-                      if unicodedata.category(c) != "Mn")
-    ten_mon = ten_mon.replace("đ", "d").replace("Đ", "D")
-    return ten_mon
-
-
-def get_subject_rules(ten_mon):
-    """Tra bộ quy tắc theo tên môn.
-    Linh hoạt với viết hoa, dấu, viết tắt.
-    Trả về (tên_chuẩn, rules) hoặc (None, None).
-    """
-    if not ten_mon:
-        return (None, None)
-    ten_chuan = _chuan_hoa_ten_mon(ten_mon)
-
-    # 1. Khớp chính xác tên môn
-    for key, rules in SUBJECT_RULES.items():
-        if _chuan_hoa_ten_mon(key) == ten_chuan:
-            return (key, rules)
-
-    # 2. Khớp tên gọi khác
-    for key, rules in SUBJECT_RULES.items():
-        for alias in rules.get("ten_goi_khac", []):
-            if _chuan_hoa_ten_mon(alias) == ten_chuan:
-                return (key, rules)
-
-    # 3. Khớp mờ
-    for key, rules in SUBJECT_RULES.items():
-        key_chuan = _chuan_hoa_ten_mon(key)
-        if key_chuan in ten_chuan or ten_chuan in key_chuan:
-            return (key, rules)
-        for alias in rules.get("ten_goi_khac", []):
-            alias_chuan = _chuan_hoa_ten_mon(alias)
-            if len(alias_chuan) >= 3 and (
-                alias_chuan in ten_chuan or ten_chuan in alias_chuan
-            ):
-                return (key, rules)
-
-    return (None, None)
-
-
-# ============================================================
-# PHẦN D: NHẬN DIỆN BÀI CUỐI CHƯƠNG / LUYỆN TẬP CHUNG
-# ============================================================
-def detect_end_of_chapter(topic):
-    """Nhận diện bài cuối chương qua từ khóa.
-    Trả về True nếu là bài cuối chương (cần đổi HĐ2).
-    """
-    if not topic:
-        return False
-    t = topic.lower()
-    keywords = [
-        "bài tập cuối chương",
-        "ôn tập chương",
-        "ôn tập học kì",
-        "củng cố, mở rộng",
-        "tổng kết chương",
-        "review",
-        "looking back",
-        "trưng bày sản phẩm",
-        "bài tập ôn chương",
-    ]
-    for kw in keywords:
-        if kw in t:
-            return True
-    return False
-
-
-def detect_luyen_tap_chung(topic):
-    """Nhận diện bài luyện tập chung."""
-    if not topic:
-        return False
-    return "luyện tập chung" in topic.lower()
-
-
-# ============================================================
-# PHẦN E: KIỂM TRA MẪU 5512
-# ============================================================
-def kiem_tra_mau_5512(mau_text):
-    """Kiểm tra mẫu có đủ cấu trúc 5512 không.
-    Trả về (ok, msg).
-    """
-    if not mau_text:
-        return (False, "Mẫu rỗng")
-
-    text_lower = mau_text.lower()
-    errors = []
-
-    # Kiểm tra 3 mục chính
-    if "mục tiêu" not in text_lower:
-        errors.append("Thiếu 'I. Mục tiêu'")
-    if "thiết bị dạy học" not in text_lower and \
-       "thiết bị" not in text_lower:
-        errors.append("Thiếu 'II. Thiết bị dạy học'")
-    if "tiến trình dạy học" not in text_lower and \
-       "tiến trình" not in text_lower:
-        errors.append("Thiếu 'III. Tiến trình dạy học'")
-
-    # Kiểm tra 4 hoạt động
-    for i in [1, 2, 3, 4]:
-        if ("hoạt động " + str(i)) not in text_lower:
-            errors.append("Thiếu 'Hoạt động " + str(i) + "'")
-
-    # Kiểm tra bảng hoạt động
-    if "hoạt động của gv" not in text_lower and \
-       "hoạt động của giáo viên" not in text_lower:
-        errors.append("Thiếu bảng 'Hoạt động của GV và HS'")
-
-    if errors:
-        return (False, " | ".join(errors))
-    return (True, "OK")
-
-
-def get_mau_dang_dung():
-    """Lấy mẫu 5512 đang dùng (hardcode hoặc user nạp)."""
-    mau = st.session_state.get("mau_5512_dang_dung")
-    if mau:
-        return mau
-    return MAU_5512_MAC_DINH
-
-
-# ============================================================
-# PHẦN F: BUILD PROMPT TỐI ƯU TOKEN
-# ============================================================
-def build_exec_prompt(plan):
-    """Xây prompt 5512 tối ưu token.
-    - Chỉ nhồi rules của môn đang soạn (~200 token)
-    - Chỉ nhồi đoạn SGK cần thiết (~2-3K token)
-    - Prompt tổng: ~3-5K token
-    """
-    mem = st.session_state["memory"]
-
-    # 1. Tra môn
-    ten_mon_input = plan.get("subject", "") or mem.get("default_subject", "")
-    matched_key, rules = get_subject_rules(ten_mon_input)
-
-    if matched_key:
-        ten_mon_chuan = matched_key
-    else:
-        ten_mon_chuan = ten_mon_input or "Chung"
-        rules = {
-            "ky_hieu": "📚",
-            "nang_luc_rieng": ["Năng lực chung", "Năng lực chuyên môn"],
-            "phuong_phap": ["Thuyết trình", "Thảo luận", "Thực hành"],
-            "san_pham": ["Bài trình bày", "Sản phẩm thực hành"],
-            "danh_gia": ["Kiến thức", "Kỹ năng", "Thái độ"],
-            "khong_nen": "",
-        }
-
-    # 2. Lấy mẫu 5512
-    mau = get_mau_dang_dung()
-    mau_text = mau.get("cau_truc", "")[:2000]  # Cắt ngắn
-
-    # 3. Lấy đoạn SGK (nếu có)
-    sgk_text = plan.get("sgk_excerpt", "")[:8000]  # Cắt ngắn
-
-    # 4. Xác định HĐ2
-    topic = plan.get("topic", "")
-    if detect_end_of_chapter(topic):
-        hd2_title = "Hệ thống kiến thức"
-    elif detect_luyen_tap_chung(topic):
-        hd2_title = "Luyện tập"
-    else:
-        hd2_title = "Giải quyết vấn đề từ Hoạt động 1"
-
-    # 5. Xây prompt
-    p = []
-    p.append("Bạn là trợ lý soạn KẾ HOẠCH BÀI DẠY THCS chuẩn CV 5512.")
-    p.append("")
-    p.append("=== THÔNG TIN BÀI DẠY ===")
-    p.append("- GV: " + mem.get("teacher_name", "") +
-             " | Trường: " + mem.get("school", ""))
-    p.append("- Môn: " + ten_mon_chuan +
-             " | Khối: " + str(plan.get("grade", "6")))
-    p.append("- Tên bài: " + topic)
-    p.append("- Số tiết: " + str(plan.get("period", "1")))
-    p.append("")
-
-    # Đặc trưng môn
-    p.append("=== ĐẶC TRƯNG MÔN " + ten_mon_chuan.upper() + " ===")
-    p.append("Ký hiệu: " + rules.get("ky_hieu", ""))
-    p.append("Năng lực riêng: " + " | ".join(rules.get("nang_luc_rieng", [])))
-    p.append("Phương pháp: " + " | ".join(rules.get("phuong_phap", [])))
-    p.append("Sản phẩm: " + " | ".join(rules.get("san_pham", [])))
-    p.append("Đánh giá: " + " | ".join(rules.get("danh_gia", [])))
-    if rules.get("khong_nen"):
-        p.append("KHÔNG NÊN: " + rules["khong_nen"])
-    p.append("")
-
-    # Nguồn SGK
-    if sgk_text:
-        p.append("=== NGUỒN SGK (BẮT BUỘC DÙNG) ===")
-        p.append(sgk_text)
-        p.append("")
-
-    # Mẫu 5512
-    p.append("=== CẤU TRÚC 5512 (BẮT BUỘC) ===")
-    p.append(mau_text)
-    p.append("")
-
-    # Tiêu đề bài dạy
-    p.append("=== TIÊU ĐỀ BÀI DẠY (DÙNG ĐÚNG FORMAT) ===")
-    tieu_de = topic
-    if plan.get("trang_sgk"):
-        tieu_de += " (" + str(plan.get("period", "1")) + " tiết - Tr." + \
-                   str(plan["trang_sgk"]) + " SGK)"
-    else:
-        tieu_de += " (" + str(plan.get("period", "1")) + " tiết)"
-    p.append("**TÊN BÀI DẠY: " + tieu_de + "**")
-    p.append("**Môn học: " + ten_mon_chuan + "; lớp: " +
-             str(plan.get("grade", "6")) + "**")
-    p.append("**Thời gian thực hiện: (" +
-             str(plan.get("period", "1")) + " tiết)**")
-    p.append("")
-
-    # HĐ2 title
-    p.append("=== HOẠT ĐỘNG 2 PHẢI ĐẶT TÊN: ===")
-    p.append("**2. Hoạt động 2: " + hd2_title + "**")
-    p.append("")
-
-    # Quy tắc nghiêm ngặt
-    p.append("=== QUY TẮC BẮT BUỘC ===")
-    p.append("1. Mục I (Mục tiêu):")
-    p.append("   1. Kiến thức: ...")
-    p.append("   2. Năng lực:")
-    p.append("      - Năng lực riêng: ...")
-    p.append("      - Năng lực chung: ...")
-    p.append("   3. Phẩm chất: ...")
-    p.append("")
-    p.append("2. Mỗi hoạt động có: a) Mục tiêu; b) Nội dung; "
-             "c) Tổ chức thực hiện và sản phẩm")
-    p.append("")
-    p.append("3. Mục c) là BẢNG 2 CỘT: | Hoạt động của GV và HS | Sản phẩm |")
-    p.append("   - Bảng có 4 dòng Bước 1, Bước 2, Bước 3, Bước 4")
-    p.append("   - Cột Sản phẩm phải CHI TIẾT, bám sát SGK")
-    p.append("")
-    p.append("4. Cột Sản phẩm mỗi bước phải có:")
-    p.append("   - Kiến thức SGK (kèm số trang)")
-    p.append("   - Các bước giải (nếu có)")
-    p.append("   - Ký hiệu toán/đặc trưng môn")
-    p.append("   - Mô tả hình ảnh (nếu có)")
-    p.append("   - Dự kiến câu trả lời của HS")
-    p.append("")
-    p.append("5. TUYỆT ĐỐI KHÔNG BỊA kiến thức không có trong SGK.")
-    p.append("   Nếu SGK không có → ghi '[SGK không cung cấp]'.")
-    p.append("")
-    p.append("6. Trong ô bảng dùng <br> để xuống dòng. Mỗi bước riêng dòng.")
-    p.append("")
-    p.append("7. Ký hiệu Unicode: x², √, ≤, ≥, π, ∈.")
-    p.append("")
-    p.append("8. KHÔNG viết 'Người soạn', 'Ký tên', 'Sông Đốc' cuối bài.")
-    p.append("")
-    p.append("9. Hướng dẫn về nhà cuối bài gồm 3 gạch đầu dòng:")
-    p.append("   - Đọc và ghi nhớ nội dung chính")
-    p.append("   - Làm bài tập SGK")
-    p.append("   - Chuẩn bị bài mới")
-    p.append("")
-
-    return "\n".join(p)
-
-
-# ---------- KẾT THÚC PHẦN 4/6 ----------
 # ============================================================
 # PHẦN 5/6: WORD HELPERS + NÚT SOẠN 1 BÀI
 # ============================================================
