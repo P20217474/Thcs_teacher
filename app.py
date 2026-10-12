@@ -1,42 +1,20 @@
 # ============================================================
-# PHẦN 1/6: HẠ TẦNG — IMPORTS + CONFIG + GITHUB API + SESSION
+# PHẦN 1/6: HẠ TẦNG --- IMPORTS + CONFIG + GITHUB API + SESSION
 # ============================================================
 # Chức năng:
-#   - Tự động cài package thiếu
-#   - Import toàn bộ thư viện
-#   - Cấu hình Streamlit page
-#   - Đọc secrets (API keys, GitHub token)
-#   - GitHub API: get, save, delete, list, test
-#   - Load memory/templates/sources/schedule
-#   - Khởi tạo session_state
+# - Import toàn bộ thư viện
+# - Cấu hình Streamlit page
+# - Đọc secrets (API keys, GitHub token)
+# - GitHub API: get, save, delete, list, test
+# - Load memory/templates/sources/schedule
+# - Khởi tạo session_state
 # ============================================================
 
-import subprocess
-import sys
 import os
 import json
 import base64
 import urllib.request
 from datetime import datetime, timedelta
-
-
-# ---------- TỰ ĐỘNG CÀI PACKAGE THIẾU ----------
-def _ensure(pkg, mod=None):
-    """Cài package nếu chưa có."""
-    mod = mod or pkg
-    try:
-        __import__(mod)
-    except ImportError:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", pkg, "--quiet"]
-        )
-
-
-_ensure("streamlit")
-_ensure("python-docx", "docx")
-_ensure("pypdf", "pypdf")
-_ensure("pymupdf", "fitz")  # Tách trang PDF
-
 
 # ---------- IMPORT CHÍNH ----------
 import streamlit as st
@@ -48,7 +26,6 @@ from docx.oxml.ns import qn
 import io
 import re
 import csv
-
 
 # ---------- CÁC FLAG (CÓ HAY KHÔNG) ----------
 try:
@@ -75,16 +52,15 @@ try:
 except Exception:
     HAS_GEMINI_VISION = False
 
-
 # ---------- CẤU HÌNH TRANG ----------
 st.set_page_config(
     page_title="Trợ lý Giáo viên THCS",
     page_icon="🧠",
     layout="wide",
 )
+
 st.title("🧠 Trợ lý Giáo viên THCS")
 st.caption("Bộ não tự học • Mẫu CV 5512 • Sách Kết nối tri thức • Xuất Word")
-
 
 # ---------- ĐỌC SECRETS ----------
 def cfg(key, default=""):
@@ -94,7 +70,6 @@ def cfg(key, default=""):
         return val if val else default
     except Exception:
         return default
-
 
 # ---------- CẤU HÌNH PROVIDER ----------
 PROVIDER_KEYS = {
@@ -111,8 +86,8 @@ for _k, _v in PROVIDER_KEYS.items():
 available_providers = [
     _k for _k, _v in PROVIDER_KEYS.items() if _v
 ]
-GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
+GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
 # Model ưu tiên từng provider (rẻ + nhanh)
 PREFERRED_MODELS = {
@@ -133,12 +108,10 @@ PREFERRED_MODELS = {
     ],
 }
 
-
 # ---------- CẤU HÌNH GITHUB ----------
 GITHUB_TOKEN = cfg("GITHUB_TOKEN", "")
 GITHUB_REPO = cfg("GITHUB_REPO", "P20217474/Thcs_teacher")
 GITHUB_BRANCH = cfg("GITHUB_BRANCH", "main")
-
 
 # ---------- ĐƯỜNG DẪN CACHE LOCAL ----------
 CACHE_DIR = "cache"
@@ -149,7 +122,6 @@ OCR_CACHE_DIR = os.path.join(CACHE_DIR, "ocr")
 # Tạo sẵn các thư mục
 for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR]:
     os.makedirs(_d, exist_ok=True)
-
 
 # ---------- GITHUB API ----------
 def gh_api(method, path, data=None):
@@ -164,7 +136,6 @@ def gh_api(method, path, data=None):
         "User-Agent": "agent-thcs",
     }
     body = json.dumps(data).encode("utf-8") if data else None
-
     req = urllib.request.Request(
         url, data=body, headers=headers, method=method
     )
@@ -173,7 +144,6 @@ def gh_api(method, path, data=None):
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         return {"error": str(e)}
-
 
 def gh_get(path):
     """Đọc file từ GitHub. Trả về (content, sha)."""
@@ -188,7 +158,6 @@ def gh_get(path):
         return (content, res["sha"])
     except Exception:
         return (None, None)
-
 
 def gh_save(path, content, message="Update"):
     """Lưu file lên GitHub. Trả về (ok, msg)."""
@@ -217,7 +186,6 @@ def gh_save(path, content, message="Update"):
         return (True, "Đã lưu: " + path)
     return (False, "Phản hồi không hợp lệ")
 
-
 def gh_delete(path):
     """Xóa file trên GitHub. Trả về (ok, msg)."""
     if not GITHUB_TOKEN:
@@ -242,7 +210,6 @@ def gh_delete(path):
         return (True, "Đã xóa: " + path)
     return (False, "Phản hồi không hợp lệ")
 
-
 def gh_list(folder):
     """Liệt kê file trong folder GitHub."""
     res = gh_api(
@@ -254,7 +221,6 @@ def gh_list(folder):
     return [
         item["name"] for item in res if item["type"] == "file"
     ]
-
 
 def gh_test():
     """Test GitHub token + quyền ghi. Trả về (ok, msg)."""
@@ -269,13 +235,12 @@ def gh_test():
         if isinstance(res2, dict) and "permissions" in res2:
             perms = res2["permissions"]
             if perms.get("push") or perms.get("admin"):
-                return (True, "OK — " + login + " | Có quyền ghi")
+                return (True, "OK --- " + login + " | Có quyền ghi")
             return (False, "Token thiếu quyền 'repo'")
-        return (True, "OK — " + login)
+        return (True, "OK --- " + login)
     if isinstance(res, dict) and "error" in res:
         return (False, "Lỗi: " + res["error"])
     return (False, "Token không hợp lệ")
-
 
 # ---------- LOAD / SAVE DỮ LIỆU ----------
 def load_memory():
@@ -293,7 +258,6 @@ def load_memory():
         "default_grade": "6",
     }
 
-
 def save_memory(memory):
     """Lưu memory.json lên GitHub."""
     memory["last_updated"] = datetime.now().strftime("%Y-%m-%d")
@@ -302,7 +266,6 @@ def save_memory(memory):
         json.dumps(memory, ensure_ascii=False, indent=2),
         "Update memory",
     )
-
 
 def load_folder(folder):
     """Đọc toàn bộ file trong folder trên GitHub."""
@@ -314,12 +277,10 @@ def load_folder(folder):
             out[f] = c
     return out
 
-
 # Wrapper các folder
 def load_templates(): return load_folder("templates")
 def load_sources():   return load_folder("sources")
 def load_schedule():  return load_folder("schedule")
-
 
 def save_history(task, topic, content):
     """Lưu lịch sử soạn bài lên GitHub."""
@@ -331,7 +292,6 @@ def save_history(task, topic, content):
         f"History {topic}",
     )
 
-
 # ---------- KHỞI TẠO SESSION STATE ----------
 # Reset session nếu version thay đổi
 if "app_started_v21" not in st.session_state:
@@ -340,7 +300,6 @@ if "app_started_v21" not in st.session_state:
            k.startswith("ngay_bd_"):
             del st.session_state[k]
     st.session_state["app_started_v21"] = True
-
 
 # Giá trị mặc định
 defaults = {
@@ -361,7 +320,6 @@ defaults = {
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
-
 
 # ---------- KẾT THÚC PHẦN 1/6 ----------
 # ============================================================
