@@ -1073,6 +1073,8 @@ with st.sidebar:
                     "dacta_hientai",
                     "de_kiem_tra_hientai",
                     "matran_hientai",
+                    "mt_saved_sel",
+                    "dt_mt_sel",
                 ]:
                     del st.session_state[k]
                     _deleted += 1
@@ -1243,9 +1245,7 @@ with tab_sgk:
                         "để upload thủ công."
                     )
                 else:
-                    st.success(
-                        f"✅ Tìm được {len(boundaries)} bài"
-                    )
+                    st.success(f"✅ Tìm được {len(boundaries)} bài")
                     with st.expander("👁️ Xem danh sách bài",
                                      expanded=True):
                         for b in boundaries:
@@ -1684,15 +1684,33 @@ with tab_matrix:
             if k.startswith("matran_")
         ]
         if _mt_keys:
+            # Đảm bảo giá trị selectbox luôn hợp lệ
+            _default_idx = 0
+            _saved_sel = st.session_state.get("mt_saved_sel")
+            if _saved_sel in _mt_keys:
+                _default_idx = _mt_keys.index(_saved_sel)
+
             _mt_sel = st.selectbox(
                 "Ma trận đã lưu trong phiên",
                 _mt_keys,
+                index=_default_idx,
                 key="mt_saved_sel",
             )
-            st.caption("Xem trước:")
-            st.text(
-                st.session_state[f"matran_{_mt_sel}"]["noi_dung"][:500]
-            )
+
+            # Kiểm tra key có tồn tại trước khi truy cập
+            _mt_session_key = f"matran_{_mt_sel}"
+            if _mt_session_key in st.session_state:
+                st.caption("Xem trước:")
+                st.text(
+                    st.session_state[_mt_session_key].get(
+                        "noi_dung", ""
+                    )[:500]
+                )
+            else:
+                st.warning(
+                    "⚠️ Ma trận này không còn trong phiên. "
+                    "Chọn ma trận khác hoặc nạp lại."
+                )
 
 # ---------- TAB 6: TẠO ĐẶC TẢ ĐỀ ----------
 with tab_despec:
@@ -1713,19 +1731,36 @@ with tab_despec:
             "⚠️ Chưa có ma trận nào. Vào tab **🧩 Nạp ma trận đề** trước."
         )
     else:
+        # Đảm bảo giá trị selectbox luôn hợp lệ
+        _default_idx = 0
+        _saved_dt = st.session_state.get("dt_mt_sel")
+        if _saved_dt in _mt_keys_all:
+            _default_idx = _mt_keys_all.index(_saved_dt)
+
         _dt_key = st.selectbox(
             "Chọn ma trận",
             _mt_keys_all,
+            index=_default_idx,
             key="dt_mt_sel",
         )
-        _dt_mt = st.session_state[f"matran_{_dt_key}"]
+
+        # Kiểm tra key ma trận có tồn tại không
+        _dt_session_key = f"matran_{_dt_key}"
+        if _dt_session_key not in st.session_state:
+            st.error(
+                "❌ Ma trận này không còn trong phiên. "
+                "Vào tab **🧩 Nạp ma trận đề** để nạp lại."
+            )
+            st.stop()
+
+        _dt_mt = st.session_state[_dt_session_key]
 
         _c1, _c2 = st.columns(2)
         with _c1:
             st.caption(
-                f"📚 Môn: **{_dt_mt['mon']}** | "
-                f"Lớp: **{_dt_mt['lop']}** | "
-                f"Loại: **{_dt_mt['loai']}**"
+                f"📚 Môn: **{_dt_mt.get('mon', '')}** | "
+                f"Lớp: **{_dt_mt.get('lop', '')}** | "
+                f"Loại: **{_dt_mt.get('loai', '')}**"
             )
         with _c2:
             _dt_tg = st.text_input(
@@ -1749,14 +1784,14 @@ NHIỆM VỤ: Từ MA TRẬN ĐỀ dưới đây, hãy sinh **BẢNG ĐẶC TẢ
 theo đúng chuẩn Bộ GD&ĐT (Công văn 7991/BGDĐT-GDTrH).
 
 THÔNG TIN:
-- Môn: {_dt_mt['mon']}
-- Lớp: {_dt_mt['lop']}
-- Loại đề: {_dt_mt['loai']}
+- Môn: {_dt_mt.get('mon', '')}
+- Lớp: {_dt_mt.get('lop', '')}
+- Loại đề: {_dt_mt.get('loai', '')}
 - Thời gian: {_dt_tg} phút
 
 MA TRẬN ĐỀ GỐC:
 \"\"\"
-{_dt_mt['noi_dung']}
+{_dt_mt.get('noi_dung', '')}
 \"\"\"
 
 YÊU CẦU ĐẦU RA:
@@ -1776,15 +1811,16 @@ YÊU CẦU ĐẦU RA:
                         _dt_result = call_ai(_dt_prompt)
                         st.session_state["dacta_hientai"] = {
                             "ma_tran_key": _dt_key,
-                            "mon": _dt_mt["mon"],
-                            "lop": _dt_mt["lop"],
-                            "loai": _dt_mt["loai"],
+                            "mon": _dt_mt.get("mon", ""),
+                            "lop": _dt_mt.get("lop", ""),
+                            "loai": _dt_mt.get("loai", ""),
                             "noi_dung": _dt_result,
                         }
                         save_history(
                             "Đặc tả đề",
-                            f"{_dt_mt['mon']} {_dt_mt['lop']} "
-                            f"{_dt_mt['loai']}",
+                            f"{_dt_mt.get('mon', '')} "
+                            f"{_dt_mt.get('lop', '')} "
+                            f"{_dt_mt.get('loai', '')}",
                             _dt_result,
                         )
                         st.success("✅ Đã sinh đặc tả.")
@@ -1798,7 +1834,7 @@ YÊU CẦU ĐẦU RA:
             st.markdown("### 📄 Đặc tả đề")
             st.text_area(
                 "Nội dung (có thể sửa)",
-                _dt_now["noi_dung"],
+                _dt_now.get("noi_dung", ""),
                 height=400,
                 key="dt_edit",
             )
@@ -1808,13 +1844,13 @@ YÊU CẦU ĐẦU RA:
                     "⬇️ Tải đặc tả (Word)",
                     make_doc(
                         "Đặc tả đề",
-                        _dt_now["noi_dung"],
-                        subject_name=_dt_now["mon"],
+                        _dt_now.get("noi_dung", ""),
+                        subject_name=_dt_now.get("mon", ""),
                     ),
                     file_name=(
-                        f"DacTa_{_slugify(_dt_now['mon'])}_"
-                        f"{_dt_now['lop']}_{_slugify(_dt_now['loai'])}"
-                        f".docx"
+                        f"DacTa_{_slugify(_dt_now.get('mon', ''))}_"
+                        f"{_dt_now.get('lop', '')}_"
+                        f"{_slugify(_dt_now.get('loai', ''))}.docx"
                     ),
                     mime=(
                         "application/vnd.openxmlformats-officedocument."
@@ -1826,10 +1862,10 @@ YÊU CẦU ĐẦU RA:
             with _c2:
                 st.download_button(
                     "⬇️ Tải đặc tả (TXT)",
-                    _dt_now["noi_dung"].encode("utf-8"),
+                    _dt_now.get("noi_dung", "").encode("utf-8"),
                     file_name=(
-                        f"DacTa_{_slugify(_dt_now['mon'])}_"
-                        f"{_dt_now['lop']}.txt"
+                        f"DacTa_{_slugify(_dt_now.get('mon', ''))}_"
+                        f"{_dt_now.get('lop', '')}.txt"
                     ),
                     mime="text/plain",
                     use_container_width=True,
@@ -1897,9 +1933,9 @@ NHIỆM VỤ: Từ ĐẶC TẢ ĐỀ dưới đây, sinh **ĐỀ KIỂM TRA HOÀ
 và **ĐÁP ÁN + BIỂU ĐIỂM**.
 
 THÔNG TIN:
-- Môn: {_dt_now['mon']}
-- Lớp: {_dt_now['lop']}
-- Loại đề: {_dt_now['loai']}
+- Môn: {_dt_now.get('mon', '')}
+- Lớp: {_dt_now.get('lop', '')}
+- Loại đề: {_dt_now.get('loai', '')}
 - Hình thức: {_ex_hinhthuc}
 - Tổng số câu: {_ex_socau}
 - Thang điểm: {_ex_thangdiem}
@@ -1907,7 +1943,7 @@ THÔNG TIN:
 
 ĐẶC TẢ ĐỀ:
 \"\"\"
-{_dt_now['noi_dung']}
+{_dt_now.get('noi_dung', '')}
 \"\"\"
 
 YÊU CẦU ĐẦU RA (theo đúng thứ tự):
@@ -1935,15 +1971,16 @@ YÊU CẦU BẮT BUỘC:
                     try:
                         _ex_result = call_ai(_ex_prompt)
                         st.session_state["de_kiem_tra_hientai"] = {
-                            "mon": _dt_now["mon"],
-                            "lop": _dt_now["lop"],
-                            "loai": _dt_now["loai"],
+                            "mon": _dt_now.get("mon", ""),
+                            "lop": _dt_now.get("lop", ""),
+                            "loai": _dt_now.get("loai", ""),
                             "noi_dung": _ex_result,
                         }
                         save_history(
                             "Đề kiểm tra",
-                            f"{_dt_now['mon']} {_dt_now['lop']} "
-                            f"{_dt_now['loai']}",
+                            f"{_dt_now.get('mon', '')} "
+                            f"{_dt_now.get('lop', '')} "
+                            f"{_dt_now.get('loai', '')}",
                             _ex_result,
                         )
                         st.success("✅ Đã sinh đề + đáp án.")
@@ -1957,7 +1994,7 @@ YÊU CẦU BẮT BUỘC:
             st.markdown("### 📄 Đề kiểm tra + Đáp án")
             st.text_area(
                 "Nội dung (có thể sửa)",
-                _ex_now["noi_dung"],
+                _ex_now.get("noi_dung", ""),
                 height=500,
                 key="ex_edit",
             )
@@ -1967,13 +2004,13 @@ YÊU CẦU BẮT BUỘC:
                     "⬇️ Tải đề (Word)",
                     make_doc(
                         "Đề kiểm tra",
-                        _ex_now["noi_dung"],
-                        subject_name=_ex_now["mon"],
+                        _ex_now.get("noi_dung", ""),
+                        subject_name=_ex_now.get("mon", ""),
                     ),
                     file_name=(
-                        f"DeKiemTra_{_slugify(_ex_now['mon'])}_"
-                        f"{_ex_now['lop']}_{_slugify(_ex_now['loai'])}"
-                        f".docx"
+                        f"DeKiemTra_{_slugify(_ex_now.get('mon', ''))}_"
+                        f"{_ex_now.get('lop', '')}_"
+                        f"{_slugify(_ex_now.get('loai', ''))}.docx"
                     ),
                     mime=(
                         "application/vnd.openxmlformats-officedocument."
@@ -1985,10 +2022,10 @@ YÊU CẦU BẮT BUỘC:
             with _c2:
                 st.download_button(
                     "⬇️ Tải đề (TXT)",
-                    _ex_now["noi_dung"].encode("utf-8"),
+                    _ex_now.get("noi_dung", "").encode("utf-8"),
                     file_name=(
-                        f"DeKiemTra_{_slugify(_ex_now['mon'])}_"
-                        f"{_ex_now['lop']}.txt"
+                        f"DeKiemTra_{_slugify(_ex_now.get('mon', ''))}_"
+                        f"{_ex_now.get('lop', '')}.txt"
                     ),
                     mime="text/plain",
                     use_container_width=True,
