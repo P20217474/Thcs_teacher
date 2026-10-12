@@ -1742,16 +1742,18 @@ with tab_despec:
             key="dt_mt_sel",
         )
 
-        # Kiểm tra key ma trận có tồn tại không
+               # Kiểm tra key ma trận có tồn tại + đúng kiểu dict không
         _dt_session_key = f"matran_{_dt_key}"
-        if _dt_session_key not in st.session_state:
+        _dt_val = st.session_state.get(_dt_session_key)
+
+        if not isinstance(_dt_val, dict):
             st.error(
-                "❌ Ma trận này không còn trong phiên. "
+                "❌ Ma trận này không đúng định dạng hoặc đã bị xóa. "
                 "Vào tab **🧩 Nạp ma trận đề** để nạp lại."
             )
             st.stop()
 
-        _dt_mt = st.session_state[_dt_session_key]
+        _dt_mt = _dt_val
 
         _c1, _c2 = st.columns(2)
         with _c1:
