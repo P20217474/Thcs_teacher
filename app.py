@@ -371,11 +371,11 @@ def read_file(file, use_ocr=True):
 
 
 # ---------- Khởi tạo session state ----------
-if "app_started_v17" not in st.session_state:
+if "app_started_v18" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v17"] = True
+    st.session_state["app_started_v18"] = True
 
 
 defaults = {
@@ -1311,6 +1311,55 @@ def get_subject_rules(ten_mon):
     return None
 
 
+def detect_chapter_from_topic(topic):
+    """Đoán chương từ tên bài để nhắc AI đúng mạch kiến thức.
+    Trả về (ten_chuong, canh_bao) hoặc (None, None).
+    """
+    if not topic:
+        return None, None
+    t = topic.lower()
+
+    # Toán 6 - các chương đặc trưng dễ nhầm
+    toan6_rules = [
+        (r"(tập hợp|ghi số tự nhiên|thứ tự trong tập hợp|cộng.*trừ số tự nhiên|"
+         r"nhân.*chia số tự nhiên|lũy thừa|thứ tự thực hiện|bài tập cuối chương i)",
+         "Chương I - Tập hợp các số tự nhiên",
+         "CHỈ dùng số tự nhiên 0,1,2,3... KHÔNG dùng số nguyên âm, số thập phân."),
+
+        (r"(quan hệ chia hết|dấu hiệu chia hết|số nguyên tố|hợp số|"
+         r"ước chung|bội chung|ƯCLN|BCNN|bài tập cuối chương ii)",
+         "Chương II - Tính chia hết trong tập hợp các số tự nhiên",
+         "CHỈ dùng số tự nhiên. KHÔNG nhắc số nguyên âm, số nguyên tố âm, "
+         "KHÔNG dùng 'số nguyên' khi chưa học Chương III."),
+
+        (r"(tập hợp các số nguyên|số nguyên âm|cộng.*trừ số nguyên|"
+         r"quy tắc dấu ngoặc|nhân.*chia số nguyên|ước.*bội.*số nguyên|"
+         r"bài tập ôn chương iii)",
+         "Chương III - Số nguyên",
+         "Đã học số nguyên. Có thể dùng số âm, quy tắc dấu."),
+
+        (r"(điểm|đường thẳng|đoạn thẳng|tia|trung điểm|góc|số đo góc)",
+         "Chương VIII - Những hình học cơ bản",
+         "CHỈ dùng kiến thức hình học cơ bản. KHÔNG dùng định lý, chứng minh phức tạp."),
+
+        (r"(phân số|so sánh phân số|hỗn số|cộng.*trừ phân số|"
+         r"nhân.*chia phân số|hai bài toán về phân số)",
+         "Chương VI - Phân số",
+         "Đã học phân số. KHÔNG dùng số thập phân (học Chương VII)."),
+
+        (r"(số thập phân|tính toán với số thập phân|làm tròn|ước lượng|"
+         r"tỉ số|tỉ số phần trăm)",
+         "Chương VII - Số thập phân",
+         "Đã học số thập phân. Có thể dùng dấu phẩy thập phân."),
+    ]
+
+    for pattern, chuong, canh_bao in toan6_rules:
+        if re.search(pattern, t, re.IGNORECASE):
+            return chuong, canh_bao
+
+    return None, None
+
+
 # ============ PROMPT CV 5512 THÔNG MINH THEO MÔN ============
 def build_exec_prompt(plan):
     mem = st.session_state["memory"]
@@ -1353,9 +1402,42 @@ def build_exec_prompt(plan):
     prompt += "- GV: " + mem.get("teacher_name", "") + " | Trường: " + mem.get("school", "") + "\n"
     prompt += "- Môn: " + ten_mon_chuan + " | Khối: " + (plan.get("grade", "") or "6") + "\n"
     prompt += "- Tên bài: " + plan.get("topic", "") + "\n"
-    prompt += "- Số tiết: " + (plan.get("period") or "1") + "\n\n"
+    prompt += "- Số tiết: " + (plan.get("period") or "1") + "\n"
+    # 🔥 Trang SGK
+    _trang = plan.get("trang_sgk", "").strip()
+    if _trang:
+        prompt += "- 📖 PHẠM VI SGK: CHỈ dùng nội dung trang " + _trang + " SGK.\n"
+        prompt += ("   KHÔNG dùng kiến thức ở các trang khác, "
+                   "KHÔNG dùng kiến thức của bài khác.\n")
+    prompt += "\n"
 
-    # Ký hiệu + hình minh họa đặc trưng
+    # Tự động nhận diện chương
+    _chuong_detect, _canh_bao_chuong = detect_chapter_from_topic(plan.get("topic", ""))
+    if _chuong_detect:
+        prompt += "=== 📖 CHƯƠNG DỰ KIẾN ===\n"
+        prompt += "Chương: " + _chuong_detect + "\n"
+        if _canh_bao_chuong:
+            prompt += "⚠️ LƯU Ý MẠCH KIẾN THỨC: " + _canh_bao_chuong + "\n"
+        prompt += "\n"
+
+    # Khối ràng buộc nguồn
+    prompt += "=== ⚠️ NGUỒN CHUẨN BẮT BUỘC ===\n"
+    prompt += "1. CHỈ được dùng kiến thức có trong:\n"
+    prompt += "   - NỘI DUNG SGK của ĐÚNG bài này (phần NGUỒN SGK bên dưới).\n"
+    prompt += "   - PPCT của ĐÚNG tuần/bài này.\n"
+    prompt += "   - File MẪU (định dạng 5512) — KHÔNG lấy nội dung từ mẫu.\n"
+    prompt += "2. TUYỆT ĐỐI KHÔNG dùng kiến thức của:\n"
+    prompt += "   - Bài khác, chương khác chưa học.\n"
+    prompt += "   - Lớp khác, cấp khác.\n"
+    prompt += "   - Kiến thức ngoài chương trình THCS.\n"
+    prompt += "3. Nếu bài thuộc Chương I, II (Toán 6 HK1): KHÔNG nhắc số nguyên âm, "
+    prompt += "số hữu tỉ, số vô tỉ, căn bậc hai, hàm số, phương trình... (CHƯA HỌC).\n"
+    prompt += "4. Nếu không chắc bài thuộc chương nào, dựa vào TÊN BÀI + "
+    prompt += "SỐ TIẾT PPCT để xác định đúng mạch kiến thức.\n"
+    prompt += "5. KHÔNG tự suy diễn, KHÔNG mở rộng kiến thức ngoài bài. "
+    prompt += "Nếu thiếu dữ liệu, ghi [Cần bổ sung SGK] thay vì bịa.\n\n"
+
+    # Ký hiệu + hình minh họa
     prompt += "=== ĐẶC TRƯNG MÔN " + ten_mon_chuan.upper() + " ===\n\n"
     if rules.get("ky_hieu"):
         prompt += "🎨 KÝ HIỆU ĐẶC TRƯNG: " + rules["ky_hieu"] + "\n"
@@ -1420,6 +1502,14 @@ def build_exec_prompt(plan):
         prompt += tpl_text + "\n"
     if src_text:
         prompt += src_text + "\n"
+
+    # Tự kiểm tra
+    prompt += "=== 🔍 QUY TRÌNH TỰ KIỂM TRA TRƯỚC KHI TRẢ LỜI ===\n"
+    prompt += "Bước 1: Xác định CHƯƠNG và MẠCH KIẾN THỨC của bài.\n"
+    prompt += "Bước 2: Liệt kê các khái niệm CHỈ thuộc bài này (không lan sang bài khác).\n"
+    prompt += "Bước 3: Kiểm tra từng khái niệm có nằm trong SGK/PPCT đã cung cấp không.\n"
+    prompt += "Bước 4: LOẠI BỎ mọi kiến thức chưa học hoặc ngoài phạm vi bài.\n"
+    prompt += "Bước 5: Chỉ sau khi kiểm tra xong mới soạn nội dung.\n\n"
 
     # Cấu trúc bắt buộc 5512
     prompt += "=== CẤU TRÚC BẮT BUỘC (Công văn 5512) ===\n\n"
@@ -1510,6 +1600,15 @@ def build_exec_prompt(plan):
     prompt += ("15. Trong phần 'Thiết bị dạy học' và các hoạt động, có thể gợi ý "
                "hình minh họa đặc trưng của môn bằng mô tả ngắn gọn. "
                "KHÔNG chèn ảnh nhị phân, chỉ mô tả bằng lời.\n")
+    prompt += ("16. 🚫 **BÁM SÁT SGK**: Mọi kiến thức phải có trong NGUỒN SGK "
+               "đã cung cấp. KHÔNG bịa, KHÔNG suy diễn, KHÔNG lấy từ bài khác.\n")
+    prompt += ("17. 🚫 **ĐÚNG MẠCH KIẾN THỨC**: Xác định đúng chương/bài. "
+               "Ví dụ: Chương II Toán 6 (Tính chia hết) KHÔNG có số nguyên. "
+               "Chương III mới có số nguyên.\n")
+    prompt += ("18. 🚫 **KHÔNG VƯỢT CẤP**: Chỉ dùng ngôn ngữ, khái niệm, ký hiệu "
+               "phù hợp với lớp đang học. Không dùng kiến thức lớp trên.\n")
+    prompt += ("19. 📖 **BÁM TRANG SGK**: Nếu có thông tin 'PHẠM VI SGK', "
+               "chỉ được dùng kiến thức trong trang đó.\n")
 
     return prompt
 
@@ -1913,7 +2012,6 @@ def make_doc(title, body, subject_name=""):
 
     d.add_heading(title, 0)
 
-    # Ký hiệu môn học
     if subject_name:
         _matched = get_subject_rules(subject_name)
         if _matched:
@@ -2094,6 +2192,11 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                 if key == "stt_ppct":
                     m_num = re.search(r"\d+", str(val))
                     val = m_num.group(0) if m_num else str(val).strip()
+                if key == "ten_bai":
+                    # Thêm trang SGK vào sau tên bài
+                    _trang = str(r.get("trang_sgk", "")).strip()
+                    if _trang:
+                        val = str(val) + " (tr. " + _trang + ")"
                 run = p.add_run(str(val))
                 _set_run_font(run, 13, bold=False)
             row[6].text = ""
@@ -2134,7 +2237,7 @@ for _r in _lich_hien_tai:
         _lop_tu_lich.append(_l)
 _lop_goi_y = ", ".join(_lop_tu_lich) if _lop_tu_lich else ""
 
-_col_mon, _col_lop, _col_tiet = st.columns([2, 2, 1])
+_col_mon, _col_lop, _col_tiet, _col_trang = st.columns([2, 1.5, 0.8, 1])
 with _col_mon:
     _danh_sach_mon = list(SUBJECT_RULES.keys())
     _options_hien_thi = [
@@ -2160,6 +2263,10 @@ with _col_lop:
                                     "hệ thống tự điền danh sách lớp.")
 with _col_tiet:
     _tiet_chon = st.text_input("⏱️ Số tiết", value="", key="chon_tiet_soan")
+with _col_trang:
+    _trang_chon = st.text_input("📖 Trang SGK", value="",
+                                 key="chon_trang_soan",
+                                 help="VD: 44-46. Chỉ dùng kiến thức trong trang này.")
 
 # Banner hiển thị đặc trưng môn đang chọn
 _rules_hien_tai = SUBJECT_RULES.get(_mon_chon, {})
@@ -2205,6 +2312,18 @@ if run and cmd.strip():
             _lop_dung = ", ".join(_cac_lop_set) if _cac_lop_set else \
                         st.session_state.get("memory", {}).get("default_grade", "6")
 
+        # Tìm trang SGK nếu bài có trong lịch BG
+        _trang_tu_lich = ""
+        for _r_lich in _lich_hien_tai:
+            _tb_lich = _r_lich.get("ten_bai", "").strip().lower()
+            if _tb_lich and (_tb_lich in cmd.lower() or cmd.lower() in _tb_lich):
+                _trang_tu_lich = str(_r_lich.get("trang_sgk", "")).strip()
+                if _trang_tu_lich:
+                    break
+
+        # Ưu tiên user nhập, nếu trống lấy từ lịch BG
+        _trang_dung = _trang_chon.strip() or _trang_tu_lich
+
         with st.spinner("🤖 Đang sinh nội dung môn " + _mon_chon + "..."):
             mem = st.session_state["memory"]
             plan = {
@@ -2213,6 +2332,7 @@ if run and cmd.strip():
                 "grade": _lop_dung,
                 "topic": cmd,
                 "period": _tiet_chon,
+                "trang_sgk": _trang_dung,
                 "template_files": list(st.session_state["templates"].keys())[:1],
                 "source_files": list(st.session_state["sources"].keys())[:1],
             }
@@ -2269,8 +2389,8 @@ with sub_t1:
     st.markdown("### 🔧 Tự sinh lịch từ Thời khóa biểu + Phân phối chương trình")
     st.info(
         "App đọc TKB (5 cột: **Thứ | Tiết | Lớp | Môn | Tiết PPCT**) "
-        "và PPCT (cột **STT = Tiết PPCT**). "
-        "Tra tên bài theo cột Tiết PPCT của TKB."
+        "và PPCT (STT = Tiết PPCT, có thể có cột **Trang SGK**). "
+        "Tra tên bài + trang SGK theo cột Tiết PPCT của TKB."
     )
 
     st.markdown("**Chọn từ kho đã lưu:**")
@@ -2357,7 +2477,8 @@ NỘI DUNG TKB:
 
     def ai_extract_ppct(raw):
         system = "Bạn là trợ lý đọc bảng phân phối chương trình."
-        prompt = """Đọc PPCT sau. Các cột: STT | Tên bài | Số tiết | Thời điểm | Ghi chú
+        prompt = """Đọc PPCT sau. Các cột có thể có:
+STT | Tên bài | Số tiết | Thời điểm (Tuần) | Trang SGK | Ghi chú
 
 QUY TẮC QUAN TRỌNG:
 1. Cột "STT" = Tiết PPCT (số thứ tự tiết toàn cấp). GIỮ NGUYÊN SỐ.
@@ -2365,19 +2486,28 @@ QUY TẮC QUAN TRỌNG:
    - Trích số tuần: 6
    - Trích ngày bắt đầu: 12/10/2026
    - Trích ngày kết thúc: 18/10/2026
-3. Nếu cột Thời điểm bị GỘP Ô (nhiều dòng dùng chung 1 ô Tuần),
-   PHẢI ĐIỀN tuần cho TẤT CẢ các bài thuộc tuần đó.
-4. Các dòng "Bài X (Tiết 1)", "Bài X (Tiết 2)" → GỘP thành 1 bài, cộng số tiết.
-5. Trả về MỖI BÀI 1 dòng, 6 cột:
-   STT | Tên bài | Số tiết | Tuần | Ngày BĐ | Ngày KT
-   (Ngày định dạng dd/mm/yyyy, nếu không có ghi rỗng)
+3. Cột "Trang SGK" có thể có dạng: "44", "44-46", "tr. 44-46".
+   - Trích đúng số trang, bỏ chữ "tr.", "trang".
+   - Nếu PPCT không có cột này, ghi rỗng.
+4. Nếu cột Thời điểm bị GỘP Ô, PHẢI ĐIỀN tuần cho TẤT CẢ các bài thuộc tuần đó.
+5. Các dòng "Bài X (Tiết 1)", "Bài X (Tiết 2)" → GỘP thành 1 bài, cộng số tiết.
+6. Trả về MỖI BÀI 1 dòng, 7 cột:
+   STT | Tên bài | Số tiết | Tuần | Ngày BĐ | Ngày KT | Trang SGK
+   (Ngày định dạng dd/mm/yyyy, Trang SGK giữ dạng "44-46")
 
-VÍ DỤ:
+VÍ DỤ 1 (có cột Trang SGK):
+Input:
+"21 | Bài 11. Ước chung. Ước chung lớn nhất (Tiết 1) | 1 | Tuần: 6 (12/10/2026 - 18/10/2026) | 44-46 |"
+"22 | Ước chung. Ước chung lớn nhất (Tiết 2) | 1 | (gộp) | |"
+Output:
+"21 | Bài 11. Ước chung. Ước chung lớn nhất | 2 | 6 | 12/10/2026 | 18/10/2026 | 44-46"
+
+VÍ DỤ 2 (không có cột Trang SGK):
 Input:
 "21 | Bài 11. Ước chung. Ước chung lớn nhất (Tiết 1) | 1 | Tuần: 6 (12/10/2026 - 18/10/2026) |"
 "22 | Ước chung. Ước chung lớn nhất (Tiết 2) | 1 | (gộp) |"
 Output:
-"21 | Bài 11. Ước chung. Ước chung lớn nhất | 2 | 6 | 12/10/2026 | 18/10/2026"
+"21 | Bài 11. Ước chung. Ước chung lớn nhất | 2 | 6 | 12/10/2026 | 18/10/2026 | "
 
 NỘI DUNG PPCT:
 """ + raw[:15000]
@@ -2486,6 +2616,10 @@ NỘI DUNG PPCT:
                 tuan_num = tuan
             ts = parts[4].strip() if len(parts) >= 5 else ""
             te = parts[5].strip() if len(parts) >= 6 else ""
+            # 🔥 Trang SGK
+            trang = parts[6].strip() if len(parts) >= 7 else ""
+            trang = re.sub(r"(?i)^(tr\.?|trang)\s*", "", trang).strip()
+
             raw_list.append({
                 "stt": stt,
                 "ten_bai": ten_bai,
@@ -2493,6 +2627,7 @@ NỘI DUNG PPCT:
                 "tuan": tuan_num,
                 "ngay_bd": ts,
                 "ngay_kt": te,
+                "trang_sgk": trang,
             })
         merged = []
         i = 0
@@ -2517,6 +2652,7 @@ NỘI DUNG PPCT:
                 "tuan": bai["tuan"],
                 "ngay_bd": bai["ngay_bd"],
                 "ngay_kt": bai["ngay_kt"],
+                "trang_sgk": bai.get("trang_sgk", ""),
             })
             i = j if so_tiet_gop > 0 else i + 1
         return merged
@@ -2537,6 +2673,7 @@ NỘI DUNG PPCT:
                     "tiet_trong_bai": target - stt + 1,
                     "tong_tiet": so_tiet,
                     "stt_ppct": target,
+                    "trang_sgk": bai.get("trang_sgk", ""),
                 }
         return None
 
@@ -2588,9 +2725,11 @@ NỘI DUNG PPCT:
                     st.error("Không parse được TKB hoặc PPCT.")
                 else:
                     n_slots = sum(len(v) for v in tkb.values())
+                    n_co_trang = sum(1 for b in ppct if b.get("trang_sgk"))
                     st.success(
                         "✅ TKB: " + str(n_slots) + " tiết | "
-                        + "PPCT: " + str(len(ppct)) + " bài"
+                        + "PPCT: " + str(len(ppct)) + " bài | "
+                        + "Có trang SGK: " + str(n_co_trang) + "/" + str(len(ppct))
                     )
 
                     days_map = {
@@ -2625,6 +2764,7 @@ NỘI DUNG PPCT:
                             tiet_trong_bai = 1
                             tong_tiet = 1
                             stt_ppct = tkb_ppct
+                            trang_sgk = ""
 
                             if tkb_ppct and tkb_ppct.isdigit():
                                 found = find_ppct_by_tiet(ppct, tkb_ppct)
@@ -2633,6 +2773,7 @@ NỘI DUNG PPCT:
                                     tiet_trong_bai = found["tiet_trong_bai"]
                                     tong_tiet = found["tong_tiet"]
                                     stt_ppct = str(found["stt_ppct"])
+                                    trang_sgk = found.get("trang_sgk", "")
                                 else:
                                     ten_bai = ("[Tiết " + tkb_ppct +
                                                " chưa có trong PPCT]")
@@ -2659,6 +2800,7 @@ NỘI DUNG PPCT:
                                 "tiet_trong_bai": tiet_trong_bai,
                                 "tong_tiet": tong_tiet,
                                 "stt_ppct": stt_ppct,
+                                "trang_sgk": trang_sgk,
                             })
 
                     def key_lich(r):
@@ -2761,7 +2903,7 @@ with sub_t2:
                                     "thu": thu, "ngay": "", "tiet": tiet,
                                     "mon": mon, "lop": lop, "stt_ppct": stt,
                                     "ten_bai": ten, "tiet_trong_bai": 1,
-                                    "tong_tiet": 1,
+                                    "tong_tiet": 1, "trang_sgk": "",
                                 })
                 except Exception as e:
                     loi.append("Lỗi đọc Word: " + str(e))
@@ -2800,7 +2942,7 @@ with sub_t2:
                                 "thu": thu, "ngay": "", "tiet": tiet,
                                 "mon": mon, "lop": lop, "stt_ppct": stt,
                                 "ten_bai": ten, "tiet_trong_bai": 1,
-                                "tong_tiet": 1,
+                                "tong_tiet": 1, "trang_sgk": "",
                             })
                 except Exception as e:
                     loi.append("Lỗi đọc Excel: " + str(e))
@@ -2823,7 +2965,7 @@ with sub_t2:
                                 "tiet": parts[2], "lop": parts[3],
                                 "mon": parts[4], "stt_ppct": parts[5],
                                 "ten_bai": parts[6], "tiet_trong_bai": 1,
-                                "tong_tiet": 1,
+                                "tong_tiet": 1, "trang_sgk": "",
                             })
                         elif len(parts) == 6:
                             lich.append({
@@ -2831,7 +2973,7 @@ with sub_t2:
                                 "tiet": parts[2], "lop": parts[3],
                                 "mon": parts[4], "stt_ppct": "",
                                 "ten_bai": parts[5], "tiet_trong_bai": 1,
-                                "tong_tiet": 1,
+                                "tong_tiet": 1, "trang_sgk": "",
                             })
                 except Exception as e:
                     loi.append("Lỗi đọc file: " + str(e))
@@ -2851,12 +2993,14 @@ with sub_t2:
                         "thu": parts[0], "ngay": parts[1], "tiet": parts[2],
                         "lop": parts[3], "mon": parts[4], "stt_ppct": parts[5],
                         "ten_bai": parts[6], "tiet_trong_bai": 1, "tong_tiet": 1,
+                        "trang_sgk": "",
                     })
                 elif len(parts) == 6:
                     lich.append({
                         "thu": parts[0], "ngay": parts[1], "tiet": parts[2],
                         "lop": parts[3], "mon": parts[4], "stt_ppct": "",
                         "ten_bai": parts[5], "tiet_trong_bai": 1, "tong_tiet": 1,
+                        "trang_sgk": "",
                     })
                 else:
                     loi.append("Dòng thiếu cột: " + line[:80])
@@ -2932,9 +3076,13 @@ def hien_thi_lich_theo_ngay(lich):
         st.markdown("| Tiết | Lớp | Môn | Tên bài | Tiết |")
         st.markdown("|---|---|---|---|---|")
         for r in bai_trong_ngay:
+            _ten_hien_thi = r["ten_bai"]
+            _tr = str(r.get("trang_sgk", "")).strip()
+            if _tr:
+                _ten_hien_thi += " (tr. " + _tr + ")"
             st.markdown(
                 "| " + r["tiet"] + " | " + r["lop"] + " | " + r["mon"]
-                + " | " + r["ten_bai"] + " | "
+                + " | " + _ten_hien_thi + " | "
                 + str(r.get("tiet_trong_bai", 1)) + "/"
                 + str(r.get("tong_tiet", 1)) + " |"
             )
@@ -2947,13 +3095,14 @@ if st.session_state.get("lich_bao_giang"):
     st.subheader("📋 Lịch báo giảng — " + str(len(lich)) + " tiết")
 
     st.markdown("#### 📊 Bảng tổng hợp")
-    st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Tên bài |")
-    st.markdown("|---|---|---|---|---|---|---|")
+    st.markdown("| Thứ | Ngày | Tiết | Lớp | Môn | Tiết PPCT | Trang SGK | Tên bài |")
+    st.markdown("|---|---|---|---|---|---|---|---|")
     for r in lich:
         st.markdown(
             "| " + r["thu"] + " | " + str(r.get("ngay", "")) + " | " + r["tiet"]
             + " | " + r["lop"] + " | " + r["mon"]
             + " | " + str(r.get("stt_ppct", ""))
+            + " | " + str(r.get("trang_sgk", ""))
             + " | " + r["ten_bai"] + " |"
         )
 
@@ -2975,6 +3124,7 @@ if st.session_state.get("lich_bao_giang"):
                         "ten_bai": key,
                         "cac_lop": [r.get("lop", "")],
                         "tong_tiet": r.get("tong_tiet", 1),
+                        "trang_sgk": r.get("trang_sgk", ""),
                     }
                 else:
                     lop = r.get("lop", "")
@@ -2997,7 +3147,6 @@ if st.session_state.get("lich_bao_giang"):
                                        + str(len(bai_list)) + ": "
                                        + bai["ten_bai"])
 
-                    # Lấy lớp từ chính bài này trong lịch BG
                     _cac_lop = bai.get("cac_lop", [])
                     _lop_str = ", ".join([l for l in _cac_lop if l]) or \
                                st.session_state.get("memory", {}) \
@@ -3006,12 +3155,15 @@ if st.session_state.get("lich_bao_giang"):
                     _mon_tuan = st.session_state.get("memory", {}) \
                         .get("default_subject", "Toán")
 
+                    _trang_tuan = bai.get("trang_sgk", "")
+
                     plan = {
                         "task": "Soạn kế hoạch bài dạy",
                         "subject": _mon_tuan,
                         "grade": _lop_str,
                         "topic": bai["ten_bai"],
                         "period": str(bai["tong_tiet"]) + " tiết",
+                        "trang_sgk": _trang_tuan,
                         "template_files": list(st.session_state["templates"].keys())[:1],
                         "source_files": list(st.session_state["sources"].keys())[:1],
                     }
@@ -3021,6 +3173,7 @@ if st.session_state.get("lich_bao_giang"):
                             "ten_bai": bai["ten_bai"],
                             "cac_lop": bai["cac_lop"],
                             "tong_tiet": bai["tong_tiet"],
+                            "trang_sgk": _trang_tuan,
                             "content": content,
                         })
                     except Exception as e:
@@ -3028,6 +3181,7 @@ if st.session_state.get("lich_bao_giang"):
                             "ten_bai": bai["ten_bai"],
                             "cac_lop": bai["cac_lop"],
                             "tong_tiet": bai["tong_tiet"],
+                            "trang_sgk": _trang_tuan,
                             "content": "[Lỗi: " + str(e) + "]",
                         })
                     progress.progress((idx + 1) / len(bai_list))
@@ -3046,7 +3200,10 @@ if st.session_state.get("weekly_results"):
 
     for r in results:
         lop_str = ", ".join(r.get("cac_lop", []))
-        st.write("- **" + r.get("ten_bai", "") + "** — Lớp: " + lop_str
+        _trang_hien_thi = r.get("trang_sgk", "")
+        _suffix = " (tr. " + _trang_hien_thi + ")" if _trang_hien_thi else ""
+        st.write("- **" + r.get("ten_bai", "") + _suffix
+                 + "** — Lớp: " + lop_str
                  + " (" + str(r.get("tong_tiet", 1)) + " tiết)")
 
     if st.button("📄 Xuất file Word tuần", type="primary",
@@ -3083,7 +3240,6 @@ if st.session_state.get("weekly_results"):
         for idx, r in enumerate(results):
             d.add_page_break()
 
-            # Ký hiệu môn cho bài này
             _mon_bai = st.session_state.get("memory", {}) \
                 .get("default_subject", "Toán")
             _matched_bai = get_subject_rules(_mon_bai)
