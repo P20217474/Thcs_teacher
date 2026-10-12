@@ -371,11 +371,11 @@ def read_file(file, use_ocr=True):
 
 
 # ---------- Khởi tạo session state ----------
-if "app_started_v18" not in st.session_state:
+if "app_started_v19" not in st.session_state:
     for k in list(st.session_state.keys()):
         if k.startswith("tuan_") or k.startswith("buoi_") or k.startswith("ngay_bd_"):
             del st.session_state[k]
-    st.session_state["app_started_v18"] = True
+    st.session_state["app_started_v19"] = True
 
 
 defaults = {
@@ -1319,7 +1319,6 @@ def detect_chapter_from_topic(topic):
         return None, None
     t = topic.lower()
 
-    # Toán 6 - các chương đặc trưng dễ nhầm
     toan6_rules = [
         (r"(tập hợp|ghi số tự nhiên|thứ tự trong tập hợp|cộng.*trừ số tự nhiên|"
          r"nhân.*chia số tự nhiên|lũy thừa|thứ tự thực hiện|bài tập cuối chương i)",
@@ -1403,7 +1402,6 @@ def build_exec_prompt(plan):
     prompt += "- Môn: " + ten_mon_chuan + " | Khối: " + (plan.get("grade", "") or "6") + "\n"
     prompt += "- Tên bài: " + plan.get("topic", "") + "\n"
     prompt += "- Số tiết: " + (plan.get("period") or "1") + "\n"
-    # 🔥 Trang SGK
     _trang = plan.get("trang_sgk", "").strip()
     if _trang:
         prompt += "- 📖 PHẠM VI SGK: CHỈ dùng nội dung trang " + _trang + " SGK.\n"
@@ -1411,7 +1409,6 @@ def build_exec_prompt(plan):
                    "KHÔNG dùng kiến thức của bài khác.\n")
     prompt += "\n"
 
-    # Tự động nhận diện chương
     _chuong_detect, _canh_bao_chuong = detect_chapter_from_topic(plan.get("topic", ""))
     if _chuong_detect:
         prompt += "=== 📖 CHƯƠNG DỰ KIẾN ===\n"
@@ -1420,7 +1417,6 @@ def build_exec_prompt(plan):
             prompt += "⚠️ LƯU Ý MẠCH KIẾN THỨC: " + _canh_bao_chuong + "\n"
         prompt += "\n"
 
-    # Khối ràng buộc nguồn
     prompt += "=== ⚠️ NGUỒN CHUẨN BẮT BUỘC ===\n"
     prompt += "1. CHỈ được dùng kiến thức có trong:\n"
     prompt += "   - NỘI DUNG SGK của ĐÚNG bài này (phần NGUỒN SGK bên dưới).\n"
@@ -1437,7 +1433,6 @@ def build_exec_prompt(plan):
     prompt += "5. KHÔNG tự suy diễn, KHÔNG mở rộng kiến thức ngoài bài. "
     prompt += "Nếu thiếu dữ liệu, ghi [Cần bổ sung SGK] thay vì bịa.\n\n"
 
-    # Ký hiệu + hình minh họa
     prompt += "=== ĐẶC TRƯNG MÔN " + ten_mon_chuan.upper() + " ===\n\n"
     if rules.get("ky_hieu"):
         prompt += "🎨 KÝ HIỆU ĐẶC TRƯNG: " + rules["ky_hieu"] + "\n"
@@ -1503,7 +1498,6 @@ def build_exec_prompt(plan):
     if src_text:
         prompt += src_text + "\n"
 
-    # Tự kiểm tra
     prompt += "=== 🔍 QUY TRÌNH TỰ KIỂM TRA TRƯỚC KHI TRẢ LỜI ===\n"
     prompt += "Bước 1: Xác định CHƯƠNG và MẠCH KIẾN THỨC của bài.\n"
     prompt += "Bước 2: Liệt kê các khái niệm CHỈ thuộc bài này (không lan sang bài khác).\n"
@@ -1511,7 +1505,6 @@ def build_exec_prompt(plan):
     prompt += "Bước 4: LOẠI BỎ mọi kiến thức chưa học hoặc ngoài phạm vi bài.\n"
     prompt += "Bước 5: Chỉ sau khi kiểm tra xong mới soạn nội dung.\n\n"
 
-    # Cấu trúc bắt buộc 5512
     prompt += "=== CẤU TRÚC BẮT BUỘC (Công văn 5512) ===\n\n"
     prompt += "**TÊN BÀI DẠY: " + plan.get("topic", "") + "**\n"
     prompt += "**Môn học: " + ten_mon_chuan + "; lớp: " + (plan.get("grade", "") or "6") + "**\n"
@@ -1537,16 +1530,27 @@ def build_exec_prompt(plan):
                "ôn tập kiến thức đã học.\n\n")
 
     prompt += "**III. Tiến trình dạy học**\n\n"
+
+    # Hướng dẫn chung cho cột "Sản phẩm"
+    prompt += ("⚠️ LƯU Ý BẮT BUỘC: Cột **Sản phẩm** trong MỌI bảng dưới đây "
+               "phải có NỘI DUNG CỤ THỂ, bao gồm:\n")
+    prompt += ("  - Kiến thức SGK (định nghĩa, quy tắc, công thức...) — trích rõ tr.XX.\n")
+    prompt += ("  - Các bước giải mẫu (nếu là bài toán).\n")
+    prompt += ("  - Ký hiệu toán Unicode (x², √, ≤, ƯCLN, BCNN...).\n")
+    prompt += ("  - Mô tả hình ảnh minh họa bằng lời (VD: 'Hình 4.5 SGK tr.45 — sơ đồ tập hợp ƯC(12,30)').\n")
+    prompt += ("  - Dự kiến câu trả lời cụ thể của HS.\n")
+    prompt += ("KHÔNG được để ô Sản phẩm nào trống hoặc ghi chung chung.\n\n")
+
     prompt += "**1. Hoạt động 1: Mở đầu**\n"
     prompt += "**a) Mục tiêu:** [2 câu mô tả ngắn gọn, bám đặc thù môn]\n"
     prompt += "**b) Nội dung:** [1-2 câu mô tả ngắn gọn]\n"
     prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV đặt vấn đề...<br>GV đặt câu hỏi: ... | [Sản phẩm dự kiến] |\n"
-    prompt += "| Bước 2: Thực hiện nhiệm vụ:<br>HS suy nghĩ, thảo luận... | |\n"
-    prompt += "| Bước 3: Báo cáo, thảo luận:<br>GV gọi đại diện HS trả lời... | |\n"
-    prompt += "| Bước 4: Kết luận, nhận định:<br>GV đánh giá, dẫn dắt vào bài mới | |\n\n"
+    prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV đặt vấn đề...<br>GV đặt câu hỏi: ... | [VD: Dự đoán của HS về...]<br>[Ký hiệu/công thức liên quan: ...]<br>[Hình ảnh minh họa: ...] |\n"
+    prompt += "| Bước 2: Thực hiện nhiệm vụ:<br>HS suy nghĩ, thảo luận... | [VD: HS ghi nhận xét vào vở: ...]<br>[Câu trả lời dự kiến: ...] |\n"
+    prompt += "| Bước 3: Báo cáo, thảo luận:<br>GV gọi đại diện HS trả lời... | [VD: 2-3 HS phát biểu: ...]<br>[Nhận xét bổ sung: ...] |\n"
+    prompt += "| Bước 4: Kết luận, nhận định:<br>GV đánh giá, dẫn dắt vào bài mới | [Chốt: ...]<br>[Kiến thức nền cần nhớ: ...] |\n\n"
 
     prompt += "**2. Hoạt động 2: Hình thành kiến thức mới**\n"
     prompt += "**a) Mục tiêu:** [mô tả]\n"
@@ -1554,10 +1558,20 @@ def build_exec_prompt(plan):
     prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| Bước 1: Chuyển giao nhiệm vụ:<br>GV hướng dẫn và yêu cầu HS thực hiện... | [Kiến thức trọng tâm]<br>Ví dụ 1: ...<br>Ví dụ 2: ... |\n"
-    prompt += "| Bước 2: Thực hiện nhiệm vụ:<br>HS chú ý lắng nghe, thực hiện yêu cầu của GV. | |\n"
-    prompt += "| Bước 3: Báo cáo, thảo luận:<br>HS thảo luận và phát biểu, nhận xét và bổ sung cho nhau | |\n"
-    prompt += "| Bước 4: Kết luận, nhận định:<br>GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính | |\n\n"
+    prompt += ("| Bước 1: Chuyển giao nhiệm vụ:<br>GV hướng dẫn và yêu cầu HS thực hiện... "
+               "| 🔹 **Kiến thức SGK (tr.XX):**<br>- Định nghĩa/quy tắc: ...<br>- Ký hiệu: ...<br>"
+               "🔹 **Ví dụ mẫu 1:**<br>- Đề: ...<br>- Các bước giải:<br>  + Bước 1: ...<br>  + Bước 2: ...<br>"
+               "  + Kết luận: ...<br>🔹 **Ví dụ mẫu 2:**<br>- Đề: ...<br>- Giải: ...<br>"
+               "🔹 **Hình ảnh minh họa:** Hình X.Y SGK tr.XX — mô tả... |\n")
+    prompt += ("| Bước 2: Thực hiện nhiệm vụ:<br>HS chú ý lắng nghe, thực hiện yêu cầu của GV. "
+               "| - HS ghi định nghĩa/quy tắc vào vở.<br>- HS chép ví dụ mẫu.<br>"
+               "- Dự kiến: HS có thể nhầm lẫn ở bước ... |\n")
+    prompt += ("| Bước 3: Báo cáo, thảo luận:<br>HS thảo luận và phát biểu, nhận xét và bổ sung cho nhau "
+               "| - 2-3 HS phát biểu lại định nghĩa.<br>- HS nhận xét bài làm của bạn.<br>"
+               "- Câu hỏi gợi mở của GV: ... |\n")
+    prompt += ("| Bước 4: Kết luận, nhận định:<br>GV chính xác hóa và gọi 1 HS nhắc lại nội dung chính "
+               "| - Chốt kiến thức: [công thức/định lý dạng Unicode].<br>"
+               "- Lưu ý sai sót thường gặp: ...<br>- Ký hiệu chuẩn: ... |\n\n")
 
     prompt += "**3. Hoạt động 3: Luyện tập**\n"
     prompt += "**a) Mục tiêu:** Học sinh củng cố lại kiến thức thông qua một số bài tập.\n"
@@ -1565,7 +1579,11 @@ def build_exec_prompt(plan):
     prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK). | Bài [số]:<br>[Lời giải chi tiết] |\n\n"
+    prompt += ("| GV yêu cầu HS hoàn thành các bài tập: [số bài] (tr[XX] - SGK). "
+               "| **Bài [số] (tr.XX SGK):**<br>- Đề: ...<br>- Lời giải chi tiết:<br>"
+               "  + Bước 1: ...<br>  + Bước 2: ...<br>  + Kết quả: ...<br>"
+               "**Bài [số+1]:** ...<br>🔹 **Hình vẽ minh họa:** ...<br>"
+               "🔹 **Lỗi sai thường gặp:** ... |\n\n")
 
     prompt += "**4. Hoạt động 4: Vận dụng**\n"
     prompt += "**a) Mục tiêu:** Học sinh thực hiện làm bài tập vận dụng để củng cố kiến thức và áp dụng kiến thức vào thực tế đời sống.\n"
@@ -1573,7 +1591,10 @@ def build_exec_prompt(plan):
     prompt += "**c) Tổ chức thực hiện và sản phẩm:**\n\n"
     prompt += "| Hoạt động của GV và HS | Sản phẩm |\n"
     prompt += "|---|---|\n"
-    prompt += "| GV cho HS đọc và tìm hiểu...<br>GV yêu cầu HS hoàn thành... | Bài [số]: [Lời giải chi tiết] |\n\n"
+    prompt += ("| GV cho HS đọc và tìm hiểu...<br>GV yêu cầu HS hoàn thành... "
+               "| **Bài [số] (tr.XX SGK):**<br>- Đề: ...<br>- Lời giải chi tiết:<br>"
+               "  + Bước 1: ...<br>  + Bước 2: ...<br>  + Kết quả: ...<br>"
+               "🔹 **Liên hệ thực tế:** ...<br>🔹 **Ứng dụng/ký hiệu:** ... |\n\n")
 
     prompt += "**Kết thúc bài — thêm mục * HƯỚNG DẪN VỀ NHÀ với các gạch đầu dòng:**\n"
     prompt += "- Đọc và ghi nhớ nội dung chính của bài.\n"
@@ -1609,6 +1630,18 @@ def build_exec_prompt(plan):
                "phù hợp với lớp đang học. Không dùng kiến thức lớp trên.\n")
     prompt += ("19. 📖 **BÁM TRANG SGK**: Nếu có thông tin 'PHẠM VI SGK', "
                "chỉ được dùng kiến thức trong trang đó.\n")
+    prompt += ("20. 📋 **CỘT SẢN PHẨM PHẢI ĐẦY ĐỦ**: Mọi ô trong cột 'Sản phẩm' "
+               "phải chứa ít nhất 2 trong các mục sau: kiến thức SGK (tr.XX), "
+               "các bước giải cụ thể, ký hiệu Unicode, mô tả hình ảnh minh họa, "
+               "câu trả lời dự kiến của HS. KHÔNG để trống.\n")
+    prompt += ("21. 🔢 **CÁC BƯỚC GIẢI**: Với bài có ví dụ/bài tập, phải trình bày "
+               "đầy đủ các bước giải trong cột Sản phẩm (Bước 1: ..., Bước 2: ..., "
+               "Kết luận: ...). KHÔNG chỉ ghi đáp án.\n")
+    prompt += ("22. 🖼️ **MÔ TẢ HÌNH ẢNH**: Khi có hình vẽ, biểu đồ, sơ đồ SGK, "
+               "phải mô tả bằng lời trong cột Sản phẩm (VD: 'Hình 4.5 tr.45 — "
+               "sơ đồ Venn tập ƯC(12,30)'). KHÔNG chèn ảnh nhị phân.\n")
+    prompt += ("23. 📐 **KÝ HIỆU ĐẶC TRƯNG MÔN**: Trong cột Sản phẩm, dùng ký hiệu "
+               "đặc trưng của môn. VD môn Toán: ƯCLN, BCNN, ∈, ⊂, ⇒, ⇔, x², √, |x|.\n")
 
     return prompt
 
@@ -1798,6 +1831,36 @@ def _add_heading(doc, text):
         p.paragraph_format.left_indent = Inches(0)
         p.paragraph_format.right_indent = Inches(0)
 
+        # Với dòng "Môn học: Toán; lớp: 6A10, 6A9"
+        if is_title_mon_hoc:
+            idx = text.index(":")
+            label = text[:idx + 1].strip()
+            rest = text[idx + 1:].strip()
+
+            run_label = p.add_run(label + " ")
+            _set_run_font(run_label, 14, bold=True)
+
+            # Tách "Toán; lớp: 6A10, 6A9, 6A8"
+            m_mon = re.match(r"^([^;]+);\s*(lớp\s*:\s*)(.+)$", rest, re.IGNORECASE)
+            if m_mon:
+                _mon_text = m_mon.group(1).strip()
+                _lop_label = m_mon.group(2).strip()
+                _lop_value = m_mon.group(3).strip()
+
+                run_mon = p.add_run(_mon_text + "; ")
+                _set_run_font(run_mon, 14, bold=False)
+
+                run_lop_label = p.add_run(_lop_label + " ")
+                _set_run_font(run_lop_label, 14, bold=False)
+
+                run_lop_value = p.add_run(_lop_value)
+                _set_run_font(run_lop_value, 14, bold=True)
+            else:
+                run_rest = p.add_run(rest)
+                _set_run_font(run_rest, 14, bold=False)
+            return p
+
+        # Với "TÊN BÀI DẠY:" và "Thời gian thực hiện:"
         if ":" in text:
             idx = text.index(":")
             label = text[:idx + 1].strip()
@@ -1987,6 +2050,7 @@ def write_content_to_doc(d, content):
 
 
 def make_doc(title, body, subject_name=""):
+    """Tạo file Word. ĐÃ BỎ dòng ký hiệu môn ở đầu."""
     d = Document()
     s = d.sections[0]
     s.top_margin = Inches(0.7)
@@ -2011,18 +2075,7 @@ def make_doc(title, body, subject_name=""):
     pf.space_after = Pt(0)
 
     d.add_heading(title, 0)
-
-    if subject_name:
-        _matched = get_subject_rules(subject_name)
-        if _matched:
-            _mon_key, _rules = _matched
-            _ky_hieu = _rules.get("ky_hieu", "")
-            if _ky_hieu:
-                _p_ky = d.add_paragraph()
-                _p_ky.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                _run = _p_ky.add_run("─── " + _ky_hieu + " " + _mon_key + " ───")
-                _set_run_font(_run, 12, bold=False)
-                _run.italic = True
+    # ❌ KHÔNG thêm dòng ký hiệu môn ở đây nữa
 
     mem = st.session_state.get("memory", {})
     if mem.get("school"):
@@ -2193,7 +2246,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
                     m_num = re.search(r"\d+", str(val))
                     val = m_num.group(0) if m_num else str(val).strip()
                 if key == "ten_bai":
-                    # Thêm trang SGK vào sau tên bài
                     _trang = str(r.get("trang_sgk", "")).strip()
                     if _trang:
                         val = str(val) + " (tr. " + _trang + ")"
@@ -2228,7 +2280,6 @@ def add_phieu_bao_giang(doc, lich, tuan_start, buoi, tuan_num):
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
 
-# Lấy danh sách lớp từ lịch báo giảng để gợi ý
 _lich_hien_tai = st.session_state.get("lich_bao_giang", [])
 _lop_tu_lich = []
 for _r in _lich_hien_tai:
@@ -2259,16 +2310,14 @@ with _col_lop:
     _lop_chon = st.text_input("🎓 Lớp (trống = lấy từ lịch BG)",
                                value=_lop_mac_dinh,
                                key="chon_lop_soan",
-                               help="VD: 6A10, 6A9, 6A8. Nếu có lịch báo giảng, "
-                                    "hệ thống tự điền danh sách lớp.")
+                               help="VD: 6A10, 6A9, 6A8.")
 with _col_tiet:
     _tiet_chon = st.text_input("⏱️ Số tiết", value="", key="chon_tiet_soan")
 with _col_trang:
     _trang_chon = st.text_input("📖 Trang SGK", value="",
                                  key="chon_trang_soan",
-                                 help="VD: 44-46. Chỉ dùng kiến thức trong trang này.")
+                                 help="VD: 44-46.")
 
-# Banner hiển thị đặc trưng môn đang chọn
 _rules_hien_tai = SUBJECT_RULES.get(_mon_chon, {})
 if _rules_hien_tai:
     _ky_hieu = _rules_hien_tai.get("ky_hieu", "")
@@ -2301,7 +2350,6 @@ if run and cmd.strip():
     if not available_providers:
         st.error("Chưa có API key.")
     else:
-        # Xác định lớp: ưu tiên user nhập, nếu trống lấy từ lịch BG
         _lop_dung = _lop_chon.strip()
         if not _lop_dung:
             _cac_lop_set = []
@@ -2312,7 +2360,6 @@ if run and cmd.strip():
             _lop_dung = ", ".join(_cac_lop_set) if _cac_lop_set else \
                         st.session_state.get("memory", {}).get("default_grade", "6")
 
-        # Tìm trang SGK nếu bài có trong lịch BG
         _trang_tu_lich = ""
         for _r_lich in _lich_hien_tai:
             _tb_lich = _r_lich.get("ten_bai", "").strip().lower()
@@ -2321,7 +2368,6 @@ if run and cmd.strip():
                 if _trang_tu_lich:
                     break
 
-        # Ưu tiên user nhập, nếu trống lấy từ lịch BG
         _trang_dung = _trang_chon.strip() or _trang_tu_lich
 
         with st.spinner("🤖 Đang sinh nội dung môn " + _mon_chon + "..."):
@@ -2616,7 +2662,6 @@ NỘI DUNG PPCT:
                 tuan_num = tuan
             ts = parts[4].strip() if len(parts) >= 5 else ""
             te = parts[5].strip() if len(parts) >= 6 else ""
-            # 🔥 Trang SGK
             trang = parts[6].strip() if len(parts) >= 7 else ""
             trang = re.sub(r"(?i)^(tr\.?|trang)\s*", "", trang).strip()
 
@@ -3239,20 +3284,7 @@ if st.session_state.get("weekly_results"):
 
         for idx, r in enumerate(results):
             d.add_page_break()
-
-            _mon_bai = st.session_state.get("memory", {}) \
-                .get("default_subject", "Toán")
-            _matched_bai = get_subject_rules(_mon_bai)
-            if _matched_bai:
-                _m_key, _m_rules = _matched_bai
-                _m_ky = _m_rules.get("ky_hieu", "")
-                if _m_ky:
-                    _p_ky = d.add_paragraph()
-                    _p_ky.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    _run_ky = _p_ky.add_run("─── " + _m_ky + " " + _m_key + " ───")
-                    _set_run_font(_run_ky, 11, bold=False)
-                    _run_ky.italic = True
-
+            # ❌ ĐÃ BỎ ký hiệu môn ở đầu mỗi bài
             write_content_to_doc(d, r.get("content", ""))
 
         bio = io.BytesIO()
