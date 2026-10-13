@@ -1961,41 +1961,237 @@ with st.sidebar:
         st.rerun()
 
 
-def call_ai(prompt, system=""):
-    import freelm
-    llm = freelm.FreeLLM.from_env()
+# ============================================================
+# CALL AI — HTTP REQUEST THUẦN, ĐA PROVIDER + FALLBACK
+# ============================================================
+def _http_post_json(url, headers, payload, timeout=120):
+    """Gửi POST JSON, trả về (ok, data_or_error)."""
+    try:
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return (True, json.loads(raw))
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8")
+        except Exception:
+            err_body = ""
+        return (False, f"HTTP {e.code}: {err_body[:300]}")
+    except Exception as e:
+        return (False, str(e))
+
+
+def _goi_gemini(prompt, system, model):
+    """Gọi Gemini API."""
+    api_key = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return (False, "Chưa có GEMINI_API_KEY")
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={api_key}"
+    )
+    contents = []
+    if system:
+        contents.append({"role": "user", "parts": [{"text": system}]})
+        contents.append({"role": "model",
+                          "parts": [{"text": "Đã hiểu."}]})
+    contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 8192,
+        },
+    }
+    headers = {"Content-Type": "application/json"}
+    ok, data = _http_post_json(url, headers, payload)
+
+    if not ok:
+        return (False, data)
+
+    try:
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return (False, "Không có candidates")
+        parts = candidates[0].get("content", {}).get("parts", [])
+        if not parts:
+            return (False, "Không có parts")
+        text = "".join(p.get("text", "") for p in parts).strip()
+        if not text:
+            return (False, "Text rỗng")
+        return (True, text)
+    except Exception as e:
+        return (False, f"Parse lỗi: {e}")
+
+
+def _goi_groq(prompt, system, model):
+    """Gọi Groq API (OpenAI-compatible)."""
+    api_key = PROVIDER_KEYS.get("GROQ_API_KEY", "")
+    if not api_key:
+        return (False, "Chưa có GROQ_API_KEY")
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
     msgs = []
     if system:
         msgs.append({"role": "system", "content": system})
     msgs.append({"role": "user", "content": prompt})
-    last_err = None
-    for pk in available_providers:
-        for mn in PREFERRED_MODELS.get(pk, []):
-            try:
-                resp = llm.chat(msgs, model=mn)
-                t = getattr(resp, "text", None) or \
-                    getattr(resp, "content", "")
-                if t and len(t.strip()) > 50:
-                    return t
-            except Exception as e:
-                last_err = e
-                continue
+
+    payload = {"model": model, "messages": msgs, "temperature": 0.7}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + api_key,
+    }
+    ok, data = _http_post_json(url, headers, payload)
+
+    if not ok:
+        return (False, data)
+
     try:
-        resp = llm.chat(msgs, model="auto")
-        return getattr(resp, "text", None) or \
-            getattr(resp, "content", "")
+        choices = data.get("choices", [])
+        if not choices:
+            return (False, "Không có choices")
+        text = choices[0].get("message", {}).get("content", "").strip()
+        if not text:
+            return (False, "Text rỗng")
+        return (True, text)
     except Exception as e:
-        if last_err:
-            raise last_err
-        raise e
+        return (False, f"Parse lỗi: {e}")
+
+
+def _goi_openrouter(prompt, system, model):
+    """Gọi OpenRouter API (OpenAI-compatible)."""
+    api_key = PROVIDER_KEYS.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        return (False, "Chưa có OPENROUTER_API_KEY")
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    msgs = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+
+    payload = {"model": model, "messages": msgs}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + api_key,
+        "HTTP-Referer": "https://thcs-teacher.app",
+        "X-Title": "Tro Ly Giao Vien THCS",
+    }
+    ok, data = _http_post_json(url, headers, payload)
+
+    if not ok:
+        return (False, data)
+
+    try:
+        choices = data.get("choices", [])
+        if not choices:
+            return (False, "Không có choices")
+        text = choices[0].get("message", {}).get("content", "").strip()
+        if not text:
+            return (False, "Text rỗng")
+        return (True, text)
+    except Exception as e:
+        return (False, f"Parse lỗi: {e}")
+
+
+def _goi_nvidia(prompt, system, model):
+    """Gọi NVIDIA NIM API (OpenAI-compatible)."""
+    api_key = PROVIDER_KEYS.get("NVIDIA_API_KEY", "")
+    if not api_key:
+        return (False, "Chưa có NVIDIA_API_KEY")
+
+    url = "https://integrate.api.nvidia.com/v1/chat/completions"
+    msgs = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": model,
+        "messages": msgs,
+        "temperature": 0.7,
+        "max_tokens": 8192,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + api_key,
+    }
+    ok, data = _http_post_json(url, headers, payload)
+
+    if not ok:
+        return (False, data)
+
+    try:
+        choices = data.get("choices", [])
+        if not choices:
+            return (False, "Không có choices")
+        text = choices[0].get("message", {}).get("content", "").strip()
+        if not text:
+            return (False, "Text rỗng")
+        return (True, text)
+    except Exception as e:
+        return (False, f"Parse lỗi: {e}")
+
+
+# Bảng dispatch: provider key → hàm gọi
+_CALL_DISPATCH = {
+    "GEMINI_API_KEY": _goi_gemini,
+    "GROQ_API_KEY": _goi_groq,
+    "OPENROUTER_API_KEY": _goi_openrouter,
+    "NVIDIA_API_KEY": _goi_nvidia,
+}
+
+
+def call_ai(prompt, system="", silent=False):
+    """Gọi AI đa provider với fallback tự động.
+
+    Thứ tự thử:
+    - Lần lượt các provider có key (Gemini → Groq → OpenRouter → NVIDIA)
+    - Mỗi provider thử các model trong PREFERRED_MODELS
+
+    Returns:
+        text (str) nếu thành công
+        None nếu tất cả fail
+    """
+    if not available_providers:
+        if not silent:
+            st.error("❌ Chưa có API key nào.")
+        return None
+
+    ds_loi = []
+
+    for pk in available_providers:
+        ham_goi = _CALL_DISPATCH.get(pk)
+        if not ham_goi:
+            continue
+
+        for mn in PREFERRED_MODELS.get(pk, []):
+            ok, result = ham_goi(prompt, system, mn)
+            if ok and result and len(result.strip()) > 30:
+                return result
+            else:
+                ds_loi.append(f"{pk}/{mn}: {str(result)[:200]}")
+
+    if not silent:
+        st.error("❌ Tất cả provider đều lỗi. Chi tiết:")
+        for _l in ds_loi[-5:]:
+            st.caption("• " + _l)
+
+    return None
 
 
 def call_ai_cached(prompt, system=""):
+    """Gọi AI có cache theo hash prompt."""
     cache_key = hashlib.md5(
         (system + "||" + prompt).encode("utf-8")).hexdigest()
     cache_store = st.session_state.setdefault("ai_prompt_cache", {})
     if cache_key in cache_store:
         return cache_store[cache_key]
+
     result = call_ai(prompt, system)
     if result:
         cache_store[cache_key] = result
