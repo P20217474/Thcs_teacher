@@ -2952,7 +2952,7 @@ with tab_despec:
             if st.button("🚀 Sinh đặc tả", type="primary",
                          use_container_width=True, key="dt_run"):
                 if not (USE_OLLAMA and _check_ollama()) and not available_providers:
-    st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
+                    st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
                 else:
                     _dp = f"""Bạn là chuyên gia khảo thí THCS.
 Sinh BẢNG ĐẶC TẢ ĐỀ KIỂM TRA theo CV 7991/BGDĐT-GDTrH.
