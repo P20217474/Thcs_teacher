@@ -2394,18 +2394,9 @@ _CALL_DISPATCH = {
 
 
 def call_ai(prompt, system="", silent=False):
-    """Gọi AI — ưu tiên API cloud miễn phí, fallback Ollama local.
-
-    Thứ tự:
-    1. Cloud providers (theo thứ tự trong available_providers)
-    2. Ollama local (nếu có)
-
-    Returns:
-        text (str) nếu thành công
-        None nếu tất cả fail
-    """
+    """Gọi AI — ưu tiên API cloud miễn phí, fallback Ollama local."""
     ds_loi = []
-    ds_loi_chi_tiet = []   # Lưu chi tiết đầy đủ để debug
+    ds_loi_chi_tiet = []
 
     # ===== ƯU TIÊN 1: Cloud providers =====
     for pk in available_providers:
@@ -2744,7 +2735,6 @@ with tab_manual:
         elif _ds_loi_parse:
             st.error("❌ Sửa lỗi trước.")
         else:
-            # Gộp các bài trùng tên (1 bài dạy nhiều lớp)
             _ds_bai_gop = gop_bai_trung(_ds_bai_final)
 
             st.markdown("---")
@@ -2810,16 +2800,75 @@ with tab_manual:
                         for _t, _l in _kq["ds_loi"]:
                             st.write(f"  • {_t}: {_l}")
 
+                    # ===== NÚT TẢI NGAY SAU KHI TÁCH =====
                     if _kq["so_ok"] > 0:
-                        _zip = tao_zip_cac_bai(_sgk_name_input)
-                        if _zip:
+                        st.markdown("---")
+                        st.markdown("#### ⬇️ Tải từng bài về máy")
+
+                        _meta_moi = load_sgk_metadata(_sgk_name_input)
+                        if _meta_moi and _meta_moi.get("ds_bai"):
+                            _ds_bai_moi = _meta_moi["ds_bai"]
+                            _sgk_dir_dl = os.path.join(
+                                SGK_BAI_DIR, _sgk_name_input)
+
+                            for _i, _b in enumerate(_ds_bai_moi):
+                                _c1, _c2 = st.columns([4, 1])
+                                with _c1:
+                                    st.write(
+                                        f"**Bài "
+                                        f"{_b.get('so_bai', _i+1)}**: "
+                                        f"{_b.get('ten_bai', '')}"
+                                    )
+                                with _c2:
+                                    _fp_dl = os.path.join(
+                                        _sgk_dir_dl, _b.get("file", ""))
+                                    if os.path.exists(_fp_dl):
+                                        with open(_fp_dl, "rb") as _f:
+                                            _pdf_bytes_dl = _f.read()
+                                        st.download_button(
+                                            "⬇️ Tải PDF",
+                                            _pdf_bytes_dl,
+                                            file_name=_b.get(
+                                                "file",
+                                                f"bai_{_i+1}.pdf"),
+                                            mime="application/pdf",
+                                            key=f"dl_sau_tach_{_i}",
+                                            use_container_width=True,
+                                        )
+                                    else:
+                                        st.caption("❌ Không có file")
+
+                            st.markdown("---")
+
+                        _zip_dl = tao_zip_cac_bai(_sgk_name_input)
+                        if _zip_dl:
                             st.download_button(
-                                f"⬇️ Tải ZIP ({_kq['so_ok']} bài + metadata)",
-                                _zip,
+                                f"⬇️ Tải TẤT CẢ "
+                                f"({_kq['so_ok']} bài + metadata)",
+                                _zip_dl,
                                 file_name=f"{_sgk_name_input}_da_tach.zip",
-                                mime="application/zip", type="primary",
+                                mime="application/zip",
+                                type="primary",
                                 use_container_width=True,
-                                key="dl_zip_tach_gop")
+                                key="dl_zip_tach_gop",
+                            )
+
+                        _mp_dl = os.path.join(
+                            SGK_BAI_DIR, _sgk_name_input,
+                            "metadata.json")
+                        if os.path.exists(_mp_dl):
+                            with open(_mp_dl, "rb") as _f:
+                                _mb_dl = _f.read()
+                            st.download_button(
+                                "⬇️ Tải metadata.json",
+                                _mb_dl,
+                                file_name=(f"{_sgk_name_input}"
+                                            "_metadata.json"),
+                                mime="application/json",
+                                use_container_width=True,
+                                key="dl_meta_tach_gop",
+                            )
+
                         st.balloons()
 
     # ---------- TAB CON 2: NẠP PDF RỜI ----------
@@ -2894,15 +2943,72 @@ with tab_manual:
                     for _t in _loi:
                         st.write(f"  • {_t}")
 
+                # ===== NÚT TẢI SAU KHI NẠP =====
                 if _ok > 0:
-                    _zip = tao_zip_cac_bai(_sgk_name_input)
-                    if _zip:
+                    st.markdown("---")
+                    st.markdown("#### ⬇️ Tải từng bài về máy")
+
+                    _meta_moi2 = load_sgk_metadata(_sgk_name_input)
+                    if _meta_moi2 and _meta_moi2.get("ds_bai"):
+                        _ds_bai_moi2 = _meta_moi2["ds_bai"]
+                        _sgk_dir_dl2 = os.path.join(
+                            SGK_BAI_DIR, _sgk_name_input)
+
+                        for _i, _b in enumerate(_ds_bai_moi2):
+                            _c1, _c2 = st.columns([4, 1])
+                            with _c1:
+                                st.write(
+                                    f"**Bài "
+                                    f"{_b.get('so_bai', _i+1)}**: "
+                                    f"{_b.get('ten_bai', '')}"
+                                )
+                            with _c2:
+                                _fp_dl2 = os.path.join(
+                                    _sgk_dir_dl2, _b.get("file", ""))
+                                if os.path.exists(_fp_dl2):
+                                    with open(_fp_dl2, "rb") as _f:
+                                        _pdf_bytes_dl2 = _f.read()
+                                    st.download_button(
+                                        "⬇️ Tải PDF",
+                                        _pdf_bytes_dl2,
+                                        file_name=_b.get(
+                                            "file",
+                                            f"bai_{_i+1}.pdf"),
+                                        mime="application/pdf",
+                                        key=f"dl_sau_nap_roi_{_i}",
+                                        use_container_width=True,
+                                    )
+                                else:
+                                    st.caption("❌ Không có file")
+
+                        st.markdown("---")
+
+                    _zip_roi = tao_zip_cac_bai(_sgk_name_input)
+                    if _zip_roi:
                         st.download_button(
-                            f"⬇️ Tải ZIP ({_ok} bài)",
-                            _zip,
+                            f"⬇️ Tải TẤT CẢ ({_ok} bài)",
+                            _zip_roi,
                             file_name=f"{_sgk_name_input}_da_tach.zip",
-                            mime="application/zip", type="primary",
-                            use_container_width=True, key="dl_zip_roi")
+                            mime="application/zip",
+                            type="primary",
+                            use_container_width=True,
+                            key="dl_zip_roi",
+                        )
+
+                    _mp_roi = os.path.join(
+                        SGK_BAI_DIR, _sgk_name_input, "metadata.json")
+                    if os.path.exists(_mp_roi):
+                        with open(_mp_roi, "rb") as _f:
+                            _mb_roi = _f.read()
+                        st.download_button(
+                            "⬇️ Tải metadata.json",
+                            _mb_roi,
+                            file_name=f"{_sgk_name_input}_metadata.json",
+                            mime="application/json",
+                            use_container_width=True,
+                            key="dl_meta_roi",
+                        )
+
                     st.balloons()
 
     # ---------- TAB CON 3: NẠP TỪ ZIP ----------
@@ -2928,8 +3034,59 @@ with tab_manual:
                         for _t in _ds_trung:
                             st.write(f"  • {_t}")
                     if _ok > 0:
+                        st.markdown("---")
+                        st.markdown("#### ⬇️ Tải từng bài về máy")
+
+                        _meta_zip = load_sgk_metadata(_sgk_name_input)
+                        if _meta_zip and _meta_zip.get("ds_bai"):
+                            _ds_bai_zip = _meta_zip["ds_bai"]
+                            _sgk_dir_zip = os.path.join(
+                                SGK_BAI_DIR, _sgk_name_input)
+
+                            for _i, _b in enumerate(_ds_bai_zip):
+                                _c1, _c2 = st.columns([4, 1])
+                                with _c1:
+                                    st.write(
+                                        f"**Bài "
+                                        f"{_b.get('so_bai', _i+1)}**: "
+                                        f"{_b.get('ten_bai', '')}"
+                                    )
+                                with _c2:
+                                    _fp_zip = os.path.join(
+                                        _sgk_dir_zip,
+                                        _b.get("file", ""))
+                                    if os.path.exists(_fp_zip):
+                                        with open(_fp_zip, "rb") as _f:
+                                            _pdf_zip = _f.read()
+                                        st.download_button(
+                                            "⬇️ Tải PDF",
+                                            _pdf_zip,
+                                            file_name=_b.get(
+                                                "file",
+                                                f"bai_{_i+1}.pdf"),
+                                            mime="application/pdf",
+                                            key=f"dl_sau_zip_{_i}",
+                                            use_container_width=True,
+                                        )
+                                    else:
+                                        st.caption("❌ Không có file")
+
+                            st.markdown("---")
+
+                        _zip_zip = tao_zip_cac_bai(_sgk_name_input)
+                        if _zip_zip:
+                            st.download_button(
+                                "⬇️ Tải TẤT CẢ (ZIP)",
+                                _zip_zip,
+                                file_name=(f"{_sgk_name_input}"
+                                            "_da_tach.zip"),
+                                mime="application/zip",
+                                type="primary",
+                                use_container_width=True,
+                                key="dl_zip_zip",
+                            )
+
                         st.balloons()
-                        st.rerun()
 
     # Trạng thái SGK
     st.markdown("---")
@@ -3440,7 +3597,7 @@ with tab_match:
 # PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI
 # ============================================================
 # Chức năng:
-#   - fix_math: chuyển LaTeX → Unicode (đã cập nhật đầy đủ)
+#   - fix_math: chuyển LaTeX → Unicode
 #   - _set_run_font, add_para, add_table, _add_heading
 #   - write_content_to_doc, make_doc
 #   - Nút "Soạn 1 bài" (chỉ dùng TÊN BÀI, bỏ trang PDF)
@@ -3448,23 +3605,11 @@ with tab_match:
 
 
 def fix_math(text):
-    """Chuyển LaTeX đơn giản thành Unicode tiếng Việt.
-
-    Xử lý:
-    - Phân số: \\frac{a}{b} → a/b
-    - Căn: \\sqrt{x} → √(x)
-    - Số mũ: x^{2} → x², x^2 → x²
-    - Chỉ số dưới: x_{1} → x₁, H_2O → H₂O
-    - Ký hiệu: \\times → ×, \\div → ÷, \\leq → ≤, \\geq → ≥
-    - Hy Lạp: \\pi → π, \\alpha → α
-    - Math mode: $...$ và $$...$$ → bỏ dấu
-    - \\text{...} → giữ nội dung
-    """
+    """Chuyển LaTeX đơn giản thành Unicode tiếng Việt."""
     if not text:
         return text
 
-    # ============ BƯỚC 1: PHÂN SỐ ============
-    # \frac{a}{b} → a/b (xử lý lồng nhau bằng vòng lặp)
+    # ============ PHÂN SỐ ============
     for _ in range(5):
         text_new = re.sub(
             r"\\(?:d|t)?frac\{([^{}]+)\}\{([^{}]+)\}",
@@ -3474,7 +3619,7 @@ def fix_math(text):
             break
         text = text_new
 
-    # ============ BƯỚC 2: CĂN ============
+    # ============ CĂN ============
     for _ in range(3):
         text_new = re.sub(r"\\sqrt\[([^\]]+)\]\{([^{}]+)\}",
                           r"(\2)^(1/\1)", text)
@@ -3485,7 +3630,7 @@ def fix_math(text):
     text = re.sub(r"\\sqrt\[?([^\]]*)\]?", "", text)
     text = text.replace("\\sqrt", "√")
 
-    # ============ BƯỚC 3: SỐ MŨ ============
+    # ============ SỐ MŨ ============
     _SUP = {
         "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
         "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
@@ -3501,7 +3646,7 @@ def fix_math(text):
     text = re.sub(r"\^\{([^{}]+)\}", _thay_mu, text)
     text = re.sub(r"\^([0-9n])", _thay_mu, text)
 
-    # ============ BƯỚC 4: CHỈ SỐ DƯỚI ============
+    # ============ CHỈ SỐ DƯỚI ============
     _SUB = {
         "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
         "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
@@ -3516,7 +3661,7 @@ def fix_math(text):
     text = re.sub(r"_\{([^{}]+)\}", _thay_sub, text)
     text = re.sub(r"_([0-9ai])", _thay_sub, text)
 
-    # ============ BƯỚC 5: KÝ HIỆU TOÁN ============
+    # ============ KÝ HIỆU TOÁN ============
     _SYMBOLS = {
         "\\times": "×", "\\div": "÷", "\\cdot": "·",
         "\\pm": "±", "\\mp": "∓",
@@ -3548,7 +3693,7 @@ def fix_math(text):
     for latex, uni in _SYMBOLS.items():
         text = text.replace(latex, uni)
 
-    # ============ BƯỚC 6: HY LẠP ============
+    # ============ HY LẠP ============
     _HYLAP = {
         "\\alpha": "α", "\\beta": "β", "\\gamma": "γ",
         "\\delta": "δ", "\\Delta": "Δ",
@@ -3568,7 +3713,7 @@ def fix_math(text):
     for latex, uni in _HYLAP.items():
         text = text.replace(latex, uni)
 
-    # ============ BƯỚC 7: \text{} \mathrm{} ============
+    # ============ \text{} \mathrm{} ============
     for _ in range(3):
         text_new = re.sub(r"\\text\{([^{}]+)\}", r"\1", text)
         text_new = re.sub(r"\\mathrm\{([^{}]+)\}", r"\1", text_new)
@@ -3580,7 +3725,7 @@ def fix_math(text):
             break
         text = text_new
 
-    # ============ BƯỚC 8: MATH MODE ============
+    # ============ MATH MODE ============
     text = re.sub(r"\$\$([^\$]+)\$\$", r"\1", text)
     text = re.sub(r"\$([^\$]+)\$", r"\1", text)
     text = text.replace("\\(", "").replace("\\)", "")
@@ -3590,16 +3735,16 @@ def fix_math(text):
     text = text.replace("\\begin{align}", "")
     text = text.replace("\\end{align}", "")
 
-    # ============ BƯỚC 9: DẤU \ CÒN SÓT ============
+    # ============ DẤU \ CÒN SÓT ============
     text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
     text = re.sub(r"\\", "", text)
 
-    # ============ BƯỚC 10: DỌN KHOẢNG TRẮNG ============
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"\s*([,;:\.\!\?])\s*", r"\1 ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    # ============ DỌN KHOẢNG TRẮNG ============
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" ?\n ?", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
-    return text
+    return text.strip()
 
 
 def _set_run_font(run, size=14, bold=False):
@@ -3617,27 +3762,48 @@ def _set_run_font(run, size=14, bold=False):
 
 
 def add_para(doc, text, style=None):
-    """Thêm 1 đoạn văn vào docx."""
+    """Thêm đoạn văn — tách mỗi dòng thành 1 paragraph."""
+    if not text:
+        return
+
     text = fix_math(text)
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
-    text = re.sub(r"^[\-\+\*\•\#]+\s*", "", text)
-    text = re.sub(r"^\d+[\.\)]\s+", "", text)
-    text = re.sub(r"^[a-z]\)\s+", "", text)
-    text = text.replace("**", "").replace("__", "")
-    text = re.sub(r"(?<!\*)\*(?!\*)", "", text)
-    text = text.strip()
+    text = text.replace("<br />", "\n")
 
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    p.paragraph_format.first_line_indent = Inches(0.39)
-    p.paragraph_format.left_indent = Inches(0)
-    p.paragraph_format.right_indent = Inches(0)
-    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
-    run = p.add_run(text)
-    _set_run_font(run, 14, bold=False)
-    return p
+    # Tách theo dòng trước khi xử lý
+    raw_lines = text.split("\n")
+
+    for raw_line in raw_lines:
+        line = raw_line.strip()
+        if not line:
+            # Dòng trống → thêm paragraph trống
+            p = doc.add_paragraph("")
+            p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
+            continue
+
+        # Loại bỏ bullet/markdown
+        line = re.sub(r"^[\-\+\*\•\#]+\s*", "", line)
+        line = re.sub(r"^\d+[\.\)]\s+", "", line)
+        line = re.sub(r"^[a-z]\)\s+", "", line)
+        line = line.replace("**", "").replace("__", "")
+        line = re.sub(r"(?<!\*)\*(?!\*)", "", line)
+        line = line.strip()
+
+        if not line:
+            continue
+
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        p.paragraph_format.first_line_indent = Inches(0.39)
+        p.paragraph_format.left_indent = Inches(0)
+        p.paragraph_format.right_indent = Inches(0)
+        p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        run = p.add_run(line)
+        _set_run_font(run, 14, bold=False)
 
 
 def _tach_dong_trong_o(val):
@@ -3761,15 +3927,29 @@ def add_table(doc, rows):
 
 def _add_heading(doc, text):
     """Thêm heading. Nhận diện 3 dòng tiêu đề 5512."""
+    if not text:
+        return
+
     text = fix_math(text)
     text = re.sub(r"^[\*#\-\+\\]+\s*", "", text)
     text = text.rstrip("*").strip()
+
+    # Nếu có nhiều dòng → tách thành nhiều heading
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if len(lines) > 1:
+        for line in lines:
+            _add_heading(doc, line)
+        return
+
+    if not text:
+        return
 
     p = doc.add_paragraph()
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(6)
 
+    # 3 dòng tiêu đề 5512
     is_ten_bai = bool(re.match(r"^TÊN\s*BÀI\s*DẠY\s*:", text, re.I))
     is_mon_hoc = bool(re.match(r"^Môn\s*học\s*:", text, re.I))
     is_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện\s*:",
@@ -3804,6 +3984,7 @@ def _add_heading(doc, text):
             _set_run_font(run_content, 14, bold=False)
         return p
 
+    # Heading a) b) c)
     if re.match(r"^[a-z]\)\s", text):
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         p.paragraph_format.first_line_indent = Inches(0.39)
@@ -3833,6 +4014,7 @@ def _add_heading(doc, text):
             run.italic = True
         return p
 
+    # Heading thường
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
@@ -4021,7 +4203,7 @@ def make_doc(title, body, subject_name=""):
 
 
 # ============================================================
-# SOẠN 1 BÀI THEO LỆNH (CHỈ DÙNG TÊN BÀI)
+# SOẠN 1 BÀI THEO LỆNH
 # ============================================================
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
