@@ -81,7 +81,7 @@ for _k, _v in PROVIDER_KEYS.items():
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
-# Model ưu tiên cho từng provider (đã cập nhật theo thời điểm 2026)
+# Model ưu tiên cho từng provider (cập nhật theo thời điểm hiện tại)
 PREFERRED_MODELS = {
     "GEMINI_API_KEY": [
         "gemini-2.5-flash",
