@@ -3873,6 +3873,60 @@ st.divider()
 st.subheader("📅 Soạn cả tuần + Lịch báo giảng")
 
 # ============================================================
+# HÀM GỘP BÀI TRÙNG (định nghĩa TRƯỚC khi dùng)
+# ============================================================
+
+def _gop_lich_bao_giang(ds_rows):
+    """Gộp các dòng trùng tên bài thành 1.
+
+    - Giữ tên bài (lần xuất hiện đầu)
+    - Gộp tất cả lớp dạy bài đó
+    - Gộp tất cả thứ, tiết, buổi
+    - Ghi số dòng gốc
+    """
+    gop = {}
+    thu_tu = []
+
+    for r in ds_rows:
+        ten = (r.get("ten_bai", "") or "").strip()
+        if not ten:
+            continue
+        key = _chuan_hoa_tim_kiem(ten)
+
+        if key not in gop:
+            gop[key] = {
+                "ten_bai": ten,
+                "mon": r.get("mon", "Toán"),
+                "so_tiet": r.get("so_tiet", "1"),
+                "ds_lop": [],
+                "ds_thu": [],
+                "ds_tiet_ppct": [],
+                "ds_buoi": [],
+                "so_dong_goc": 1,
+                "row_goc": dict(r),
+            }
+            thu_tu.append(key)
+        else:
+            gop[key]["so_dong_goc"] += 1
+
+        g = gop[key]
+        lop = (r.get("lop", "") or "").strip()
+        if lop and lop not in g["ds_lop"]:
+            g["ds_lop"].append(lop)
+        thu = (r.get("thu", "") or "").strip()
+        if thu and thu not in g["ds_thu"]:
+            g["ds_thu"].append(thu)
+        tiet = (r.get("tiet", "") or "").strip()
+        if tiet and tiet not in g["ds_tiet_ppct"]:
+            g["ds_tiet_ppct"].append(tiet)
+        buoi = (r.get("buoi", "") or "").strip()
+        if buoi and buoi not in g["ds_buoi"]:
+            g["ds_buoi"].append(buoi)
+
+    return [gop[k] for k in thu_tu]
+
+
+# ============================================================
 # MỤC A: NẠP LỊCH BÁO GIẢNG TỪ FILE
 # ============================================================
 
@@ -4187,60 +4241,6 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
                 )
         except Exception as _e:
             st.error(f"❌ Lỗi đọc file: {_e}")
-
-
-# ============================================================
-# HÀM GỘP BÀI TRÙNG
-# ============================================================
-
-def _gop_lich_bao_giang(ds_rows):
-    """Gộp các dòng trùng tên bài thành 1.
-
-    - Giữ tên bài (lần xuất hiện đầu)
-    - Gộp tất cả lớp dạy bài đó
-    - Gộp tất cả thứ, tiết, buổi
-    - Ghi số dòng gốc
-    """
-    gop = {}
-    thu_tu = []
-
-    for r in ds_rows:
-        ten = (r.get("ten_bai", "") or "").strip()
-        if not ten:
-            continue
-        key = _chuan_hoa_tim_kiem(ten)
-
-        if key not in gop:
-            gop[key] = {
-                "ten_bai": ten,
-                "mon": r.get("mon", "Toán"),
-                "so_tiet": r.get("so_tiet", "1"),
-                "ds_lop": [],
-                "ds_thu": [],
-                "ds_tiet_ppct": [],
-                "ds_buoi": [],
-                "so_dong_goc": 1,
-                "row_goc": dict(r),
-            }
-            thu_tu.append(key)
-        else:
-            gop[key]["so_dong_goc"] += 1
-
-        g = gop[key]
-        lop = (r.get("lop", "") or "").strip()
-        if lop and lop not in g["ds_lop"]:
-            g["ds_lop"].append(lop)
-        thu = (r.get("thu", "") or "").strip()
-        if thu and thu not in g["ds_thu"]:
-            g["ds_thu"].append(thu)
-        tiet = (r.get("tiet", "") or "").strip()
-        if tiet and tiet not in g["ds_tiet_ppct"]:
-            g["ds_tiet_ppct"].append(tiet)
-        buoi = (r.get("buoi", "") or "").strip()
-        if buoi and buoi not in g["ds_buoi"]:
-            g["ds_buoi"].append(buoi)
-
-    return [gop[k] for k in thu_tu]
 
 
 # ============================================================
