@@ -5,9 +5,9 @@
 import os
 import json
 import base64
-import hashlib                          # ⬅️ THÊM
+import hashlib
 import urllib.request
-import urllib.error                     # ⬅️ THÊM
+import urllib.error
 from datetime import datetime, timedelta
 
 import streamlit as st
@@ -85,6 +85,23 @@ PREFERRED_MODELS = {
     "OPENROUTER_API_KEY": ["google/gemini-2.0-flash-exp:free"],
     "NVIDIA_API_KEY": ["meta/llama-3.3-70b-instruct"],
 }
+
+# ============ OLLAMA LOCAL AI ============
+OLLAMA_HOST = cfg("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = cfg("OLLAMA_MODEL", "qwen2.5:3b")
+USE_OLLAMA = cfg("USE_OLLAMA", "true").lower() == "true"
+
+
+def _check_ollama():
+    try:
+        req = urllib.request.Request(f"{OLLAMA_HOST}/api/tags")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+OLLAMA_AVAILABLE = _check_ollama() if USE_OLLAMA else False
 
 GITHUB_TOKEN = cfg("GITHUB_TOKEN", "")
 GITHUB_REPO = cfg("GITHUB_REPO", "P20217474/Thcs_teacher")
@@ -1843,6 +1860,15 @@ with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
 
+    # ===== TRẠNG THÁI AI =====
+    if OLLAMA_AVAILABLE:
+        st.success(f"🏠 Ollama local: {OLLAMA_MODEL}")
+    else:
+        st.warning("⚠️ Ollama chưa chạy (dùng `ollama serve`)")
+    st.caption(f"☁️ AI cloud: {len(available_providers)} provider")
+
+    st.divider()
+
     if GITHUB_TOKEN:
         st.success("💾 Đã có GITHUB_TOKEN")
         if st.button("🧪 Test GitHub", use_container_width=True):
@@ -1895,7 +1921,6 @@ with st.sidebar:
         st.session_state["schedule"] = load_schedule()
         st.rerun()
 
-    st.write("AI: " + str(len(available_providers)) + " nhà cung cấp")
     st.divider()
 
     st.subheader("🧹 Dọn dẹp")
@@ -1964,7 +1989,7 @@ with st.sidebar:
 
 
 # ============================================================
-# CALL AI — HTTP REQUEST THUẦN, ĐA PROVIDER + FALLBACK
+# CALL AI — HTTP REQUEST THUẦN, ĐA PROVIDER + OLLAMA LOCAL
 # ============================================================
 def _http_post_json(url, headers, payload, timeout=120):
     """Gửi POST JSON, trả về (ok, data_or_error)."""
@@ -1983,6 +2008,38 @@ def _http_post_json(url, headers, payload, timeout=120):
         return (False, f"HTTP {e.code}: {err_body[:300]}")
     except Exception as e:
         return (False, str(e))
+
+
+def _goi_ollama(prompt, system, model):
+    """Gọi Ollama local API — không cần token."""
+    url = f"{OLLAMA_HOST}/api/generate"
+
+    full_prompt = prompt
+    if system:
+        full_prompt = f"{system}\n\n{prompt}"
+
+    payload = {
+        "model": model,
+        "prompt": full_prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.7,
+            "num_predict": 8192,
+        }
+    }
+    headers = {"Content-Type": "application/json"}
+    ok, data = _http_post_json(url, headers, payload, timeout=300)
+
+    if not ok:
+        return (False, data)
+
+    try:
+        text = data.get("response", "").strip()
+        if not text:
+            return (False, "Text rỗng")
+        return (True, text)
+    except Exception as e:
+        return (False, f"Parse lỗi: {e}")
 
 
 def _goi_gemini(prompt, system, model):
@@ -2046,6 +2103,9 @@ def _goi_groq(prompt, system, model):
     headers = {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + api_key,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
     }
     ok, data = _http_post_json(url, headers, payload)
 
@@ -2149,28 +2209,31 @@ _CALL_DISPATCH = {
 
 
 def call_ai(prompt, system="", silent=False):
-    """Gọi AI đa provider với fallback tự động.
+    """Gọi AI — ưu tiên Ollama local (không token), fallback cloud nếu có.
 
-    Thứ tự thử:
-    - Lần lượt các provider có key (Gemini → Groq → OpenRouter → NVIDIA)
-    - Mỗi provider thử các model trong PREFERRED_MODELS
+    Thứ tự:
+    1. Ollama local (nếu đang chạy)
+    2. Cloud providers (nếu có token)
 
     Returns:
         text (str) nếu thành công
         None nếu tất cả fail
     """
-    if not available_providers:
-        if not silent:
-            st.error("❌ Chưa có API key nào.")
-        return None
-
     ds_loi = []
 
+    # ===== ƯU TIÊN 1: Ollama Local =====
+    if OLLAMA_AVAILABLE:
+        ok, result = _goi_ollama(prompt, system, OLLAMA_MODEL)
+        if ok and result and len(result.strip()) > 30:
+            return result
+        else:
+            ds_loi.append(f"OLLAMA/{OLLAMA_MODEL}: {str(result)[:200]}")
+
+    # ===== ƯU TIÊN 2: Cloud providers =====
     for pk in available_providers:
         ham_goi = _CALL_DISPATCH.get(pk)
         if not ham_goi:
             continue
-
         for mn in PREFERRED_MODELS.get(pk, []):
             ok, result = ham_goi(prompt, system, mn)
             if ok and result and len(result.strip()) > 30:
@@ -2182,7 +2245,6 @@ def call_ai(prompt, system="", silent=False):
         st.error("❌ Tất cả provider đều lỗi. Chi tiết:")
         for _l in ds_loi[-5:]:
             st.caption("• " + _l)
-
     return None
 
 
@@ -2875,8 +2937,8 @@ with tab_despec:
 
             if st.button("🚀 Sinh đặc tả", type="primary",
                          use_container_width=True, key="dt_run"):
-                if not available_providers:
-                    st.error("❌ Chưa có API key")
+                if not OLLAMA_AVAILABLE and not available_providers:
+                    st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
                 else:
                     _dp = f"""Bạn là chuyên gia khảo thí THCS.
 Sinh BẢNG ĐẶC TẢ ĐỀ KIỂM TRA theo CV 7991/BGDĐT-GDTrH.
@@ -2951,8 +3013,8 @@ with tab_exam:
 
         if st.button("🚀 Sinh đề + đáp án", type="primary",
                      use_container_width=True, key="ex_run"):
-            if not available_providers:
-                st.error("❌ Chưa có API key")
+            if not OLLAMA_AVAILABLE and not available_providers:
+                st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
             else:
                 _ep = f"""Bạn là chuyên gia khảo thí THCS.
 Sinh ĐỀ KIỂM TRA + ĐÁP ÁN + BIỂU ĐIỂM.
