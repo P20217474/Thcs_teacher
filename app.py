@@ -5,7 +5,9 @@
 import os
 import json
 import base64
+import hashlib                          # ⬅️ THÊM
 import urllib.request
+import urllib.error                     # ⬅️ THÊM
 from datetime import datetime, timedelta
 
 import streamlit as st
