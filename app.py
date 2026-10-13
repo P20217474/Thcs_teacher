@@ -249,15 +249,14 @@ for k, v in defaults.items():
         st.session_state[k] = v
 # ============ KẾT THÚC PHẦN 1/6 ============
 # ============================================================
-# PHẦN 2/6: ĐỌC FILE + OCR + TÁCH SGK THEO BÀI + CACHE
+# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK ĐÃ NẠP + CACHE
 # ============================================================
 # Chức năng:
 #   - Đọc file: PDF, Word, Excel, CSV, TXT, ảnh
 #   - OCR ảnh bằng Gemini Vision (cache local + session)
-#   - Tách SGK PDF theo BÀI (quét từng trang, không dùng mục lục)
-#   - Gom nhóm trang thành file bài riêng
-#   - Tạo metadata.json mapping bài → file
+#   - Quản lý SGK đã nạp thủ công (metadata.json)
 #   - Tìm bài theo TÊN (fuzzy match)
+#   - Đọc nội dung PDF bài
 #   - Quản lý cache local
 # ============================================================
 
@@ -486,7 +485,7 @@ def read_file(file, use_ocr=True):
 
 
 # ============================================================
-# PHẦN C: TÁCH SGK PDF THEO BÀI
+# PHẦN C: TIỆN ÍCH CHUỖI
 # ============================================================
 
 def _slugify(text):
@@ -498,6 +497,10 @@ def _slugify(text):
     text = re.sub(r"[^a-z0-9]+", "_", text)
     return text.strip("_")
 
+
+# ============================================================
+# PHẦN D: PDF HELPERS
+# ============================================================
 
 def _render_pdf_page_to_image(pdf_bytes, page_num, dpi=150):
     """Render 1 trang PDF thành ảnh PNG bytes."""
@@ -547,278 +550,6 @@ def get_pdf_total_pages(pdf_bytes):
         return 0
 
 
-def extract_toc_from_pdf(pdf_bytes):
-    """Trích mục lục PDF nếu có."""
-    if not HAS_PYMUPDF:
-        return []
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        toc = doc.get_toc()
-        doc.close()
-        return toc
-    except Exception:
-        return []
-
-
-def _is_trang_muc_luc(text):
-    """Đoán xem trang OCR có phải mục lục không.
-    Đặc điểm: nhiều dòng có '.... số'.
-    """
-    if not text:
-        return False
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    if len(lines) < 3:
-        return False
-    so_dong_co_cham = 0
-    for ln in lines:
-        if re.search(r"\.{3,}\s*\d+\s*$", ln):
-            so_dong_co_cham += 1
-    return so_dong_co_cham >= max(3, len(lines) * 0.4)
-
-
-def _tim_tieu_de_bai(text):
-    """Tìm tiêu đề bài trong 1 trang OCR.
-    Trả về list [{so_bai_raw, ten_bai, dong_goc}] (0-n bài/trang).
-    """
-    if not text:
-        return []
-
-    found = []
-    lines = [ln.rstrip() for ln in text.splitlines()]
-
-    patterns = [
-        # "Bài 1. Tập hợp" | "BÀI 1: Tập hợp"
-        re.compile(
-            r"^\s*(?:Bài|BÀI|Bai)\s+(\d+)\s*[\.\:\-–]\s*(.+?)\s*$",
-            re.IGNORECASE),
-        # "1. Tập hợp" (số + dấu chấm + tên, chữ HOA đầu)
-        re.compile(
-            r"^\s*(\d{1,2})\s*[\.\:\-–]\s+"
-            r"([A-ZĐÀÁẢÃẠĂÂÊÔƠƯ][^\n]{3,80})\s*$"),
-        # "Unit 1: My New School"
-        re.compile(
-            r"^\s*(?:Unit|UNIT)\s+(\d+)\s*[\.\:\-–]\s*(.+?)\s*$",
-            re.IGNORECASE),
-        # "Lesson 1: ..."
-        re.compile(
-            r"^\s*(?:Lesson|LESSON)\s+(\d+)\s*[\.\:\-–]\s*(.+?)\s*$",
-            re.IGNORECASE),
-        # "Chương I. ..."
-        re.compile(
-            r"^\s*(?:Chương|CHƯƠNG)\s+([IVXLC\d]+)\s*[\.\:\-–]\s*(.+?)\s*$",
-            re.IGNORECASE),
-        # "CHỦ ĐỀ 1. ..."
-        re.compile(
-            r"^\s*(?:Chủ đề|CHỦ ĐỀ|Chu de)\s+(\d+)\s*[\.\:\-–]\s*(.+?)\s*$",
-            re.IGNORECASE),
-    ]
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Bỏ dòng mục lục có "...."
-        if re.search(r"\.{3,}\s*\d+\s*$", stripped):
-            continue
-        # Bỏ dòng quá dài (đoạn văn)
-        if len(stripped) > 100:
-            continue
-
-        for pat in patterns:
-            m = pat.match(stripped)
-            if m:
-                so_bai = m.group(1)
-                ten_bai = m.group(2).strip()
-                if len(ten_bai) < 2:
-                    continue
-                if re.fullmatch(r"[\d\s\.\-]+", ten_bai):
-                    continue
-                ten_bai = ten_bai.rstrip(".,;: ")
-                found.append({
-                    "so_bai_raw": so_bai,
-                    "ten_bai": ten_bai,
-                    "dong_goc": stripped,
-                    "line_idx": i,
-                })
-                break
-
-    return found
-
-
-def detect_chapter_boundaries(pdf_bytes, max_pages_check=250,
-                              progress_cb=None):
-    """Quét SGK, tìm trang bắt đầu mỗi bài.
-
-    Quy trình:
-    1. OCR từng trang (dùng text layer nếu có)
-    2. Bỏ qua trang mục lục
-    3. Tìm tiêu đề bài đầu tiên trên trang
-    4. Ghi nhận trang đó là trang bắt đầu của bài
-    5. Trang kết thúc = trang trước bài kế - 1
-
-    Returns:
-        list [{ten_bai, so_bai, page_pdf_start, page_pdf_end, dong_goc}]
-    """
-    if not HAS_PYMUPDF or not HAS_GEMINI_VISION:
-        return []
-
-    total_pages = get_pdf_total_pages(pdf_bytes)
-    if total_pages == 0:
-        return []
-
-    n_scan = min(max_pages_check, total_pages)
-    bai_theo_trang = {}
-
-    for i in range(n_scan):
-        if progress_cb:
-            progress_cb(int((i + 1) / n_scan * 100),
-                        f"Đang quét trang {i+1}/{n_scan}...")
-
-        # 1. Thử text layer trước (nhanh, không tốn token)
-        text = extract_pdf_page_text(pdf_bytes, i)
-
-        # 2. Nếu text layer quá ngắn → OCR ảnh
-        if not text or len(text.strip()) < 30:
-            img_bytes = _render_pdf_page_to_image(pdf_bytes, i, dpi=150)
-            if not img_bytes:
-                continue
-            text = ocr_image_with_gemini(img_bytes, f"page_{i+1}")
-
-        if not text or text.startswith("["):
-            continue
-
-        # Bỏ trang mục lục
-        if _is_trang_muc_luc(text):
-            continue
-
-        # Tìm tiêu đề bài
-        ds_bai = _tim_tieu_de_bai(text)
-        if ds_bai:
-            # Chỉ lấy bài đầu tiên trên trang
-            bai_theo_trang[i] = ds_bai[0]
-
-    # Chuyển thành boundaries
-    pages_sorted = sorted(bai_theo_trang.keys())
-    if not pages_sorted:
-        return []
-
-    boundaries = []
-    for idx, page_idx in enumerate(pages_sorted):
-        b = bai_theo_trang[page_idx]
-        if idx + 1 < len(pages_sorted):
-            page_end = pages_sorted[idx + 1] - 1
-        else:
-            page_end = total_pages - 1
-
-        boundaries.append({
-            "ten_bai": b["ten_bai"],
-            "so_bai": idx + 1,
-            "page_pdf_start": page_idx,
-            "page_pdf_end": page_end,
-            "dong_goc": b["dong_goc"],
-        })
-
-    return boundaries
-
-
-def split_sgk_into_lessons(pdf_bytes, sgk_name, boundaries,
-                           progress_cb=None):
-    """Tách SGK PDF thành các file bài riêng.
-
-    Args:
-        pdf_bytes: bytes PDF gốc
-        sgk_name: tên SGK (VD: "SGK_Toan_6")
-        boundaries: list [{ten_bai, so_bai, page_pdf_start, page_pdf_end}]
-        progress_cb: callback(percent, msg)
-
-    Returns:
-        dict metadata {sgk_name, ds_bai: [...]}
-    """
-    if not HAS_PYMUPDF:
-        return None
-
-    sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
-    os.makedirs(sgk_dir, exist_ok=True)
-
-    total = len(boundaries)
-    metadata = {
-        "sgk_name": sgk_name,
-        "nguon": "auto",
-        "so_bai": total,
-        "ds_bai": [],
-    }
-
-    for idx, b in enumerate(boundaries):
-        if progress_cb:
-            progress_cb(
-                int((idx + 1) / total * 100),
-                f"Đang tách bài {idx+1}/{total}: {b['ten_bai'][:40]}")
-
-        safe_ten = _slugify(b["ten_bai"])[:40] or f"bai_{b['so_bai']:02d}"
-        fname = f"bai_{b['so_bai']:02d}_{safe_ten}.pdf"
-        fpath = os.path.join(sgk_dir, fname)
-
-        try:
-            doc_src = fitz.open(stream=pdf_bytes, filetype="pdf")
-            doc_new = fitz.open()
-            for p in range(b["page_pdf_start"], b["page_pdf_end"] + 1):
-                if 0 <= p < len(doc_src):
-                    doc_new.insert_pdf(doc_src, from_page=p, to_page=p)
-            doc_new.save(fpath)
-            doc_new.close()
-            doc_src.close()
-
-            metadata["ds_bai"].append({
-                "file": fname,
-                "ten_bai": b["ten_bai"],
-                "so_bai": b["so_bai"],
-                "page_pdf_start": b["page_pdf_start"],
-                "page_pdf_end": b["page_pdf_end"],
-            })
-        except Exception:
-            continue
-
-    meta_path = os.path.join(sgk_dir, "metadata.json")
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2)
-
-    return metadata
-
-
-# ============================================================
-# PHẦN D: ĐỌC / GHI METADATA
-# ============================================================
-
-def load_sgk_metadata(sgk_name):
-    """Đọc metadata.json của SGK đã tách."""
-    meta_path = os.path.join(SGK_BAI_DIR, sgk_name, "metadata.json")
-    if not os.path.exists(meta_path):
-        return None
-    try:
-        with open(meta_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-
-def list_sgk_da_tach():
-    """Liệt kê các SGK đã tách trong cache."""
-    if not os.path.exists(SGK_BAI_DIR):
-        return []
-    out = []
-    for name in os.listdir(SGK_BAI_DIR):
-        subdir = os.path.join(SGK_BAI_DIR, name)
-        if os.path.isdir(subdir):
-            meta = load_sgk_metadata(name)
-            if meta:
-                out.append({
-                    "sgk_name": name,
-                    "so_bai": meta.get("so_bai", 0),
-                    "nguon": meta.get("nguon", "unknown"),
-                })
-    return out
-
-
 def ocr_bai_pdf(sgk_name, bai_file):
     """OCR toàn bộ file PDF của 1 bài → text."""
     fpath = os.path.join(SGK_BAI_DIR, sgk_name, bai_file)
@@ -850,11 +581,232 @@ def ocr_bai_pdf(sgk_name, bai_file):
 
 
 # ============================================================
-# PHẦN E: TÌM BÀI THEO TÊN (FUZZY MATCH)
+# PHẦN E: QUẢN LÝ METADATA SGK
+# ============================================================
+
+def load_sgk_metadata(sgk_name):
+    """Đọc metadata.json của SGK đã nạp."""
+    meta_path = os.path.join(SGK_BAI_DIR, sgk_name, "metadata.json")
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def save_sgk_metadata(sgk_name, metadata):
+    """Lưu metadata.json của SGK."""
+    sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
+    os.makedirs(sgk_dir, exist_ok=True)
+    meta_path = os.path.join(sgk_dir, "metadata.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+
+def list_sgk_da_tach():
+    """Liệt kê các SGK đã nạp trong cache."""
+    if not os.path.exists(SGK_BAI_DIR):
+        return []
+    out = []
+    for name in os.listdir(SGK_BAI_DIR):
+        subdir = os.path.join(SGK_BAI_DIR, name)
+        if os.path.isdir(subdir):
+            meta = load_sgk_metadata(name)
+            if meta:
+                out.append({
+                    "sgk_name": name,
+                    "so_bai": meta.get("so_bai", 0),
+                    "nguon": meta.get("nguon", "unknown"),
+                })
+    return out
+
+
+def suggest_sgk_name(mon, lop):
+    """Đề xuất tên SGK chuẩn."""
+    return "SGK_" + _slugify(mon).title().replace("_", "") + "_" + str(lop)
+
+
+# ============================================================
+# PHẦN F: NẠP BÀI TỪ FILE PDF
+# ============================================================
+
+def nap_bai_pdf(sgk_name, ten_bai, file_obj):
+    """Nạp 1 file PDF bài vào SGK.
+
+    Args:
+        sgk_name: tên SGK (VD: SGK_Toan_6)
+        ten_bai: tên bài (không có đuôi .pdf)
+        file_obj: file object từ st.file_uploader
+
+    Returns:
+        (ok, msg, ten_file_da_luu)
+    """
+    sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
+    os.makedirs(sgk_dir, exist_ok=True)
+
+    # Đọc metadata hiện có
+    meta = load_sgk_metadata(sgk_name)
+    if not meta:
+        meta = {
+            "sgk_name": sgk_name,
+            "nguon": "manual",
+            "so_bai": 0,
+            "ds_bai": [],
+        }
+
+    # Kiểm tra trùng tên bài
+    for b in meta["ds_bai"]:
+        if b.get("ten_bai", "").strip().lower() == ten_bai.strip().lower():
+            return (False, f"Trùng tên bài: {ten_bai}", "")
+
+    # Đọc bytes và lưu file
+    try:
+        file_bytes = file_obj.read()
+    except Exception as e:
+        return (False, f"Lỗi đọc file: {e}", "")
+
+    # Tên file lưu: bai_XX_slug.pdf
+    stt = len(meta["ds_bai"]) + 1
+    safe = _slugify(ten_bai)[:40] or f"bai_{stt:02d}"
+    fname = f"bai_{stt:02d}_{safe}.pdf"
+    fpath = os.path.join(sgk_dir, fname)
+
+    # Đảm bảo tên file không trùng
+    _counter = 1
+    while os.path.exists(fpath):
+        fname = f"bai_{stt:02d}_{safe}_{_counter}.pdf"
+        fpath = os.path.join(sgk_dir, fname)
+        _counter += 1
+
+    try:
+        with open(fpath, "wb") as f:
+            f.write(file_bytes)
+    except Exception as e:
+        return (False, f"Lỗi lưu file: {e}", "")
+
+    # Cập nhật metadata
+    meta["ds_bai"].append({
+        "file": fname,
+        "ten_bai": ten_bai,
+        "so_bai": stt,
+        "page_pdf_start": 1,
+        "page_pdf_end": 1,
+    })
+    meta["so_bai"] = len(meta["ds_bai"])
+    save_sgk_metadata(sgk_name, meta)
+
+    return (True, "", fname)
+
+
+def nap_zip_sgk(sgk_name, zip_file_obj):
+    """Nạp file ZIP chứa nhiều PDF bài vào SGK.
+
+    Quy tắc:
+    - Giải nén ZIP
+    - Sắp xếp file PDF theo tên A→Z
+    - Với mỗi file: kiểm tra trùng tên bài (bỏ qua nếu trùng)
+    - Lưu vào SGK
+
+    Returns:
+        (so_ok, so_trung, ds_file_ok, ds_file_trung)
+    """
+    import zipfile
+
+    sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
+    os.makedirs(sgk_dir, exist_ok=True)
+
+    meta = load_sgk_metadata(sgk_name)
+    if not meta:
+        meta = {
+            "sgk_name": sgk_name,
+            "nguon": "manual",
+            "so_bai": 0,
+            "ds_bai": [],
+        }
+
+    # Tập hợp tên bài hiện có (lowercase, stripped)
+    ten_da_co = set()
+    for b in meta["ds_bai"]:
+        ten_da_co.add(b.get("ten_bai", "").strip().lower())
+
+    so_ok = 0
+    so_trung = 0
+    ds_ok = []
+    ds_trung = []
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_file_obj.read()), "r") as zf:
+            # Lấy danh sách file PDF trong ZIP
+            pdf_names = sorted([
+                n for n in zf.namelist()
+                if n.lower().endswith(".pdf") and not n.startswith("__MACOSX")
+            ])
+
+            for pdf_name in pdf_names:
+                # Tên bài = tên file bỏ đuôi .pdf + bỏ đường dẫn thư mục
+                base = os.path.basename(pdf_name)
+                ten_bai = os.path.splitext(base)[0].strip()
+
+                if not ten_bai:
+                    continue
+
+                # Kiểm tra trùng
+                if ten_bai.lower() in ten_da_co:
+                    so_trung += 1
+                    ds_trung.append(ten_bai)
+                    continue
+
+                # Đọc và lưu file
+                try:
+                    data = zf.read(pdf_name)
+                except Exception:
+                    continue
+
+                stt = len(meta["ds_bai"]) + 1
+                safe = _slugify(ten_bai)[:40] or f"bai_{stt:02d}"
+                fname = f"bai_{stt:02d}_{safe}.pdf"
+                fpath = os.path.join(sgk_dir, fname)
+
+                _counter = 1
+                while os.path.exists(fpath):
+                    fname = f"bai_{stt:02d}_{safe}_{_counter}.pdf"
+                    fpath = os.path.join(sgk_dir, fname)
+                    _counter += 1
+
+                try:
+                    with open(fpath, "wb") as f:
+                        f.write(data)
+                except Exception:
+                    continue
+
+                meta["ds_bai"].append({
+                    "file": fname,
+                    "ten_bai": ten_bai,
+                    "so_bai": stt,
+                    "page_pdf_start": 1,
+                    "page_pdf_end": 1,
+                })
+                ten_da_co.add(ten_bai.lower())
+                so_ok += 1
+                ds_ok.append(ten_bai)
+
+    except Exception as e:
+        return (-1, 0, [], [str(e)])
+
+    meta["so_bai"] = len(meta["ds_bai"])
+    save_sgk_metadata(sgk_name, meta)
+
+    return (so_ok, so_trung, ds_ok, ds_trung)
+
+
+# ============================================================
+# PHẦN G: TÌM BÀI THEO TÊN (FUZZY MATCH)
 # ============================================================
 
 def _chuan_hoa_tim_kiem(s):
-    """Chuẩn hóa chuỗi để so khớp: bỏ dấu, lowercase."""
+    """Chuẩn hóa chuỗi để so khớp."""
     if not s:
         return ""
     s = str(s).strip().lower()
@@ -884,11 +836,7 @@ def _do_tuong_dong(a, b):
 
 
 def find_bai_by_name(sgk_name, ten_bai, threshold=0.45):
-    """Tìm bài trong SGK theo TÊN BÀI (fuzzy match).
-
-    Returns:
-        dict bài (file, ten_bai, so_bai...) hoặc None.
-    """
+    """Tìm bài trong SGK theo TÊN BÀI (fuzzy match)."""
     meta = load_sgk_metadata(sgk_name)
     if not meta or not meta.get("ds_bai"):
         return None
@@ -916,51 +864,12 @@ def find_bai_by_name(sgk_name, ten_bai, threshold=0.45):
     return None
 
 
-def find_bai_by_page(sgk_name, page_pdf):
-    """Tìm bài chứa trang PDF (dùng nội bộ)."""
-    meta = load_sgk_metadata(sgk_name)
-    if not meta:
-        return None
-    for bai in meta.get("ds_bai", []):
-        if bai.get("page_pdf_start", 0) <= page_pdf <= \
-           bai.get("page_pdf_end", 0):
-            return bai
-    return None
-
-
 def list_ten_bai(sgk_name):
     """Trả về list tên bài của 1 SGK (để hiển thị dropdown)."""
     meta = load_sgk_metadata(sgk_name)
     if not meta or not meta.get("ds_bai"):
         return []
     return [b.get("ten_bai", "") for b in meta["ds_bai"]]
-
-
-# ============================================================
-# PHẦN F: TIỆN ÍCH SGK
-# ============================================================
-
-def get_sgk_file_by_name(mon, lop):
-    """Lấy file SGK_[Môn]_[Lớp] từ kho Nguồn."""
-    if not mon or not lop:
-        return (None, None)
-    key = "SGK_" + _slugify(mon).title().replace("_", "") + "_" + str(lop)
-    sources = st.session_state.get("sources", {})
-    for fname in sources.keys():
-        base = os.path.splitext(fname)[0]
-        if base.lower() == key.lower():
-            return (fname, sources[fname])
-    for fname in sources.keys():
-        base = os.path.splitext(fname)[0]
-        if base.lower().startswith("sgk_") and str(lop) in base and \
-           _slugify(mon) in _slugify(base):
-            return (fname, sources[fname])
-    return (None, None)
-
-
-def suggest_sgk_name(mon, lop):
-    """Đề xuất tên SGK chuẩn."""
-    return "SGK_" + _slugify(mon).title().replace("_", "") + "_" + str(lop)
 
 
 def render_danh_sach_bai(sgk_name, expanded=False):
@@ -1542,9 +1451,9 @@ def build_exec_prompt(plan):
 # ============================================================
 # Chức năng:
 #   - Sidebar: test GitHub, memory, thống kê, dọn dẹp
-#   - 9 tab: SGK gốc (có nút tải file đã tách),
-#            bài thủ công, kho, mẫu GA, ma trận, đặc tả, đề,
-#            sửa tên bài, khớp tên BG
+#   - Tab 1: SGK đã tách (xem + tải + xóa)
+#   - Tab 2: Nạp bài đã tách (upload PDF/ZIP)
+#   - Tab 3-9: Kho, mẫu GA, ma trận, đặc tả, đề, sửa tên, khớp tên
 #   - Hàm call_ai() đa provider + fallback
 # ============================================================
 
@@ -1585,12 +1494,12 @@ with st.sidebar:
         st.write(label + ": " + str(len(st.session_state[key])) + " file")
 
     ds_sgk = list_sgk_da_tach()
-    st.write("SGK đã tách: " + str(len(ds_sgk)) + " file")
+    st.write("SGK đã nạp: " + str(len(ds_sgk)) + " file")
     if ds_sgk:
-        with st.expander("📚 Xem SGK đã tách", expanded=False):
+        with st.expander("📚 Xem SGK đã nạp", expanded=False):
             for sgk in ds_sgk:
                 st.markdown(f"**{sgk['sgk_name']}** — "
-                            f"{sgk['so_bai']} bài ({sgk['nguon']})")
+                            f"{sgk['so_bai']} bài")
                 meta = load_sgk_metadata(sgk["sgk_name"])
                 if meta and meta.get("ds_bai"):
                     for b in meta["ds_bai"]:
@@ -1722,8 +1631,8 @@ def call_ai_cached(prompt, system=""):
 # ============================================================
 (tab_sgk, tab_manual, tab_kho, tab_mau,
  tab_matrix, tab_despec, tab_exam, tab_edit, tab_match) = st.tabs([
-    "📤 Upload SGK gốc",
-    "📚 Nạp bài đã tách",
+    "📚 SGK đã tách",
+    "📥 Nạp bài đã tách",
     "📂 Kho tri thức",
     "📐 Nạp mẫu giáo án",
     "🧩 Nạp ma trận đề",
@@ -1734,129 +1643,39 @@ def call_ai_cached(prompt, system=""):
 ])
 
 # ============================================================
-# TAB 1: UPLOAD SGK GỐC + TẢI FILE ĐÃ TÁCH
+# TAB 1: SGK ĐÃ TÁCH (xem + tải + xóa)
 # ============================================================
 with tab_sgk:
-    st.markdown("### 📤 Upload SGK gốc (PDF)")
-    st.info("💡 Upload file SGK PDF (scan ảnh). App sẽ **tách tự động "
-            "theo bài**. Quét từng trang nên tốn token hơn nhưng chính xác.")
+    st.markdown("### 📚 SGK đã tách")
+    st.info("💡 Xem danh sách SGK đã nạp, tải file PDF từng bài "
+            "hoặc tải cả bộ dạng ZIP. Để nạp SGK mới, vào tab "
+            "**📥 Nạp bài đã tách**.")
 
-    # Xem danh sách SGK đã tách
-    _ds_check = list_sgk_da_tach()
-    if _ds_check:
-        with st.expander(f"📖 Xem {len(_ds_check)} SGK đã tách + tên bài",
-                         expanded=False):
-            for _sgk in _ds_check:
-                st.markdown(f"#### 📘 {_sgk['sgk_name']}")
-                render_danh_sach_bai(_sgk["sgk_name"])
-
-    sgk_mon = st.text_input(
-        "Môn học (VD: Toán, Tiếng Anh...)",
-        value=st.session_state["memory"].get("default_subject", "Toán"),
-        key="up_sgk_mon")
-    sgk_lop = st.text_input(
-        "Lớp (VD: 6, 7, 8, 9)",
-        value=st.session_state["memory"].get("default_grade", "6"),
-        key="up_sgk_lop")
-    sgk_file = st.file_uploader("Chọn file SGK PDF", type=["pdf"],
-                                key="up_sgk_pdf")
-
-    if sgk_file:
-        sgk_name_goi_y = suggest_sgk_name(sgk_mon, sgk_lop)
-        st.caption(f"📝 Tên SGK sẽ lưu: **{sgk_name_goi_y}**")
-        existing = load_sgk_metadata(sgk_name_goi_y)
-        if existing:
-            st.warning(f"⚠️ SGK này đã có {existing.get('so_bai', 0)} "
-                       "bài. Upload sẽ ghi đè.")
-            ghi_de = st.checkbox("Xác nhận ghi đè", key="overwrite_sgk")
-        else:
-            ghi_de = True
-
-        if st.button("🚀 Tách SGK tự động", type="primary",
-                     use_container_width=True, key="btn_split_sgk"):
-            if not HAS_PYMUPDF:
-                st.error("❌ Chưa cài pymupdf.")
-            elif not GEMINI_KEY:
-                st.error("❌ Cần GEMINI_API_KEY để OCR.")
-            elif not ghi_de:
-                st.warning("⚠️ Bạn chưa xác nhận ghi đè.")
-            else:
-                pdf_bytes = sgk_file.read()
-                total_pages = get_pdf_total_pages(pdf_bytes)
-                st.info(f"📄 File có **{total_pages} trang**")
-                progress = st.progress(0)
-                status = st.empty()
-                status.write("🔍 Đang quét SGK để tìm bài...")
-
-                def _cb_scan(percent, msg):
-                    progress.progress(min(95, percent))
-                    status.write(msg)
-
-                boundaries = detect_chapter_boundaries(
-                    pdf_bytes, progress_cb=_cb_scan)
-                progress.progress(100)
-
-                if not boundaries:
-                    st.warning(
-                        "⚠️ Không tìm được bài tự động. "
-                        "Bạn có thể dùng tab **📚 Nạp bài đã tách** "
-                        "hoặc **✏️ Sửa tên bài SGK** để xử lý thủ công."
-                    )
-                else:
-                    st.success(f"✅ Tìm được {len(boundaries)} bài")
-                    with st.expander("👁️ Xem danh sách bài",
-                                     expanded=True):
-                        for b in boundaries:
-                            st.write(
-                                f"• **Bài {b['so_bai']}**: "
-                                f"{b['ten_bai']} "
-                                f"(trang {b['page_pdf_start']}"
-                                f"–{b['page_pdf_end']})"
-                            )
-
-                    status.write("✂️ Đang tách thành file bài riêng...")
-                    progress.progress(50)
-
-                    def _cb(percent, msg):
-                        progress.progress(50 + int(percent * 0.4))
-                        status.write(msg)
-
-                    metadata = split_sgk_into_lessons(
-                        pdf_bytes, sgk_name_goi_y, boundaries, _cb)
-                    progress.progress(100)
-                    status.write("✅ Hoàn tất!")
-                    if metadata:
-                        st.success(
-                            f"✅ Đã tách {metadata['so_bai']} bài. "
-                            "Kiểm tra tên ở tab **✏️ Sửa tên bài SGK**."
-                        )
-                        st.balloons()
-                        st.session_state["_vua_tach_sgk"] = sgk_name_goi_y
-                    else:
-                        st.error("❌ Tách thất bại.")
-
-    # ---------- TẢI FILE VỪA TÁCH ----------
-    st.markdown("---")
-    st.markdown("### 📦 Tải file bài đã tách")
-
-    _ds_tai = list_sgk_da_tach()
-    if not _ds_tai:
-        st.info("Chưa có SGK nào được tách. Upload SGK ở trên để tách.")
+    _ds_sgk_t1 = list_sgk_da_tach()
+    if not _ds_sgk_t1:
+        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp bài đã tách** "
+                   "để nạp.")
     else:
-        _sgk_tai = st.selectbox(
-            "Chọn SGK để tải",
-            [s["sgk_name"] for s in _ds_tai],
-            key="tai_sgk_sel")
-        _meta_tai = load_sgk_metadata(_sgk_tai)
-        if not _meta_tai or not _meta_tai.get("ds_bai"):
+        # Chọn SGK để xem
+        _sgk_t1 = st.selectbox(
+            "Chọn SGK",
+            [s["sgk_name"] for s in _ds_sgk_t1],
+            key="t1_sgk_sel")
+
+        _meta_t1 = load_sgk_metadata(_sgk_t1)
+        if not _meta_t1 or not _meta_t1.get("ds_bai"):
             st.warning("SGK này chưa có bài nào.")
         else:
-            _ds_bai_tai = _meta_tai["ds_bai"]
-            st.caption(f"📚 **{_sgk_tai}** — {len(_ds_bai_tai)} bài")
+            _ds_bai_t1 = _meta_t1["ds_bai"]
+            st.caption(f"📚 **{_sgk_t1}** — {len(_ds_bai_t1)} bài")
+
+            # Xem danh sách bài
+            with st.expander("👁️ Xem danh sách bài", expanded=True):
+                render_danh_sach_bai(_sgk_t1)
 
             # Tải riêng từng bài
             st.markdown("#### 📄 Tải riêng từng bài")
-            for _i, _b in enumerate(_ds_bai_tai):
+            for _i, _b in enumerate(_ds_bai_t1):
                 _c1, _c2 = st.columns([4, 1])
                 with _c1:
                     st.write(
@@ -1865,7 +1684,7 @@ with tab_sgk:
                     )
                 with _c2:
                     _fpath_bai = os.path.join(
-                        SGK_BAI_DIR, _sgk_tai, _b.get("file", ""))
+                        SGK_BAI_DIR, _sgk_t1, _b.get("file", ""))
                     if os.path.exists(_fpath_bai):
                         with open(_fpath_bai, "rb") as _f:
                             _bytes_bai = _f.read()
@@ -1874,12 +1693,12 @@ with tab_sgk:
                             _bytes_bai,
                             file_name=_b.get("file", f"bai_{_i+1}.pdf"),
                             mime="application/pdf",
-                            key=f"dl_bai_{_i}",
+                            key=f"t1_dl_bai_{_i}",
                             use_container_width=True,
                         )
                     else:
                         st.button("❌ Mất file",
-                                  key=f"dl_bai_missing_{_i}",
+                                  key=f"t1_dl_bai_missing_{_i}",
                                   disabled=True,
                                   use_container_width=True)
 
@@ -1890,15 +1709,15 @@ with tab_sgk:
             _count = 0
             with zipfile.ZipFile(_zip_buffer, "w",
                                  zipfile.ZIP_DEFLATED) as _zf:
-                for _b in _ds_bai_tai:
+                for _b in _ds_bai_t1:
                     _fpath_b = os.path.join(
-                        SGK_BAI_DIR, _sgk_tai, _b.get("file", ""))
+                        SGK_BAI_DIR, _sgk_t1, _b.get("file", ""))
                     if os.path.exists(_fpath_b):
                         _arcname = _b.get("file", "")
                         _zf.write(_fpath_b, arcname=_arcname)
                         _count += 1
                 _meta_path = os.path.join(
-                    SGK_BAI_DIR, _sgk_tai, "metadata.json")
+                    SGK_BAI_DIR, _sgk_t1, "metadata.json")
                 if os.path.exists(_meta_path):
                     _zf.write(_meta_path, arcname="metadata.json")
 
@@ -1906,165 +1725,216 @@ with tab_sgk:
             st.download_button(
                 f"⬇️ Tải tất cả ({_count} file PDF + metadata.json)",
                 _zip_buffer.getvalue(),
-                file_name=f"{_sgk_tai}_da_tach.zip",
+                file_name=f"{_sgk_t1}_da_tach.zip",
                 mime="application/zip",
                 type="primary",
                 use_container_width=True,
-                key=f"dl_zip_{_sgk_tai}",
+                key=f"t1_dl_zip_{_sgk_t1}",
             )
 
             # Tải metadata.json
             _meta_path2 = os.path.join(
-                SGK_BAI_DIR, _sgk_tai, "metadata.json")
+                SGK_BAI_DIR, _sgk_t1, "metadata.json")
             if os.path.exists(_meta_path2):
                 with open(_meta_path2, "rb") as _f:
                     _meta_bytes = _f.read()
                 st.download_button(
                     "⬇️ Tải metadata.json (danh sách bài)",
                     _meta_bytes,
-                    file_name=f"{_sgk_tai}_metadata.json",
+                    file_name=f"{_sgk_t1}_metadata.json",
                     mime="application/json",
                     use_container_width=True,
-                    key=f"dl_meta_{_sgk_tai}",
+                    key=f"t1_dl_meta_{_sgk_t1}",
                 )
 
+            # Xóa SGK
+            st.markdown("---")
+            st.markdown("#### 🗑️ Xóa SGK này")
+            st.caption("⚠️ Sẽ xóa toàn bộ file PDF bài và metadata của SGK.")
+            if st.button(
+                f"🗑️ Xóa SGK **{_sgk_t1}**",
+                type="secondary",
+                use_container_width=True,
+                key=f"t1_del_sgk_{_sgk_t1}",
+            ):
+                import shutil
+                try:
+                    shutil.rmtree(
+                        os.path.join(SGK_BAI_DIR, _sgk_t1))
+                    st.success(f"✅ Đã xóa SGK {_sgk_t1}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi: {e}")
+
 # ============================================================
-# TAB 2: NẠP BÀI THỦ CÔNG
+# TAB 2: NẠP BÀI ĐÃ TÁCH (thủ công)
 # ============================================================
 with tab_manual:
-    st.markdown("### 📚 Nạp bài đã tách thủ công")
-    st.info("💡 Tự tách SGK thành từng file PDF bài riêng → upload lên đây. "
-            "Có thể upload file ZIP từ tab **📤 Upload SGK gốc**.")
+    st.markdown("### 📥 Nạp bài đã tách")
+    st.info(
+        "💡 Tự tách SGK thành từng file PDF bài riêng, "
+        "đặt tên file là tên bài (VD: `Bài 1. Tập hợp.pdf`). "
+        "App lấy tên file làm tên bài (bỏ đuôi .pdf)."
+    )
 
-    # Hỗ trợ nạp ZIP
-    _c_nhap1, _c_nhap2 = st.columns([1, 1])
-    with _c_nhap1:
-        st.markdown("**Cách 1: Nạp nhiều file PDF**")
-        sgk_manual_mon = st.text_input(
+    # Cấu hình SGK đích
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        _mon_input = st.text_input(
             "Môn học",
-            value=st.session_state["memory"].get("default_subject", "Toán"),
-            key="manual_sgk_mon")
-        sgk_manual_lop = st.text_input(
+            value=st.session_state["memory"].get(
+                "default_subject", "Toán"),
+            key="manual_mon")
+    with _c2:
+        _lop_input = st.text_input(
             "Lớp",
-            value=st.session_state["memory"].get("default_grade", "6"),
-            key="manual_sgk_lop")
-        sgk_manual_name = suggest_sgk_name(sgk_manual_mon, sgk_manual_lop)
-        st.caption(f"📝 SGK đích: **{sgk_manual_name}**")
+            value=st.session_state["memory"].get(
+                "default_grade", "6"),
+            key="manual_lop")
 
-        manual_files = st.file_uploader(
-            "Upload nhiều file PDF bài", type=["pdf"],
-            accept_multiple_files=True, key="manual_sgk_files")
+    _sgk_name_input = suggest_sgk_name(_mon_input, _lop_input)
+    st.caption(f"📝 SGK đích: **{_sgk_name_input}**")
 
-        if manual_files:
-            st.markdown("**📋 Nhập tên bài cho mỗi file:**")
-            manual_info = []
-            for i, f in enumerate(manual_files):
-                with st.expander("📄 " + f.name, expanded=False):
-                    ten = st.text_input(
-                        "Tên bài",
-                        value=f.name.replace(".pdf", ""),
-                        key=f"manual_ten_{i}")
-                    manual_info.append({"file_obj": f, "ten_bai": ten})
+    # Kiểm tra SGK đã tồn tại
+    _meta_exist = load_sgk_metadata(_sgk_name_input)
+    if _meta_exist:
+        _so_bai_hien_co = _meta_exist.get("so_bai", 0)
+        st.success(
+            f"✅ SGK đã tồn tại với **{_so_bai_hien_co} bài**. "
+            "File mới sẽ được **thêm vào** SGK này."
+        )
+    else:
+        st.info("🆕 SGK chưa tồn tại. Sẽ được tạo mới khi nạp.")
 
-            if st.button("💾 Lưu bài đã tách", type="primary",
-                         use_container_width=True, key="btn_save_manual"):
-                sgk_dir = os.path.join(SGK_BAI_DIR, sgk_manual_name)
-                os.makedirs(sgk_dir, exist_ok=True)
-                meta = load_sgk_metadata(sgk_manual_name) or {
-                    "sgk_name": sgk_manual_name, "nguon": "manual",
-                    "so_bai": 0, "ds_bai": []}
-                saved = 0
-                for i, info in enumerate(manual_info):
-                    safe = _slugify(info["ten_bai"])[:40] or \
-                        f"bai_{i+1:02d}"
-                    fname = f"bai_{i+1:02d}_{safe}.pdf"
-                    fpath = os.path.join(sgk_dir, fname)
-                    try:
-                        with open(fpath, "wb") as fo:
-                            fo.write(info["file_obj"].read())
-                    except Exception:
+    st.markdown("---")
+
+    # 2 cách nạp
+    _cach1, _cach2 = st.columns(2)
+
+    # CÁCH 1: Nhiều file PDF
+    with _cach1:
+        st.markdown("#### 📄 Cách 1: Nhiều file PDF")
+        st.caption("Chọn nhiều file PDF cùng lúc. Tên file = tên bài.")
+
+        _files_pdf = st.file_uploader(
+            "Chọn nhiều file PDF bài",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="manual_pdf_files")
+
+        if _files_pdf:
+            st.caption(f"📦 Đã chọn **{len(_files_pdf)}** file")
+
+            if st.button("📥 Nạp tất cả", type="primary",
+                         use_container_width=True,
+                         key="btn_nap_pdf"):
+                # Sắp xếp file theo tên A→Z
+                _files_sorted = sorted(
+                    _files_pdf, key=lambda f: f.name.lower())
+
+                _so_ok = 0
+                _ds_trung = []
+                _ds_loi = []
+
+                # Thanh tiến độ
+                _prog = st.progress(0)
+                _status = st.empty()
+
+                for _idx, _f in enumerate(_files_sorted):
+                    _status.write(
+                        f"Đang nạp {_idx+1}/{len(_files_sorted)}: "
+                        f"{_f.name}")
+                    _prog.progress(
+                        int((_idx + 1) / len(_files_sorted) * 100))
+
+                    # Lấy tên bài = tên file bỏ đuôi .pdf
+                    _ten = os.path.splitext(_f.name)[0].strip()
+
+                    if not _ten:
+                        _ds_loi.append(f"{_f.name}: tên rỗng")
                         continue
-                    meta["ds_bai"].append({
-                        "file": fname,
-                        "ten_bai": info["ten_bai"],
-                        "so_bai": i + 1,
-                        "page_pdf_start": 1,
-                        "page_pdf_end": 1})
-                    saved += 1
-                meta["so_bai"] = len(meta["ds_bai"])
-                meta["nguon"] = "manual"
-                with open(os.path.join(sgk_dir, "metadata.json"), "w",
-                          encoding="utf-8") as fo:
-                    json.dump(meta, fo, ensure_ascii=False, indent=2)
-                st.success(f"✅ Đã nạp {saved} bài vào {sgk_manual_name}")
-                st.balloons()
 
-    with _c_nhap2:
-        st.markdown("**Cách 2: Nạp file ZIP đã tải**")
-        st.caption("Upload file ZIP từ tab **📤 Upload SGK gốc** → "
-                   "giải nén tự động và nạp vào cache.")
-        sgk_zip_mon = st.text_input(
-            "Môn học (ZIP)",
-            value=st.session_state["memory"].get("default_subject", "Toán"),
-            key="zip_sgk_mon")
-        sgk_zip_lop = st.text_input(
-            "Lớp (ZIP)",
-            value=st.session_state["memory"].get("default_grade", "6"),
-            key="zip_sgk_lop")
-        sgk_zip_name = suggest_sgk_name(sgk_zip_mon, sgk_zip_lop)
-        st.caption(f"📝 SGK đích: **{sgk_zip_name}**")
+                    # Reset con trỏ file về đầu (nếu đã đọc trước đó)
+                    try:
+                        _f.seek(0)
+                    except Exception:
+                        pass
 
-        zip_file = st.file_uploader(
-            "Upload file ZIP đã tách", type=["zip"],
-            key="zip_sgk_file")
+                    _ok, _msg, _fname = nap_bai_pdf(
+                        _sgk_name_input, _ten, _f)
 
-        if zip_file:
-            if st.button("📦 Giải nén và nạp ZIP", type="primary",
-                         use_container_width=True, key="btn_unzip"):
-                try:
-                    import zipfile
-                    sgk_dir = os.path.join(SGK_BAI_DIR, sgk_zip_name)
-                    os.makedirs(sgk_dir, exist_ok=True)
-                    with zipfile.ZipFile(io.BytesIO(zip_file.read()),
-                                         "r") as _zf:
-                        _zf.extractall(sgk_dir)
-                    # Đọc metadata nếu có
-                    _meta_zip = load_sgk_metadata(sgk_zip_name)
-                    if _meta_zip:
-                        st.success(
-                            f"✅ Đã giải nén: {_meta_zip.get('so_bai', 0)} "
-                            f"bài vào `{sgk_zip_name}`."
-                        )
+                    if _ok:
+                        _so_ok += 1
+                    elif "Trùng tên" in _msg:
+                        _ds_trung.append(_ten)
                     else:
-                        # Tạo metadata từ các file PDF có trong ZIP
-                        _ds_pdf = sorted([
-                            f for f in os.listdir(sgk_dir)
-                            if f.lower().endswith(".pdf")
-                        ])
-                        _meta_new = {
-                            "sgk_name": sgk_zip_name,
-                            "nguon": "zip",
-                            "so_bai": len(_ds_pdf),
-                            "ds_bai": []
-                        }
-                        for _i, _f in enumerate(_ds_pdf):
-                            _meta_new["ds_bai"].append({
-                                "file": _f,
-                                "ten_bai": _f.replace(".pdf", ""),
-                                "so_bai": _i + 1,
-                                "page_pdf_start": 1,
-                                "page_pdf_end": 1,
-                            })
-                        with open(os.path.join(sgk_dir, "metadata.json"),
-                                  "w", encoding="utf-8") as _fo:
-                            json.dump(_meta_new, _fo,
-                                      ensure_ascii=False, indent=2)
-                        st.success(
-                            f"✅ Đã giải nén: {len(_ds_pdf)} file PDF."
-                        )
+                        _ds_loi.append(f"{_ten}: {_msg}")
+
+                _prog.progress(100)
+                _status.write("✅ Hoàn tất!")
+
+                # Báo cáo
+                st.success(f"✅ Đã nạp: **{_so_ok}** bài")
+                if _ds_trung:
+                    st.warning(
+                        f"❌ Bỏ qua **{len(_ds_trung)}** bài trùng tên:")
+                    for _t in _ds_trung:
+                        st.write(f"  • {_t}")
+                if _ds_loi:
+                    st.error(
+                        f"❌ Lỗi **{len(_ds_loi)}** file:")
+                    for _t in _ds_loi:
+                        st.write(f"  • {_t}")
+
+                if _so_ok > 0:
                     st.balloons()
-                except Exception as _e:
-                    st.error(f"❌ Lỗi giải nén: {_e}")
+                    st.rerun()
+
+    # CÁCH 2: ZIP
+    with _cach2:
+        st.markdown("#### 📦 Cách 2: File ZIP")
+        st.caption("Upload file ZIP chứa nhiều PDF. "
+                   "App giải nén, sắp xếp A→Z, bỏ qua file trùng tên.")
+
+        _zip_file = st.file_uploader(
+            "Chọn file ZIP",
+            type=["zip"],
+            key="manual_zip_file")
+
+        if _zip_file:
+            st.caption(f"📦 File: **{_zip_file.name}**")
+
+            if st.button("📦 Giải nén và nạp", type="primary",
+                         use_container_width=True,
+                         key="btn_nap_zip"):
+                with st.spinner("Đang giải nén..."):
+                    _so_ok, _so_trung, _ds_ok, _ds_trung = \
+                        nap_zip_sgk(_sgk_name_input, _zip_file)
+
+                if _so_ok == -1:
+                    st.error(f"❌ Lỗi giải nén: {_ds_trung[0]}")
+                else:
+                    st.success(f"✅ Đã nạp: **{_so_ok}** bài")
+                    if _so_trung > 0:
+                        st.warning(
+                            f"❌ Bỏ qua **{_so_trung}** bài trùng tên:")
+                        for _t in _ds_trung:
+                            st.write(f"  • {_t}")
+
+                    if _so_ok > 0:
+                        st.balloons()
+                        st.rerun()
+
+    # Hiển thị trạng thái sau khi nạp
+    st.markdown("---")
+    _meta_sau = load_sgk_metadata(_sgk_name_input)
+    if _meta_sau and _meta_sau.get("ds_bai"):
+        st.markdown("#### 📊 SGK hiện có")
+        st.caption(
+            f"📚 **{_sgk_name_input}** — "
+            f"{len(_meta_sau['ds_bai'])} bài"
+        )
+        render_danh_sach_bai(_sgk_name_input)
 
 # ============================================================
 # TAB 3: KHO TRI THỨC
@@ -2100,30 +1970,6 @@ with tab_kho:
                 st.rerun()
         else:
             st.info("Chưa có " + label.lower() + ".")
-
-    st.divider()
-    st.subheader("📚 SGK đã tách (local)")
-    ds_sgk_local = list_sgk_da_tach()
-    if ds_sgk_local:
-        for sgk in ds_sgk_local:
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                st.write(f"• **{sgk['sgk_name']}** --- "
-                         f"{sgk['so_bai']} bài ({sgk['nguon']})")
-                with st.expander("📖 Xem tên bài"):
-                    render_danh_sach_bai(sgk["sgk_name"])
-            with col2:
-                if st.button("🗑️", key="del_sgk_" + sgk["sgk_name"]):
-                    import shutil
-                    try:
-                        shutil.rmtree(
-                            os.path.join(SGK_BAI_DIR, sgk["sgk_name"]))
-                        st.success("✅ Đã xóa " + sgk["sgk_name"])
-                        st.rerun()
-                    except Exception as e:
-                        st.error("Lỗi: " + str(e))
-    else:
-        st.info("Chưa có SGK nào được tách.")
 
 # ============================================================
 # TAB 4: NẠP MẪU GIÁO ÁN
@@ -2528,7 +2374,7 @@ with tab_edit:
 
     _ds_edit = list_sgk_da_tach()
     if not _ds_edit:
-        st.warning("⚠️ Chưa có SGK nào. Vào tab **📤 Upload SGK gốc** trước.")
+        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp bài đã tách**.")
     else:
         _sgk_edit_name = st.selectbox(
             "Chọn SGK cần sửa",
@@ -2562,11 +2408,7 @@ with tab_edit:
                 })
                 _meta_edit["ds_bai"] = _ds_bai
                 _meta_edit["so_bai"] = len(_ds_bai)
-                _save_meta_path = os.path.join(
-                    SGK_BAI_DIR, _sgk_edit_name, "metadata.json")
-                with open(_save_meta_path, "w", encoding="utf-8") as _f:
-                    json.dump(_meta_edit, _f,
-                              ensure_ascii=False, indent=2)
+                save_sgk_metadata(_sgk_edit_name, _meta_edit)
                 st.success("✅ Đã thêm 1 dòng trống ở cuối.")
                 st.rerun()
 
@@ -2609,11 +2451,7 @@ with tab_edit:
                     _bk["so_bai"] = _k + 1
                 _meta_edit["ds_bai"] = _ds_bai
                 _meta_edit["so_bai"] = len(_ds_bai)
-                _save_meta_path = os.path.join(
-                    SGK_BAI_DIR, _sgk_edit_name, "metadata.json")
-                with open(_save_meta_path, "w", encoding="utf-8") as _f:
-                    json.dump(_meta_edit, _f,
-                              ensure_ascii=False, indent=2)
+                save_sgk_metadata(_sgk_edit_name, _meta_edit)
                 st.success("✅ Đã xóa bài.")
                 st.rerun()
 
@@ -2646,12 +2484,7 @@ with tab_edit:
                     else:
                         _meta_edit["ds_bai"] = _ds_bai
                         _meta_edit["so_bai"] = len(_ds_bai)
-                        _save_meta_path = os.path.join(
-                            SGK_BAI_DIR, _sgk_edit_name, "metadata.json")
-                        with open(_save_meta_path, "w",
-                                  encoding="utf-8") as _f:
-                            json.dump(_meta_edit, _f,
-                                      ensure_ascii=False, indent=2)
+                        save_sgk_metadata(_sgk_edit_name, _meta_edit)
                         st.success(
                             f"✅ Đã lưu {len(_ds_bai)} tên bài vào "
                             f"`{_sgk_edit_name}/metadata.json`.")
@@ -2682,7 +2515,7 @@ with tab_match:
 
     _ds_match = list_sgk_da_tach()
     if not _ds_match:
-        st.warning("⚠️ Chưa có SGK nào. Vào tab **📤 Upload SGK gốc** trước.")
+        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp bài đã tách**.")
     else:
         _sgk_match_name = st.selectbox(
             "Chọn SGK cần khớp",
@@ -2828,13 +2661,7 @@ with tab_match:
                                 st.error("❌ " + _e)
                         else:
                             _meta_match["ds_bai"] = _ds_bai_match
-                            _save_path = os.path.join(
-                                SGK_BAI_DIR, _sgk_match_name,
-                                "metadata.json")
-                            with open(_save_path, "w",
-                                      encoding="utf-8") as _f:
-                                json.dump(_meta_match, _f,
-                                          ensure_ascii=False, indent=2)
+                            save_sgk_metadata(_sgk_match_name, _meta_match)
                             st.success(
                                 f"✅ Đã cập nhật **{_count}** tên bài. "
                                 "Vào **Soạn 1 bài** hoặc **Soạn cả tuần** "
