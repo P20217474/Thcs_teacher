@@ -262,6 +262,15 @@ for k, v in defaults.items():
 # ============================================================
 # PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF
 # ============================================================
+# Chức năng:
+#   - Đọc file: PDF, Word, Excel, CSV, TXT, ảnh
+#   - OCR ảnh bằng Gemini Vision (cache local + session)
+#   - Quản lý SGK đã nạp (metadata.json)
+#   - Nạp bài từ PDF rời / ZIP / tách từ PDF gộp
+#   - Đọc file Lịch báo giảng (docx/xlsx/csv/txt)
+#   - Gộp bài trùng tên (1 bài dạy nhiều lớp)
+#   - Tìm bài theo TÊN (fuzzy match)
+# ============================================================
 
 import hashlib
 import unicodedata
@@ -800,6 +809,11 @@ def parse_danh_sach_bai(text):
 
 
 def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
+    """Kiểm tra danh sách bài có hợp lệ không.
+
+    KHÔNG kiểm tra trùng tên bài — vì 1 bài có thể dạy nhiều lớp,
+    nhiều tiết trong tuần.
+    """
     ds_loi = []
     if not ds_bai:
         return ["Danh sách bài rỗng."]
@@ -824,14 +838,53 @@ def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
             ds_loi.append(f"Dòng {i} ({ten}): KT ({kt}) > "
                           f"tổng trang ({tong_so_trang_pdf})")
 
-    seen = {}
-    for i, b in enumerate(ds_bai, start=1):
-        c = _chuan_hoa_tim_kiem(b.get("ten_bai", ""))
-        if c in seen:
-            ds_loi.append(f"Dòng {i}: Trùng tên với dòng {seen[c]}")
-        else:
-            seen[c] = i
     return ds_loi
+
+
+def gop_bai_trung(ds_bai):
+    """Gộp các dòng trùng tên bài thành 1 bài.
+
+    - Tên bài: giữ nguyên (lần xuất hiện đầu)
+    - Trang BĐ: nhỏ nhất trong các dòng trùng
+    - Trang KT: lớn nhất trong các dòng trùng
+    - Giữ thêm: ds_mon, ds_lop, ds_tiet_ppct, so_dong_goc
+
+    Returns:
+        list bài đã gộp (theo thứ tự xuất hiện lần đầu)
+    """
+    gop = {}
+    thu_tu = []
+
+    for b in ds_bai:
+        ten = b.get("ten_bai", "").strip()
+        key = _chuan_hoa_tim_kiem(ten)
+
+        if key not in gop:
+            gop[key] = {
+                "ten_bai": ten,
+                "trang_bd": b.get("trang_bd", 0),
+                "trang_kt": b.get("trang_kt", 0),
+                "ds_mon": [],
+                "ds_lop": [],
+                "ds_tiet_ppct": [],
+                "so_dong_goc": 1,
+            }
+            thu_tu.append(key)
+        else:
+            g = gop[key]
+            g["trang_bd"] = min(g["trang_bd"], b.get("trang_bd", 0))
+            g["trang_kt"] = max(g["trang_kt"], b.get("trang_kt", 0))
+            g["so_dong_goc"] += 1
+
+        g = gop[key]
+        if b.get("mon") and b["mon"] not in g["ds_mon"]:
+            g["ds_mon"].append(b["mon"])
+        if b.get("lop") and b["lop"] not in g["ds_lop"]:
+            g["ds_lop"].append(b["lop"])
+        if b.get("tiet_ppct") and b["tiet_ppct"] not in g["ds_tiet_ppct"]:
+            g["ds_tiet_ppct"].append(b["tiet_ppct"])
+
+    return [gop[k] for k in thu_tu]
 
 
 def tach_pdf_theo_danh_sach(pdf_bytes, ds_bai):
@@ -863,7 +916,7 @@ def tach_pdf_theo_danh_sach(pdf_bytes, ds_bai):
         if p_bd > p_kt:
             results.append({"ten_bai": ten_bai, "file_name": "",
                              "pdf_bytes": b"", "so_trang": 0, "ok": False,
-                             "error": f"BĐ > KT"})
+                             "error": "BĐ > KT"})
             continue
 
         try:
@@ -1050,10 +1103,22 @@ def render_danh_sach_bai(sgk_name, expanded=False):
 
 
 # ---------- J: Đọc file Lịch báo giảng ----------
+def _norm_header(s):
+    if not s:
+        return ""
+    s = str(s).strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.replace("đ", "d")
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
 def doc_lich_bao_giang(file_obj):
     """Đọc file Lịch BG (docx/xlsx/csv/txt) → list các dòng.
 
-    Mỗi dòng có: ten_bai, trang_bd, trang_kt, mon, lop, tiet_ppct
+    Mỗi dòng: ten_bai, trang_bd, trang_kt, mon, lop, tiet_ppct
     """
     if file_obj is None:
         return ([], ["Chưa có file"])
@@ -1124,15 +1189,11 @@ def doc_lich_bao_giang(file_obj):
                     r"\t|\s{2,}|\|", line) if x.strip()]
                 if len(parts) >= 3:
                     rows.append(parts)
-
         else:
             return ([], [f"Định dạng không hỗ trợ: {name}"])
-
     except Exception as e:
         return ([], [f"Lỗi đọc: {e}"])
 
-    # Chuẩn hóa + tìm cột
-    ds_bai = []
     if not rows:
         return ([], ["File không có dữ liệu"])
 
@@ -1146,12 +1207,10 @@ def doc_lich_bao_giang(file_obj):
             header = [_norm_header(x) for x in r]
             header_idx = i
             break
-
     if header is None:
         header = [_norm_header(x) for x in rows[0]]
         header_idx = 0
 
-    # Tìm chỉ số cột
     def _find_col(cands):
         for i, h in enumerate(header):
             for c in cands:
@@ -1173,6 +1232,7 @@ def doc_lich_bao_giang(file_obj):
             f"Cột hiện có: {header}"
         ])
 
+    ds_bai = []
     for r in rows[header_idx + 1:]:
         def _get(idx, default=""):
             if idx is None or idx >= len(r):
@@ -1190,7 +1250,6 @@ def doc_lich_bao_giang(file_obj):
         if ten.lower() in ("tên bài", "ten bai", "bài", "bai"):
             continue
 
-        # Parse trang: "25-26" hoặc "25"
         try:
             parts = re.split(r"[-–,;\s]+", trang_str)
             nums = [int(p) for p in parts if p.strip().isdigit()]
@@ -1213,19 +1272,6 @@ def doc_lich_bao_giang(file_obj):
     if not ds_bai:
         return ([], ["Không đọc được dòng nào từ file"])
     return (ds_bai, [])
-
-
-def _norm_header(s):
-    """Chuẩn hóa tên cột."""
-    if not s:
-        return ""
-    s = str(s).strip().lower()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    s = s.replace("đ", "d")
-    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
-    s = re.sub(r"\s+", " ", s)
-    return s
 
 
 # ============ KẾT THÚC PHẦN 2/6 ============
@@ -2123,7 +2169,9 @@ with tab_manual:
         # --- Nguồn 1: File Lịch BG ---
         if _nguon_ds.startswith("📄 Nạp từ file Lịch BG"):
             st.caption("Upload file Lịch BG (docx/xlsx/csv/txt). "
-                       "App sẽ đọc cột Tên bài + Trang SGK.")
+                       "App sẽ đọc cột Tên bài + Trang SGK. "
+                       "Các dòng trùng tên bài (1 bài dạy nhiều lớp) "
+                       "sẽ được **gộp** thành 1 bài.")
             _lbg_file = st.file_uploader(
                 "Chọn file Lịch BG",
                 type=["docx", "xlsx", "xls", "csv", "txt"],
@@ -2224,8 +2272,11 @@ with tab_manual:
         elif _ds_loi_parse:
             st.error("❌ Sửa lỗi trước.")
         else:
+            # Gộp các bài trùng tên (1 bài dạy nhiều lớp)
+            _ds_bai_gop = gop_bai_trung(_ds_bai_final)
+
             st.markdown("---")
-            _ds_loi_check = kiem_tra_danh_sach_bai(_ds_bai_final, _tong_trang)
+            _ds_loi_check = kiem_tra_danh_sach_bai(_ds_bai_gop, _tong_trang)
 
             if _ds_loi_check:
                 st.error(f"❌ {len(_ds_loi_check)} lỗi:")
@@ -2233,29 +2284,37 @@ with tab_manual:
                     st.write(f"  • {_l}")
                 st.warning("⚠️ Sửa lỗi trước. App **không tự suy** trang KT.")
             else:
-                st.success(f"✅ Danh sách hợp lệ: **{len(_ds_bai_final)}** bài")
+                _so_goc = len(_ds_bai_final)
+                _so_gop = len(_ds_bai_gop)
+                st.success(f"✅ Danh sách hợp lệ: **{_so_gop}** bài "
+                           f"(gộp từ **{_so_goc}** dòng)")
 
-                with st.expander("👁️ Xem trước danh sách bài", expanded=True):
+                with st.expander("👁️ Xem trước danh sách bài",
+                                 expanded=True):
                     _preview = []
-                    for _i, _b in enumerate(_ds_bai_final, start=1):
-                        _preview.append({
+                    for _i, _b in enumerate(_ds_bai_gop, start=1):
+                        _row = {
                             "STT": _i,
                             "Tên bài": _b["ten_bai"],
                             "Trang BĐ": _b["trang_bd"],
                             "Trang KT": _b["trang_kt"],
                             "Số trang": (_b["trang_kt"] - _b["trang_bd"] + 1),
-                        })
+                            "Số dòng gốc": _b.get("so_dong_goc", 1),
+                        }
+                        if _b.get("ds_lop"):
+                            _row["Lớp"] = ", ".join(_b["ds_lop"])
+                        _preview.append(_row)
                     st.dataframe(_preview, use_container_width=True,
                                  hide_index=True)
 
                 st.caption(f"📄 File PDF: **{_tong_trang} trang** | "
-                            f"📚 Sẽ tách: **{len(_ds_bai_final)} bài**")
+                            f"📚 Sẽ tách: **{_so_gop}** bài riêng")
 
                 if st.button("🚀 Tách và nạp", type="primary",
                              use_container_width=True, key="btn_tach_gop"):
                     with st.spinner("Đang tách..."):
                         _kq = tach_va_nap_theo_danh_sach(
-                            _sgk_name_input, _pdf_bytes, _ds_bai_final)
+                            _sgk_name_input, _pdf_bytes, _ds_bai_gop)
 
                     st.markdown("---")
                     st.markdown("#### 📊 Báo cáo")
