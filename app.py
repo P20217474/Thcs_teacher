@@ -3857,30 +3857,32 @@ if st.session_state.get("draft"):
 
 
 # ============ KẾT THÚC PHẦN 5/6 ============
+
 # ============================================================
 # PHẦN 6/6: LỊCH BÁO GIẢNG + SOẠN TUẦN + XUẤT WORD
 # ============================================================
 # Chức năng:
-#   - Nạp lịch báo giảng thủ công (Excel/CSV/Word/TXT)
-#   - Nhập lịch báo giảng trực tiếp (chỉ TÊN BÀI)
-#   - Soạn hàng loạt bài trong tuần (dò theo TÊN)
-#   - Xuất Word: giáo án cả tuần + lịch báo giảng
-#   - Hiển thị kết quả + tải xuống từng bài
+#   - Nạp lịch báo giảng (Excel/CSV/Word/TXT)
+#   - Chuẩn hóa cột "Thứ" (Thứ 2, Thứ hai, T2, 2, ...)
+#   - Gộp bài trùng (1 bài dạy nhiều lớp → 1 bài duy nhất)
+#   - Soạn hàng loạt bài (mỗi bài soạn 1 lần)
+#   - Xuất Word: phiếu lịch BG ở đầu + giáo án từng bài
 # ============================================================
 
 st.divider()
 st.subheader("📅 Soạn cả tuần + Lịch báo giảng")
 
 # ============================================================
-# MỤC A: NẠP LỊCH BÁO GIẢNG THỦ CÔNG
+# MỤC A: NẠP LỊCH BÁO GIẢNG TỪ FILE
 # ============================================================
 
-st.markdown("### 📥 Nạp lịch báo giảng có sẵn")
+st.markdown("### 📥 Nạp lịch báo giảng")
 
 with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False):
     st.caption(
-        "💡 Upload file lịch báo giảng đã có sẵn. "
-        "App sẽ tự đọc và điền vào bảng bên dưới. "
+        "💡 Upload file lịch báo giảng có sẵn. "
+        "App sẽ tự đọc, chuẩn hóa cột Thứ, và "
+        "**gộp các bài trùng** (1 bài dạy nhiều lớp → 1 bài duy nhất). "
         "Hỗ trợ: `.xlsx`, `.xls`, `.csv`, `.docx`, `.txt`."
     )
 
@@ -3897,13 +3899,17 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
         )
         _col_buoi = st.text_input("Cột Buổi", value="Buổi,Sáng/Chiều",
                                    key="lbg_col_buoi")
-        _col_thu = st.text_input("Cột Thứ", value="Thứ,Thứ trong tuần,Ngày",
+        _col_thu = st.text_input("Cột Thứ",
+                                  value="Thứ,Thứ trong tuần,Ngày",
                                   key="lbg_col_thu")
-        _col_tiet = st.text_input("Cột Tiết", value="Tiết,Tiết PPCT,PPCT",
+        _col_tiet = st.text_input("Cột Tiết",
+                                   value="Tiết,Tiết PPCT,PPCT",
                                    key="lbg_col_tiet")
-        _col_mon = st.text_input("Cột Môn", value="Môn,Môn học,Subject",
+        _col_mon = st.text_input("Cột Môn",
+                                  value="Môn,Môn học,Subject",
                                   key="lbg_col_mon")
-        _col_lop = st.text_input("Cột Lớp", value="Lớp,Khối,Class",
+        _col_lop = st.text_input("Cột Lớp",
+                                  value="Lớp,Khối,Class",
                                   key="lbg_col_lop")
         _col_bai = st.text_input(
             "Cột Tên bài",
@@ -3935,6 +3941,45 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
                     return i
         return None
 
+    # ============ BẢNG CHUẨN HÓA "THỨ" ============
+    _THU_MAP = {
+        "2": "Thứ 2", "thu 2": "Thứ 2", "thứ 2": "Thứ 2",
+        "t2": "Thứ 2", "thu hai": "Thứ 2", "thứ hai": "Thứ 2",
+        "hai": "Thứ 2", "monday": "Thứ 2", "mon": "Thứ 2",
+        "3": "Thứ 3", "thu 3": "Thứ 3", "thứ 3": "Thứ 3",
+        "t3": "Thứ 3", "thu ba": "Thứ 3", "thứ ba": "Thứ 3",
+        "ba": "Thứ 3", "tuesday": "Thứ 3", "tue": "Thứ 3",
+        "4": "Thứ 4", "thu 4": "Thứ 4", "thứ 4": "Thứ 4",
+        "t4": "Thứ 4", "thu tu": "Thứ 4", "thứ tư": "Thứ 4",
+        "tư": "Thứ 4", "wednesday": "Thứ 4", "wed": "Thứ 4",
+        "5": "Thứ 5", "thu 5": "Thứ 5", "thứ 5": "Thứ 5",
+        "t5": "Thứ 5", "thu nam": "Thứ 5", "thứ năm": "Thứ 5",
+        "năm": "Thứ 5", "thursday": "Thứ 5", "thu": "Thứ 5",
+        "6": "Thứ 6", "thu 6": "Thứ 6", "thứ 6": "Thứ 6",
+        "t6": "Thứ 6", "thu sau": "Thứ 6", "thứ sáu": "Thứ 6",
+        "sáu": "Thứ 6", "friday": "Thứ 6", "fri": "Thứ 6",
+        "7": "Thứ 7", "thu 7": "Thứ 7", "thứ 7": "Thứ 7",
+        "t7": "Thứ 7", "thu bay": "Thứ 7", "thứ bảy": "Thứ 7",
+        "bảy": "Thứ 7", "saturday": "Thứ 7", "sat": "Thứ 7",
+        "cn": "Chủ nhật", "chunhat": "Chủ nhật",
+        "chủ nhật": "Chủ nhật", "sunday": "Chủ nhật",
+        "sun": "Chủ nhật",
+    }
+
+    def _chuan_hoa_thu(s):
+        if not s:
+            return "Thứ 2"
+        raw = str(s).strip()
+        key = _norm_header(raw)
+        if key.startswith("thu "):
+            key = key[4:]
+        if key in _THU_MAP:
+            return _THU_MAP[key]
+        m = re.search(r"\d", raw)
+        if m and m.group() in _THU_MAP:
+            return _THU_MAP[m.group()]
+        return "Thứ 2"
+
     def _parse_lbg_rows(headers, rows):
         idx_buoi = _find_col(headers, _col_buoi)
         idx_thu = _find_col(headers, _col_thu)
@@ -3957,7 +4002,7 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
 
             out.append({
                 "buoi": _get(idx_buoi, "Sáng") or "Sáng",
-                "thu": _get(idx_thu, "Thứ 2") or "Thứ 2",
+                "thu": _chuan_hoa_thu(_get(idx_thu, "Thứ 2")),
                 "tiet": _get(idx_tiet),
                 "mon": _get(idx_mon, "Toán") or "Toán",
                 "lop": _get(idx_lop, "6") or "6",
@@ -4010,12 +4055,12 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
             line = p.text.strip()
             if not line:
                 continue
-            parts = [x.strip() for x in re.split(r"\t|\s{2,}|\|", line)
-                     if x.strip()]
+            parts = [x.strip() for x in re.split(
+                r"\t|\s{2,}|\|", line) if x.strip()]
             if len(parts) >= 3:
                 out.append({
                     "buoi": "Sáng",
-                    "thu": parts[0] if len(parts) > 0 else "Thứ 2",
+                    "thu": _chuan_hoa_thu(parts[0]),
                     "tiet": parts[1] if len(parts) > 1 else "",
                     "mon": parts[2] if len(parts) > 2 else "Toán",
                     "lop": parts[3] if len(parts) > 3 else "6",
@@ -4038,8 +4083,8 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
         if not lines:
             return []
 
-        first_parts = [x.strip() for x in re.split(r"\t|\s{2,}|\|", lines[0])
-                       if x.strip()]
+        first_parts = [x.strip() for x in re.split(
+            r"\t|\s{2,}|\|", lines[0]) if x.strip()]
         if len(first_parts) >= 3 and any(
             _norm_header(x) in [
                 "buoi", "thu", "tiet", "mon", "lop",
@@ -4054,13 +4099,13 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
 
         out = []
         for ln in lines:
-            parts = [x.strip() for x in re.split(r"\t|\s{2,}|\|", ln)
-                     if x.strip()]
+            parts = [x.strip() for x in re.split(
+                r"\t|\s{2,}|\|", ln) if x.strip()]
             if len(parts) < 3:
                 continue
             out.append({
                 "buoi": "Sáng",
-                "thu": parts[0],
+                "thu": _chuan_hoa_thu(parts[0]),
                 "tiet": parts[1] if len(parts) > 1 else "",
                 "mon": parts[2] if len(parts) > 2 else "Toán",
                 "lop": parts[3] if len(parts) > 3 else "6",
@@ -4091,7 +4136,8 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
                     f"từ file `{_lbg_file.name}`."
                 )
 
-                with st.expander("👁️ Xem trước", expanded=True):
+                with st.expander("👁️ Xem trước dữ liệu gốc",
+                                 expanded=False):
                     _preview = []
                     for _r in _parsed[:10]:
                         _preview.append({
@@ -4115,18 +4161,23 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
                     )
                 with _c_btn:
                     if st.button(
-                        "📥 Nạp vào bảng",
+                        "📥 Nạp vào bảng (gộp bài trùng)",
                         type="primary",
                         use_container_width=True,
                         key="lbg_apply",
                     ):
                         if _mode == "Thay thế toàn bộ":
-                            st.session_state["lich_bao_giang"] = _parsed
+                            _tong = _parsed
                         else:
-                            st.session_state["lich_bao_giang"].extend(_parsed)
+                            _tong = (st.session_state["lich_bao_giang"]
+                                     + _parsed)
+
+                        # Gộp bài trùng
+                        _gop = _gop_lich_bao_giang(_tong)
+                        st.session_state["lich_bao_giang"] = _gop
                         st.success(
-                            f"✅ Đã nạp {len(_parsed)} dòng. "
-                            "Xem/sửa ở bảng bên dưới."
+                            f"✅ Đã nạp **{len(_tong)}** dòng → "
+                            f"gộp còn **{len(_gop)}** bài duy nhất."
                         )
                         st.rerun()
             elif _parsed is not None and not _parsed:
@@ -4136,6 +4187,61 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT", expanded=False
                 )
         except Exception as _e:
             st.error(f"❌ Lỗi đọc file: {_e}")
+
+
+# ============================================================
+# HÀM GỘP BÀI TRÙNG
+# ============================================================
+
+def _gop_lich_bao_giang(ds_rows):
+    """Gộp các dòng trùng tên bài thành 1.
+
+    - Giữ tên bài (lần xuất hiện đầu)
+    - Gộp tất cả lớp dạy bài đó
+    - Gộp tất cả thứ, tiết, buổi
+    - Ghi số dòng gốc
+    """
+    gop = {}
+    thu_tu = []
+
+    for r in ds_rows:
+        ten = (r.get("ten_bai", "") or "").strip()
+        if not ten:
+            continue
+        key = _chuan_hoa_tim_kiem(ten)
+
+        if key not in gop:
+            gop[key] = {
+                "ten_bai": ten,
+                "mon": r.get("mon", "Toán"),
+                "so_tiet": r.get("so_tiet", "1"),
+                "ds_lop": [],
+                "ds_thu": [],
+                "ds_tiet_ppct": [],
+                "ds_buoi": [],
+                "so_dong_goc": 1,
+                "row_goc": dict(r),
+            }
+            thu_tu.append(key)
+        else:
+            gop[key]["so_dong_goc"] += 1
+
+        g = gop[key]
+        lop = (r.get("lop", "") or "").strip()
+        if lop and lop not in g["ds_lop"]:
+            g["ds_lop"].append(lop)
+        thu = (r.get("thu", "") or "").strip()
+        if thu and thu not in g["ds_thu"]:
+            g["ds_thu"].append(thu)
+        tiet = (r.get("tiet", "") or "").strip()
+        if tiet and tiet not in g["ds_tiet_ppct"]:
+            g["ds_tiet_ppct"].append(tiet)
+        buoi = (r.get("buoi", "") or "").strip()
+        if buoi and buoi not in g["ds_buoi"]:
+            g["ds_buoi"].append(buoi)
+
+    return [gop[k] for k in thu_tu]
+
 
 # ============================================================
 # MỤC B: KHỞI TẠO SESSION + CẤU HÌNH TUẦN
@@ -4167,163 +4273,85 @@ with _c3:
     )
 with _c4:
     st.caption(
-        "💡 Nhập lịch dạy từng buổi → bấm **Soạn cả tuần** "
-        "để AI soạn toàn bộ."
+        "💡 Nạp file Lịch BG → App tự gộp bài trùng → "
+        "Bấm **Soạn cả tuần** để AI soạn từng bài."
     )
 
+
 # ============================================================
-# MỤC C: BẢNG NHẬP LỊCH BÁO GIẢNG (CHỈ TÊN BÀI)
+# MỤC C: HIỂN THỊ BÀI ĐÃ GỘP (READ-ONLY)
 # ============================================================
 
-st.markdown("### 📋 Nhập lịch báo giảng")
-st.caption("Mỗi dòng = 1 tiết dạy. Cột **Tên bài** dùng dropdown từ SGK.")
+st.markdown("### 📋 Bài sẽ soạn (đã gộp trùng)")
 
-_danh_sach_mon_all = list(SUBJECT_RULES.keys())
-
-_c_add, _c_del, _c_clear, _c_auto = st.columns([1, 1, 1, 2])
-
-with _c_add:
-    if st.button("➕ Thêm dòng", key="add_row_lich",
-                 use_container_width=True):
-        st.session_state["lich_bao_giang"].append({
-            "buoi": "Sáng",
-            "thu": "Thứ 2",
-            "tiet": str(len(st.session_state["lich_bao_giang"]) + 1),
-            "mon": _danh_sach_mon_all[0] if _danh_sach_mon_all else "Toán",
-            "lop": st.session_state["memory"].get("default_grade", "6"),
-            "ten_bai": "",
-            "so_tiet": "1",
-        })
-        st.rerun()
-
-with _c_del:
-    if st.button("➖ Xóa dòng cuối", key="del_row_lich",
-                 use_container_width=True):
-        if st.session_state["lich_bao_giang"]:
-            st.session_state["lich_bao_giang"].pop()
-        st.rerun()
-
-with _c_clear:
-    if st.button("🗑️ Xóa tất cả", key="clear_lich",
-                 use_container_width=True):
-        st.session_state["lich_bao_giang"] = []
-        st.session_state["weekly_results"] = []
-        st.rerun()
-
-with _c_auto:
-    if st.button("⚡ Tạo nhanh 5 buổi sáng (T2→T6)",
-                 key="auto_gen_lich", use_container_width=True):
-        _thu_list = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"]
-        _mon_default = st.session_state["memory"].get("default_subject",
-                                                       "Toán")
-        _lop_default = st.session_state["memory"].get("default_grade", "6")
-        for _i, _t in enumerate(_thu_list):
-            st.session_state["lich_bao_giang"].append({
-                "buoi": "Sáng",
-                "thu": _t,
-                "tiet": str(_i + 1),
-                "mon": _mon_default,
-                "lop": _lop_default,
-                "ten_bai": "",
-                "so_tiet": "1",
-            })
-        st.rerun()
-
-# Hiển thị bảng nhập
 if st.session_state["lich_bao_giang"]:
-    st.markdown("---")
+    _tong_bai = len(st.session_state["lich_bao_giang"])
+    _tong_dong = sum(
+        b.get("so_dong_goc", 1)
+        for b in st.session_state["lich_bao_giang"]
+    )
+    st.caption(
+        f"📚 Tổng: **{_tong_bai}** bài duy nhất "
+        f"(gộp từ **{_tong_dong}** dòng lịch BG). "
+        "Bấm **🚀 Soạn cả tuần** để AI soạn từng bài 1 lần."
+    )
 
-    # Header — KHÔNG CÒN CỘT TRANG SGK
-    _h = st.columns([0.8, 0.9, 0.5, 1.2, 0.5, 4.0, 0.6])
-    for _col, _label in zip(_h, [
-        "**Buổi**", "**Thứ**", "**Tiết**", "**Môn**", "**Lớp**",
-        "**Tên bài (chọn từ SGK)**", "**Số tiết**"
-    ]):
-        _col.markdown(_label)
+    _h = st.columns([0.4, 3.5, 1.2, 1.8, 1.0, 1.0])
+    with _h[0]: st.markdown("**STT**")
+    with _h[1]: st.markdown("**Tên bài**")
+    with _h[2]: st.markdown("**Môn**")
+    with _h[3]: st.markdown("**Lớp**")
+    with _h[4]: st.markdown("**Thứ**")
+    with _h[5]: st.markdown("**Số tiết**")
 
-    # Các dòng nhập
-    for _i, _row in enumerate(st.session_state["lich_bao_giang"]):
-        _cols = st.columns([0.8, 0.9, 0.5, 1.2, 0.5, 4.0, 0.6])
-
+    for _i, _b in enumerate(
+            st.session_state["lich_bao_giang"], 1):
+        _cols = st.columns([0.4, 3.5, 1.2, 1.8, 1.0, 1.0])
         with _cols[0]:
-            _row["buoi"] = st.selectbox(
-                "Buổi", ["Sáng", "Chiều"],
-                index=0 if _row.get("buoi") == "Sáng" else 1,
-                key=f"buoi_{_i}", label_visibility="collapsed",
-            )
+            st.write(f"**{_i}**")
         with _cols[1]:
-            _thu_opts = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5",
-                         "Thứ 6", "Thứ 7", "Chủ nhật"]
-            _thu_idx = _thu_opts.index(_row.get("thu", "Thứ 2")) \
-                if _row.get("thu") in _thu_opts else 0
-            _row["thu"] = st.selectbox(
-                "Thứ", _thu_opts, index=_thu_idx,
-                key=f"thu_{_i}", label_visibility="collapsed",
-            )
+            _ten = _b.get("ten_bai", "")
+            _so_dong = _b.get("so_dong_goc", 1)
+            if _so_dong > 1:
+                _ten += f"  *({_so_dong} lớp)*"
+            st.write(_ten)
         with _cols[2]:
-            _row["tiet"] = st.text_input(
-                "Tiết", value=_row.get("tiet", ""),
-                key=f"tiet_{_i}", label_visibility="collapsed",
-            )
+            st.write(_b.get("mon", ""))
         with _cols[3]:
-            _mon_idx = _danh_sach_mon_all.index(_row.get("mon", "Toán")) \
-                if _row.get("mon") in _danh_sach_mon_all else 0
-            _row["mon"] = st.selectbox(
-                "Môn", _danh_sach_mon_all, index=_mon_idx,
-                key=f"mon_{_i}", label_visibility="collapsed",
-            )
+            st.write(", ".join(_b.get("ds_lop", [])) or "—")
         with _cols[4]:
-            _row["lop"] = st.text_input(
-                "Lớp", value=_row.get("lop", "6"),
-                key=f"lop_{_i}", label_visibility="collapsed",
-            )
+            st.write(", ".join(_b.get("ds_thu", [])) or "—")
         with _cols[5]:
-            # Dropdown tên bài từ SGK tương ứng
-            _sgk_row = suggest_sgk_name(_row.get("mon", "Toán"),
-                                         _row.get("lop", "6"))
-            _ds_ten = list_ten_bai(_sgk_row)
-            if _ds_ten:
-                _cur = _row.get("ten_bai", "")
-                _opts = ["— Chọn từ SGK —"] + _ds_ten
-                _sel_idx = 0
-                if _cur in _opts:
-                    _sel_idx = _opts.index(_cur)
-                _chon = st.selectbox(
-                    "Tên bài", _opts, index=_sel_idx,
-                    key=f"tenbai_{_i}",
-                    label_visibility="collapsed")
-                if _chon and _chon != "— Chọn từ SGK —":
-                    _row["ten_bai"] = _chon
-            else:
-                _row["ten_bai"] = st.text_input(
-                    "Tên bài", value=_row.get("ten_bai", ""),
-                    key=f"tenbai_txt_{_i}",
-                    label_visibility="collapsed",
-                    placeholder="Gõ tên bài (chưa có SGK)")
-        with _cols[6]:
-            _row["so_tiet"] = st.text_input(
-                "Số tiết", value=_row.get("so_tiet", "1"),
-                key=f"sotiet_{_i}", label_visibility="collapsed",
-            )
+            st.write(_b.get("so_tiet", "1"))
 
     st.markdown("---")
 
-    # Nút soạn cả tuần
+    # Nút soạn
     _btn_soan_tuan = st.button(
         "🚀 Soạn cả tuần",
         type="primary", use_container_width=True,
         key="btn_soan_tuan",
     )
 
+    # Nút xóa
+    _col_clear = st.columns([3, 1])
+    with _col_clear[1]:
+        if st.button("🗑️ Xóa lịch", use_container_width=True,
+                     key="clear_lich"):
+            st.session_state["lich_bao_giang"] = []
+            st.session_state["weekly_results"] = []
+            st.rerun()
+
+    # ============================================================
+    # XỬ LÝ SOẠN CẢ TUẦN
+    # ============================================================
     if _btn_soan_tuan:
         _errors_tuan = []
-        if not available_providers:
-            _errors_tuan.append("❌ Chưa có API key.")
-        for _idx, _row in enumerate(st.session_state["lich_bao_giang"]):
-            if not _row.get("ten_bai", "").strip():
-                _errors_tuan.append(
-                    f"❌ Dòng {_idx+1}: Chưa chọn/nhập tên bài."
-                )
+        if not (USE_OLLAMA and _check_ollama()) \
+                and not available_providers:
+            _errors_tuan.append(
+                "❌ Chưa có AI nào (Ollama hoặc API key)."
+            )
 
         if _errors_tuan:
             for _e in _errors_tuan:
@@ -4334,24 +4362,34 @@ if st.session_state["lich_bao_giang"]:
             _results = []
             _total_rows = len(st.session_state["lich_bao_giang"])
 
-            for _idx, _row in enumerate(st.session_state["lich_bao_giang"]):
+            for _idx, _b in enumerate(
+                    st.session_state["lich_bao_giang"]):
                 _status_tuan.write(
                     f"🤖 Đang soạn {_idx+1}/{_total_rows}: "
-                    f"**{_row['ten_bai'][:50]}**"
+                    f"**{_b.get('ten_bai', '')[:50]}**"
                 )
-                _progress_tuan.progress(int(_idx / _total_rows * 100))
+                _progress_tuan.progress(
+                    int(_idx / _total_rows * 100))
 
-                # Tìm bài theo TÊN
-                _sgk_name_row = suggest_sgk_name(_row["mon"], _row["lop"])
+                # Lấy dòng gốc để soạn
+                _row = _b.get("row_goc", _b)
+
+                # Tìm bài trong SGK
+                _lop_dau = (_b.get("ds_lop", []) or ["6"])[0]
+                _sgk_name_row = suggest_sgk_name(
+                    _b.get("mon", "Toán"), _lop_dau
+                )
                 _sgk_excerpt_row = ""
-                _ten_bai_row = _row.get("ten_bai", "").strip()
+                _ten_bai_row = _b.get("ten_bai", "").strip()
 
                 _bai_row = None
                 if _ten_bai_row:
-                    _bai_row = find_bai_by_name(_sgk_name_row, _ten_bai_row)
+                    _bai_row = find_bai_by_name(
+                        _sgk_name_row, _ten_bai_row)
 
                 if _bai_row:
-                    _text_row = ocr_bai_pdf(_sgk_name_row, _bai_row["file"])
+                    _text_row = ocr_bai_pdf(
+                        _sgk_name_row, _bai_row["file"])
                     if _text_row:
                         _sgk_excerpt_row = (
                             f"\n=== {_bai_row.get('ten_bai', '')} ===\n"
@@ -4361,10 +4399,10 @@ if st.session_state["lich_bao_giang"]:
                 # Build prompt
                 _plan_row = {
                     "task": "Soạn kế hoạch bài dạy",
-                    "subject": _row["mon"],
-                    "grade": _row["lop"],
-                    "topic": _row["ten_bai"],
-                    "period": _row.get("so_tiet", "1"),
+                    "subject": _b.get("mon", "Toán"),
+                    "grade": _lop_dau,
+                    "topic": _ten_bai_row,
+                    "period": _b.get("so_tiet", "1"),
                     "sgk_excerpt": _sgk_excerpt_row[:8000],
                 }
                 _prompt_row = build_exec_prompt(_plan_row)
@@ -4373,21 +4411,30 @@ if st.session_state["lich_bao_giang"]:
                     _result_row = call_ai(_prompt_row)
                     if _result_row:
                         _results.append({
-                            "row": _row, "content": _result_row, "ok": True
+                            "row": _row,
+                            "bai_gop": _b,
+                            "content": _result_row,
+                            "ok": True,
                         })
                         save_history(
-                            f"Soạn bài {_row['mon']}",
-                            _row["ten_bai"],
+                            f"Soạn bài {_b.get('mon', '')}",
+                            _ten_bai_row,
                             _result_row,
                         )
                     else:
                         _results.append({
-                            "row": _row, "content": "", "ok": False,
+                            "row": _row,
+                            "bai_gop": _b,
+                            "content": "",
+                            "ok": False,
                             "error": "AI không trả về nội dung",
                         })
                 except Exception as _e:
                     _results.append({
-                        "row": _row, "content": "", "ok": False,
+                        "row": _row,
+                        "bai_gop": _b,
+                        "content": "",
+                        "ok": False,
                         "error": str(_e),
                     })
 
@@ -4396,8 +4443,16 @@ if st.session_state["lich_bao_giang"]:
             st.session_state["weekly_results"] = _results
 
             _ok_n = len([r for r in _results if r["ok"]])
-            st.success(f"✅ Đã soạn xong {_ok_n}/{_total_rows} bài.")
+            st.success(
+                f"✅ Đã soạn xong {_ok_n}/{_total_rows} bài.")
             st.balloons()
+
+else:
+    st.info(
+        "💡 Chưa có lịch báo giảng. Upload file ở mục "
+        "**📥 Nạp lịch báo giảng** phía trên để bắt đầu."
+    )
+
 
 # ============================================================
 # MỤC D: HIỂN THỊ KẾT QUẢ + TẢI XUỐNG
@@ -4417,7 +4472,9 @@ if st.session_state.get("weekly_results"):
 
     _col_dl1, _col_dl2, _col_dl3 = st.columns(3)
 
-    # --- Word gộp cả tuần ---
+    # ========================================================
+    # --- Word gộp cả tuần (có phiếu Lịch BG ở đầu) ---
+    # ========================================================
     with _col_dl1:
         if _ok_count > 0:
             _d_tuan = Document()
@@ -4442,23 +4499,111 @@ if st.session_state.get("weekly_results"):
             _pf_t.space_before = Pt(0)
             _pf_t.space_after = Pt(0)
 
-            _d_tuan.add_heading(f"KẾ HOẠCH BÀI DẠY TUẦN {_tuan_so}", 0)
+            # =================================================
+            # PHẦN A: PHIẾU LỊCH BÁO GIẢNG (TRANG ĐẦU)
+            # =================================================
+            _tieude = _d_tuan.add_paragraph()
+            _tieude.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _tieude.paragraph_format.space_before = Pt(0)
+            _tieude.paragraph_format.space_after = Pt(6)
+            _run_td = _tieude.add_run(
+                f"LỊCH BÁO GIẢNG TUẦN {_tuan_so}")
+            _set_run_font(_run_td, 16, bold=True)
+
             _mem_t = st.session_state.get("memory", {})
+            _info_lines = []
             if _mem_t.get("school"):
-                _d_tuan.add_paragraph("Đơn vị: " + _mem_t["school"])
+                _info_lines.append("Trường: " + _mem_t["school"])
             if _mem_t.get("teacher_name"):
-                _d_tuan.add_paragraph(
-                    "Người thực hiện: " + _mem_t["teacher_name"])
-            _d_tuan.add_paragraph(
-                "Ngày tạo: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
+                _info_lines.append(
+                    "Giáo viên: " + _mem_t["teacher_name"])
+            _info_lines.append(
+                "Tuần: " + str(_tuan_so)
+                + " | Từ ngày: " + _ngay_bd.strftime("%d/%m/%Y"))
+            _info_lines.append(
+                "Tổng số bài: "
+                + str(len(st.session_state["lich_bao_giang"])))
+
+            for _line in _info_lines:
+                _p_info = _d_tuan.add_paragraph()
+                _p_info.paragraph_format.space_before = Pt(0)
+                _p_info.paragraph_format.space_after = Pt(0)
+                _run_info = _p_info.add_run(_line)
+                _set_run_font(_run_info, 13, bold=False)
+
             _d_tuan.add_paragraph("")
 
+            # Bảng lịch BG
+            _lich_rows = [[
+                "STT", "Tên bài", "Môn", "Lớp",
+                "Thứ", "Tiết", "Số tiết"
+            ]]
+            for _i, _b in enumerate(
+                    st.session_state["lich_bao_giang"], 1):
+                _lich_rows.append([
+                    str(_i),
+                    _b.get("ten_bai", ""),
+                    _b.get("mon", ""),
+                    ", ".join(_b.get("ds_lop", [])) or "—",
+                    ", ".join(_b.get("ds_thu", [])) or "—",
+                    ", ".join(_b.get("ds_tiet_ppct", [])) or "—",
+                    _b.get("so_tiet", "1"),
+                ])
+
+            _t_lich = _d_tuan.add_table(
+                rows=len(_lich_rows), cols=7)
+            _t_lich.style = "Table Grid"
+
+            for _i, _r in enumerate(_lich_rows):
+                for _j in range(7):
+                    _cell = _t_lich.cell(_i, _j)
+                    _cell.text = ""
+                    _p = _cell.paragraphs[0]
+                    _p.paragraph_format.line_spacing_rule = \
+                        WD_LINE_SPACING.SINGLE
+                    _p.paragraph_format.space_before = Pt(0)
+                    _p.paragraph_format.space_after = Pt(0)
+
+                    if _i == 0:
+                        _p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        _run = _p.add_run(_r[_j])
+                        _set_run_font(_run, 12, bold=True)
+                    else:
+                        _p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                        _run = _p.add_run(_r[_j])
+                        _set_run_font(_run, 12, bold=False)
+
+            # =================================================
+            # PHẦN B: CÁC GIÁO ÁN (TỪ TRANG 2 TRỞ ĐI)
+            # =================================================
             for _r in _weekly:
                 if _r["ok"]:
-                    _ri = _r["row"]
+                    _bai_gop = _r.get("bai_gop",
+                                       _r.get("row", {}))
+                    _ten_bai_w = _bai_gop.get("ten_bai", "")
+                    _ds_lop_w = _bai_gop.get("ds_lop", [])
+                    _lop_str = (", ".join(_ds_lop_w)
+                                if _ds_lop_w else
+                                _r["row"].get("lop", ""))
+
                     _d_tuan.add_page_break()
-                    _d_tuan.add_heading(
-                        f"{_ri['mon']} {_ri['lop']} - {_ri['ten_bai']}", 1)
+                    _tieude_ga = _d_tuan.add_paragraph()
+                    _tieude_ga.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    _tieude_ga.paragraph_format.space_before = Pt(0)
+                    _tieude_ga.paragraph_format.space_after = Pt(6)
+                    _run_ga = _tieude_ga.add_run(
+                        f"KẾ HOẠCH BÀI DẠY: {_ten_bai_w}")
+                    _set_run_font(_run_ga, 15, bold=True)
+
+                    _p_lop = _d_tuan.add_paragraph()
+                    _p_lop.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    _p_lop.paragraph_format.space_before = Pt(0)
+                    _p_lop.paragraph_format.space_after = Pt(8)
+                    _run_lop = _p_lop.add_run(
+                        f"Môn: {_bai_gop.get('mon', '')} | "
+                        f"Lớp: {_lop_str}")
+                    _set_run_font(_run_lop, 13, bold=False)
+
                     write_content_to_doc(_d_tuan, _r["content"])
 
             _b_tuan = io.BytesIO()
@@ -4477,7 +4622,9 @@ if st.session_state.get("weekly_results"):
             st.button("⬇️ Tải Word cả tuần", disabled=True,
                       use_container_width=True)
 
-    # --- Word lịch báo giảng ---
+    # ========================================================
+    # --- Word lịch báo giảng riêng ---
+    # ========================================================
     with _col_dl2:
         if st.session_state["lich_bao_giang"]:
             _d_lich = Document()
@@ -4498,10 +4645,12 @@ if st.session_state.get("weekly_results"):
             for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
                 _rf_l.set(qn(_at), "Times New Roman")
 
-            _d_lich.add_heading(f"LỊCH BÁO GIẢNG TUẦN {_tuan_so}", 0)
+            _d_lich.add_heading(
+                f"LỊCH BÁO GIẢNG TUẦN {_tuan_so}", 0)
             _mem_l = st.session_state.get("memory", {})
             if _mem_l.get("school"):
-                _d_lich.add_paragraph("Đơn vị: " + _mem_l["school"])
+                _d_lich.add_paragraph(
+                    "Đơn vị: " + _mem_l["school"])
             if _mem_l.get("teacher_name"):
                 _d_lich.add_paragraph(
                     "Giáo viên: " + _mem_l["teacher_name"])
@@ -4510,28 +4659,29 @@ if st.session_state.get("weekly_results"):
                 + " | Từ ngày: " + _ngay_bd.strftime("%d/%m/%Y"))
             _d_lich.add_paragraph("")
 
-            # Bảng lịch — BỎ CỘT TRANG SGK
             _lich_rows = [[
-                "Buổi", "Thứ", "Tiết", "Môn", "Lớp",
-                "Tên bài", "Số tiết"
+                "STT", "Tên bài", "Môn", "Lớp",
+                "Thứ", "Tiết", "Số tiết"
             ]]
-            for _row in st.session_state["lich_bao_giang"]:
+            for _i, _b in enumerate(
+                    st.session_state["lich_bao_giang"], 1):
                 _lich_rows.append([
-                    _row.get("buoi", ""),
-                    _row.get("thu", ""),
-                    _row.get("tiet", ""),
-                    _row.get("mon", ""),
-                    _row.get("lop", ""),
-                    _row.get("ten_bai", ""),
-                    _row.get("so_tiet", "1"),
+                    str(_i),
+                    _b.get("ten_bai", ""),
+                    _b.get("mon", ""),
+                    ", ".join(_b.get("ds_lop", [])) or "—",
+                    ", ".join(_b.get("ds_thu", [])) or "—",
+                    ", ".join(_b.get("ds_tiet_ppct", [])) or "—",
+                    _b.get("so_tiet", "1"),
                 ])
 
-            _t_lich = _d_lich.add_table(rows=len(_lich_rows), cols=7)
-            _t_lich.style = "Table Grid"
+            _t_lich2 = _d_lich.add_table(
+                rows=len(_lich_rows), cols=7)
+            _t_lich2.style = "Table Grid"
 
             for _i, _r in enumerate(_lich_rows):
                 for _j in range(7):
-                    _cell = _t_lich.cell(_i, _j)
+                    _cell = _t_lich2.cell(_i, _j)
                     _cell.text = ""
                     _p = _cell.paragraphs[0]
                     _p.paragraph_format.line_spacing_rule = \
@@ -4542,17 +4692,17 @@ if st.session_state.get("weekly_results"):
                     if _i == 0:
                         _p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                         _run = _p.add_run(_r[_j])
-                        _set_run_font(_run, 13, bold=True)
+                        _set_run_font(_run, 12, bold=True)
                     else:
                         _p.alignment = WD_ALIGN_PARAGRAPH.LEFT
                         _run = _p.add_run(_r[_j])
-                        _set_run_font(_run, 13, bold=False)
+                        _set_run_font(_run, 12, bold=False)
 
             _b_lich = io.BytesIO()
             _d_lich.save(_b_lich)
 
             st.download_button(
-                "⬇️ Tải lịch báo giảng",
+                "⬇️ Tải lịch BG",
                 _b_lich.getvalue(),
                 file_name=f"LichBaoGiang_Tuan{_tuan_so}.docx",
                 mime=("application/vnd.openxmlformats-officedocument."
@@ -4560,19 +4710,23 @@ if st.session_state.get("weekly_results"):
                 use_container_width=True,
             )
         else:
-            st.button("⬇️ Tải lịch báo giảng", disabled=True,
+            st.button("⬇️ Tải lịch BG", disabled=True,
                       use_container_width=True)
 
+    # ========================================================
     # --- TXT cả tuần ---
+    # ========================================================
     with _col_dl3:
         if _ok_count > 0:
             _txt_all = ""
             for _r in _weekly:
                 if _r["ok"]:
-                    _ri = _r["row"]
+                    _bg = _r.get("bai_gop", _r["row"])
                     _txt_all += (
                         f"\n\n{'='*60}\n"
-                        f"{_ri['mon']} {_ri['lop']} - {_ri['ten_bai']}\n"
+                        f"{_bg.get('mon', '')} "
+                        f"{', '.join(_bg.get('ds_lop', []))} - "
+                        f"{_bg.get('ten_bai', '')}\n"
                         f"{'='*60}\n\n"
                         f"{_r['content']}"
                     )
@@ -4588,16 +4742,20 @@ if st.session_state.get("weekly_results"):
             st.button("⬇️ Tải TXT cả tuần", disabled=True,
                       use_container_width=True)
 
+    # ========================================================
     # --- Chi tiết từng bài ---
+    # ========================================================
     st.markdown("### 📑 Chi tiết từng bài")
 
     for _idx, _r in enumerate(_weekly):
-        _ri = _r["row"]
+        _bg = _r.get("bai_gop", _r["row"])
         _icon = "✅" if _r["ok"] else "❌"
+        _ten_short = _bg.get("ten_bai", "")[:50]
+        _ds_lop_short = ", ".join(_bg.get("ds_lop", []))
 
         with st.expander(
-            f"{_icon} {_ri['thu']} - Tiết {_ri['tiet']} - "
-            f"{_ri['mon']} {_ri['lop']}: {_ri['ten_bai'][:50]}",
+            f"{_icon} {_bg.get('mon', '')} "
+            f"{_ds_lop_short}: {_ten_short}",
             expanded=False,
         ):
             if _r["ok"]:
@@ -4610,7 +4768,8 @@ if st.session_state.get("weekly_results"):
                 _r["content"] = _edited
 
                 _safe_name_row = re.sub(
-                    r"[^A-Za-z0-9_\-]", "_", _ri["ten_bai"]
+                    r"[^A-Za-z0-9_\-]", "_",
+                    _bg.get("ten_bai", "")
                 )[:45] or "bai"
 
                 _col_r1, _col_r2 = st.columns(2)
@@ -4618,10 +4777,11 @@ if st.session_state.get("weekly_results"):
                     st.download_button(
                         "⬇️ Tải Word bài này",
                         make_doc("Tài liệu", _edited,
-                                 subject_name=_ri["mon"]),
+                                 subject_name=_bg.get("mon", "")),
                         file_name=f"{_safe_name_row}.docx",
                         mime=("application/vnd.openxmlformats-"
-                              "officedocument.wordprocessingml.document"),
+                              "officedocument.wordprocessingml."
+                              "document"),
                         key=f"dl_word_weekly_{_idx}",
                         use_container_width=True,
                     )
@@ -4636,17 +4796,12 @@ if st.session_state.get("weekly_results"):
                     )
             else:
                 st.error(
-                    "Lỗi: " + _r.get("error", "Không rõ nguyên nhân")
-                )
+                    "Lỗi: "
+                    + _r.get("error", "Không rõ nguyên nhân"))
 
-else:
-    st.info(
-        "💡 Bấm **➕ Thêm dòng** hoặc **📥 Nạp từ file** "
-        "để bắt đầu nhập lịch báo giảng."
-    )
 
 # ============================================================
-# MỤC E: FOOTER + THÔNG TIN
+# MỤC E: FOOTER
 # ============================================================
 
 st.divider()
@@ -4654,34 +4809,29 @@ st.divider()
 with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
     st.markdown(
         """
-        **🧠 Trợ lý Giáo viên THCS — Phiên bản 2.3**
+        **🧠 Trợ lý Giáo viên THCS — Phiên bản 2.4**
 
         - **Mẫu:** CV 5512 chuẩn Bộ GD&ĐT
-        - **AI:** Đa nhà cung cấp (Gemini / Groq / OpenRouter / NVIDIA)
-        - **Lưu trữ:** GitHub (memory, templates, sources, schedule, history)
-        - **Cache:** Local (OCR ảnh, SGK đã tách theo bài)
-        - **Môn hỗ trợ:** 12 môn (Toán, Ngữ văn, **Tiếng Anh**,
-          KHTN, Lịch sử, Địa lí, GDCD, Mỹ thuật, Âm nhạc, GDTC,
-          HĐTN-HN, Tin học)
+        - **AI local:** Ollama (miễn phí, không token)
+        - **AI cloud:** Gemini / Groq / OpenRouter / NVIDIA
+        - **Lưu trữ:** GitHub (memory, templates, sources, history)
+        - **Môn hỗ trợ:** 12 môn THCS
 
-        **📚 Hướng dẫn nhanh:**
+        **📚 Quy trình soạn tuần:**
 
-        1. **Upload SGK gốc** → Tách tự động theo bài
-        2. **Nạp bài đã tách** → Nếu tự tách thủ công
-        3. **Nạp mẫu giáo án** → Mẫu 5512 riêng của trường
-        4. **Nạp ma trận đề** → Sinh đặc tả + đề + đáp án
-        5. **✏️ Sửa tên bài SGK** → Chỉnh tên nếu OCR sai
-        6. **📝 Khớp tên với Lịch BG** → Dán tên từ Lịch BG
-        7. **Soạn 1 bài** → Chọn môn, lớp, gõ tên bài
-        8. **Soạn cả tuần** → Nhập Lịch BG, chọn bài từ dropdown
-        9. **Tải Word** → Xuất file chuẩn 5512
+        1. **Upload SGK** → Tách bài tự động
+        2. **Upload file Lịch BG** → App tự:
+           - Chuẩn hóa cột Thứ (Thứ 2, T2, hai → Thứ 2)
+           - **Gộp bài trùng** (1 bài nhiều lớp → 1 bài)
+        3. **Bấm "Soạn cả tuần"** → AI soạn từng bài 1 lần
+        4. **Tải Word** → File gồm:
+           - Trang 1: Phiếu Lịch BG (bảng đã gộp)
+           - Trang 2+: Giáo án từng bài (chuẩn 5512)
 
         **⚠️ Lưu ý:**
-
-        - Cần `GEMINI_API_KEY` để OCR mục lục SGK
-        - Cần `GITHUB_TOKEN` để lưu trữ lâu dài
-        - Soạn bài dò theo **TÊN BÀI** (không dùng trang PDF)
-        - Nếu tên bài sai → vào tab **✏️ Sửa tên bài SGK**
+        - Cần Ollama local HOẶC API key cloud
+        - Cần GEMINI_API_KEY để OCR ảnh SGK
+        - Cần GITHUB_TOKEN để lưu trữ + lịch sử
         """
     )
 
