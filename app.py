@@ -64,11 +64,15 @@ def cfg(key, default=""):
         return default
 
 
+# ============================================================
+# 5 NHÀ CUNG CẤP AI MIỄN PHÍ
+# ============================================================
 PROVIDER_KEYS = {
     "GEMINI_API_KEY": cfg("GEMINI_API_KEY", ""),
     "GROQ_API_KEY": cfg("GROQ_API_KEY", ""),
     "OPENROUTER_API_KEY": cfg("OPENROUTER_API_KEY", ""),
-    "NVIDIA_API_KEY": cfg("NVIDIA_API_KEY", ""),
+    "MISTRAL_API_KEY": cfg("MISTRAL_API_KEY", ""),
+    "TBOX_API_KEY": cfg("TBOX_API_KEY", ""),
 }
 for _k, _v in PROVIDER_KEYS.items():
     if _v:
@@ -77,13 +81,30 @@ for _k, _v in PROVIDER_KEYS.items():
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
+# Model ưu tiên cho từng provider (đã cập nhật theo thời điểm 2026)
 PREFERRED_MODELS = {
-    "GEMINI_API_KEY": ["gemini-2.5-flash", "gemini-2.0-flash",
-                       "gemini-flash-latest"],
-    "GROQ_API_KEY": ["llama-3.3-70b-versatile",
-                     "llama-3.1-70b-versatile"],
-    "OPENROUTER_API_KEY": ["google/gemini-2.0-flash-exp:free"],
-    "NVIDIA_API_KEY": ["meta/llama-3.3-70b-instruct"],
+    "GEMINI_API_KEY": [
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+    ],
+    "GROQ_API_KEY": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+    ],
+    "OPENROUTER_API_KEY": [
+        "google/gemini-2.0-flash-001",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen-2.5-72b-instruct:free",
+    ],
+    "MISTRAL_API_KEY": [
+        "mistral-small-latest",
+        "open-mistral-nemo",
+        "mistral-large-latest",
+    ],
+    "TBOX_API_KEY": [
+        "Ling-1T",
+        "Ring-1T",
+    ],
 }
 
 # ============ OLLAMA LOCAL AI ============
