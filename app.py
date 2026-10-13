@@ -1,14 +1,6 @@
 # ============================================================
 # PHẦN 1/6: HẠ TẦNG — IMPORTS + CONFIG + GITHUB API + SESSION
 # ============================================================
-# Chức năng:
-#   - Import toàn bộ thư viện
-#   - Cấu hình Streamlit page
-#   - Đọc secrets (API keys, GitHub token)
-#   - GitHub API: get, save, delete, list, test
-#   - Load memory/templates/sources/schedule
-#   - Khởi tạo session_state
-# ============================================================
 
 import os
 import json
@@ -16,7 +8,6 @@ import base64
 import urllib.request
 from datetime import datetime, timedelta
 
-# ---------- IMPORT CHÍNH ----------
 import streamlit as st
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor, Cm
@@ -27,7 +18,6 @@ import io
 import re
 import csv
 
-# ---------- CÁC FLAG ----------
 try:
     from pypdf import PdfReader
     HAS_PYPDF = True
@@ -35,7 +25,7 @@ except Exception:
     HAS_PYPDF = False
 
 try:
-    import fitz  # pymupdf
+    import fitz
     HAS_PYMUPDF = True
 except Exception:
     HAS_PYMUPDF = False
@@ -52,7 +42,6 @@ try:
 except Exception:
     HAS_GEMINI_VISION = False
 
-# ---------- CẤU HÌNH TRANG ----------
 st.set_page_config(
     page_title="Trợ lý Giáo viên THCS",
     page_icon="🧠",
@@ -64,57 +53,41 @@ st.caption(
     "Bộ não tự học • Mẫu CV 5512 • Sách Kết nối tri thức • Xuất Word"
 )
 
-# ---------- ĐỌC SECRETS ----------
+
 def cfg(key, default=""):
-    """Đọc secret an toàn."""
     try:
         val = st.secrets.get(key, default)
         return val if val else default
     except Exception:
         return default
 
-# ---------- CẤU HÌNH PROVIDER ----------
+
 PROVIDER_KEYS = {
     "GEMINI_API_KEY": cfg("GEMINI_API_KEY", ""),
     "GROQ_API_KEY": cfg("GROQ_API_KEY", ""),
     "OPENROUTER_API_KEY": cfg("OPENROUTER_API_KEY", ""),
     "NVIDIA_API_KEY": cfg("NVIDIA_API_KEY", ""),
 }
-
 for _k, _v in PROVIDER_KEYS.items():
     if _v:
         os.environ[_k] = _v
 
-available_providers = [
-    _k for _k, _v in PROVIDER_KEYS.items() if _v
-]
-
+available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
 PREFERRED_MODELS = {
-    "GEMINI_API_KEY": [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-flash-latest",
-    ],
-    "GROQ_API_KEY": [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-70b-versatile",
-    ],
-    "OPENROUTER_API_KEY": [
-        "google/gemini-2.0-flash-exp:free",
-    ],
-    "NVIDIA_API_KEY": [
-        "meta/llama-3.3-70b-instruct",
-    ],
+    "GEMINI_API_KEY": ["gemini-2.5-flash", "gemini-2.0-flash",
+                       "gemini-flash-latest"],
+    "GROQ_API_KEY": ["llama-3.3-70b-versatile",
+                     "llama-3.1-70b-versatile"],
+    "OPENROUTER_API_KEY": ["google/gemini-2.0-flash-exp:free"],
+    "NVIDIA_API_KEY": ["meta/llama-3.3-70b-instruct"],
 }
 
-# ---------- CẤU HÌNH GITHUB ----------
 GITHUB_TOKEN = cfg("GITHUB_TOKEN", "")
 GITHUB_REPO = cfg("GITHUB_REPO", "P20217474/Thcs_teacher")
 GITHUB_BRANCH = cfg("GITHUB_BRANCH", "main")
 
-# ---------- ĐƯỜNG DẪN CACHE LOCAL ----------
 CACHE_DIR = "cache"
 SGK_BAI_DIR = os.path.join(CACHE_DIR, "sgk_bai")
 SGK_PAGES_DIR = os.path.join(CACHE_DIR, "sgk_pages")
@@ -123,12 +96,10 @@ OCR_CACHE_DIR = os.path.join(CACHE_DIR, "ocr")
 for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR]:
     os.makedirs(_d, exist_ok=True)
 
-# ---------- GITHUB API ----------
+
 def gh_api(method, path, data=None):
-    """Gọi GitHub API."""
     if not GITHUB_TOKEN:
         return {"error": "Chưa có GITHUB_TOKEN"}
-
     url = "https://api.github.com" + path
     headers = {
         "Authorization": "token " + GITHUB_TOKEN,
@@ -136,9 +107,8 @@ def gh_api(method, path, data=None):
         "User-Agent": "agent-thcs",
     }
     body = json.dumps(data).encode("utf-8") if data else None
-    req = urllib.request.Request(
-        url, data=body, headers=headers, method=method
-    )
+    req = urllib.request.Request(url, data=body, headers=headers,
+                                 method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
@@ -147,11 +117,8 @@ def gh_api(method, path, data=None):
 
 
 def gh_get(path):
-    """Đọc file từ GitHub. Trả về (content, sha)."""
-    res = gh_api(
-        "GET",
-        f"/repos/{GITHUB_REPO}/contents/{path}?ref={GITHUB_BRANCH}",
-    )
+    res = gh_api("GET",
+                 f"/repos/{GITHUB_REPO}/contents/{path}?ref={GITHUB_BRANCH}")
     if not res or "error" in res or "content" not in res:
         return (None, None)
     try:
@@ -162,26 +129,17 @@ def gh_get(path):
 
 
 def gh_save(path, content, message="Update"):
-    """Lưu file lên GitHub. Trả về (ok, msg)."""
     if not GITHUB_TOKEN:
         return (False, "Chưa có GITHUB_TOKEN")
-
     old, sha = gh_get(path)
     data = {
         "message": message,
-        "content": base64.b64encode(
-            content.encode("utf-8")
-        ).decode("ascii"),
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
         "branch": GITHUB_BRANCH,
     }
     if sha:
         data["sha"] = sha
-
-    res = gh_api(
-        "PUT",
-        f"/repos/{GITHUB_REPO}/contents/{path}",
-        data,
-    )
+    res = gh_api("PUT", f"/repos/{GITHUB_REPO}/contents/{path}", data)
     if isinstance(res, dict) and "error" in res:
         return (False, "Lỗi: " + str(res["error"]))
     if isinstance(res, dict) and "content" in res:
@@ -190,23 +148,14 @@ def gh_save(path, content, message="Update"):
 
 
 def gh_delete(path):
-    """Xóa file trên GitHub. Trả về (ok, msg)."""
     if not GITHUB_TOKEN:
         return (False, "Chưa có GITHUB_TOKEN")
-
     old, sha = gh_get(path)
     if not sha:
         return (False, "File không tồn tại")
-
-    res = gh_api(
-        "DELETE",
-        f"/repos/{GITHUB_REPO}/contents/{path}",
-        {
-            "message": "Delete " + path,
-            "sha": sha,
-            "branch": GITHUB_BRANCH,
-        },
-    )
+    res = gh_api("DELETE", f"/repos/{GITHUB_REPO}/contents/{path}",
+                 {"message": "Delete " + path, "sha": sha,
+                  "branch": GITHUB_BRANCH})
     if isinstance(res, dict) and "error" in res:
         return (False, "Lỗi: " + str(res["error"]))
     if isinstance(res, dict) and ("content" in res or "commit" in res):
@@ -215,23 +164,16 @@ def gh_delete(path):
 
 
 def gh_list(folder):
-    """Liệt kê file trong folder GitHub."""
-    res = gh_api(
-        "GET",
-        f"/repos/{GITHUB_REPO}/contents/{folder}?ref={GITHUB_BRANCH}",
-    )
+    res = gh_api("GET",
+                 f"/repos/{GITHUB_REPO}/contents/{folder}?ref={GITHUB_BRANCH}")
     if not res or "error" in res or not isinstance(res, list):
         return []
-    return [
-        item["name"] for item in res if item["type"] == "file"
-    ]
+    return [item["name"] for item in res if item["type"] == "file"]
 
 
 def gh_test():
-    """Test GitHub token + quyền ghi. Trả về (ok, msg)."""
     if not GITHUB_TOKEN:
         return (False, "Thiếu GITHUB_TOKEN")
-
     res = gh_api("GET", "/user")
     if isinstance(res, dict) and "login" in res:
         login = res["login"]
@@ -247,35 +189,25 @@ def gh_test():
     return (False, "Token không hợp lệ")
 
 
-# ---------- LOAD / SAVE DỮ LIỆU ----------
 def load_memory():
-    """Đọc memory.json từ GitHub."""
     content, _ = gh_get("data/memory.json")
     if content:
         try:
             return json.loads(content)
         except Exception:
             pass
-    return {
-        "teacher_name": "",
-        "school": "",
-        "default_subject": "Toán",
-        "default_grade": "6",
-    }
+    return {"teacher_name": "", "school": "",
+            "default_subject": "Toán", "default_grade": "6"}
 
 
 def save_memory(memory):
-    """Lưu memory.json lên GitHub."""
     memory["last_updated"] = datetime.now().strftime("%Y-%m-%d")
-    return gh_save(
-        "data/memory.json",
-        json.dumps(memory, ensure_ascii=False, indent=2),
-        "Update memory",
-    )
+    return gh_save("data/memory.json",
+                   json.dumps(memory, ensure_ascii=False, indent=2),
+                   "Update memory")
 
 
 def load_folder(folder):
-    """Đọc toàn bộ file trong folder trên GitHub."""
     files = gh_list(f"data/{folder}")
     out = {}
     for f in files:
@@ -291,21 +223,19 @@ def load_schedule():  return load_folder("schedule")
 
 
 def save_history(task, topic, content):
-    """Lưu lịch sử soạn bài lên GitHub."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9]", "_", topic)[:30]
     return gh_save(
         f"data/history/{ts}_{safe}.md",
         f"# {task}\n\n**Chủ đề:** {topic}\n\n---\n\n{content}",
-        f"History {topic}",
-    )
+        f"History {topic}")
 
 
-# ---------- KHỞI TẠO SESSION STATE ----------
-if "app_started_v23" not in st.session_state:
+# Session state
+if "app_started_v24" not in st.session_state:
     for k in list(st.session_state.keys()):
         del st.session_state[k]
-    st.session_state["app_started_v23"] = True
+    st.session_state["app_started_v24"] = True
 
 defaults = {
     "memory": load_memory(),
@@ -323,22 +253,21 @@ defaults = {
     "de_kiem_tra_hientai": None,
     "ai_prompt_cache": {},
 }
-
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ---------- KẾT THÚC PHẦN 1/6 ----------
+# ============ KẾT THÚC PHẦN 1/6 ============
 
 # ============================================================
-# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF + CACHE
+# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF
 # ============================================================
+
 import hashlib
 import unicodedata
-from pathlib import Path
 
 
-# ---------- PHẦN A: OCR ẢNH ----------
+# ---------- A: OCR ----------
 def _ocr_cache_key(data):
     return hashlib.md5(data).hexdigest()
 
@@ -372,12 +301,10 @@ def ocr_image_with_gemini(data, fname=""):
                    "gemini-flash-latest"]:
             try:
                 model = genai_vision.GenerativeModel(mn)
-                prompt = (
-                    "Đây là ảnh trang sách giáo khoa. "
-                    "Hãy đọc TOÀN BỘ chữ trong ảnh, giữ nguyên cấu trúc, "
-                    "dùng Unicode cho toán: x², √x, ≤, π. "
-                    "Chỉ trả về text, không mô tả."
-                )
+                prompt = ("Đây là ảnh trang sách giáo khoa. "
+                          "Hãy đọc TOÀN BỘ chữ trong ảnh, giữ nguyên cấu "
+                          "trúc, dùng Unicode cho toán: x², √x, ≤, π. "
+                          "Chỉ trả về text, không mô tả.")
                 resp = model.generate_content([prompt, img])
                 text = resp.text.strip()
                 if len(text) >= 20:
@@ -396,7 +323,7 @@ def ocr_image_with_gemini(data, fname=""):
         return "[" + fname + ": Lỗi OCR — " + str(e) + "]"
 
 
-# ---------- PHẦN B: ĐỌC FILE ----------
+# ---------- B: Đọc file ----------
 def _read_docx_safe(data):
     try:
         d = Document(io.BytesIO(data))
@@ -404,9 +331,8 @@ def _read_docx_safe(data):
         for t in d.tables:
             out.append("")
             for row in t.rows:
-                out.append(
-                    "| " + " | ".join(c.text.strip() for c in row.cells)
-                    + " |")
+                out.append("| " + " | ".join(
+                    c.text.strip() for c in row.cells) + " |")
             out.append("")
         return "\n".join(out)
     except Exception as e:
@@ -444,10 +370,8 @@ def _read_excel_safe(data):
         out = []
         for sn in wb.sheetnames:
             ws = wb[sn]
-            rows = [
-                [str(c) if c is not None else "" for c in row]
-                for row in ws.iter_rows(values_only=True)
-            ]
+            rows = [[str(c) if c is not None else "" for c in row]
+                    for row in ws.iter_rows(values_only=True)]
             rows = [r for r in rows if any(c.strip() for c in r)]
             if not rows:
                 continue
@@ -536,7 +460,7 @@ def read_file(file, use_ocr=True):
     return (name, text, len(text))
 
 
-# ---------- PHẦN C: TIỆN ÍCH CHUỖI ----------
+# ---------- C: Tiện ích chuỗi ----------
 def _slugify(text):
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
@@ -546,7 +470,7 @@ def _slugify(text):
     return text.strip("_")
 
 
-# ---------- PHẦN D: PDF HELPERS ----------
+# ---------- D: PDF helpers ----------
 def _render_pdf_page_to_image(pdf_bytes, page_num, dpi=150):
     if not HAS_PYMUPDF:
         return None
@@ -572,8 +496,7 @@ def extract_pdf_page_text(pdf_bytes, page_num):
         if page_num < 0 or page_num >= len(doc):
             doc.close()
             return ""
-        page = doc[page_num]
-        text = page.get_text()
+        text = doc[page_num].get_text()
         doc.close()
         return text.strip()
     except Exception:
@@ -596,7 +519,6 @@ def ocr_bai_pdf(sgk_name, bai_file):
     fpath = os.path.join(SGK_BAI_DIR, sgk_name, bai_file)
     if not os.path.exists(fpath):
         return ""
-
     with open(fpath, "rb") as f:
         pdf_bytes = f.read()
 
@@ -615,11 +537,10 @@ def ocr_bai_pdf(sgk_name, bai_file):
             text = ocr_image_with_gemini(img_bytes, f"{bai_file}_p{i+1}")
             if text and not text.startswith("["):
                 parts.append(text)
-
     return "\n\n---\n\n".join(parts)
 
 
-# ---------- PHẦN E: QUẢN LÝ METADATA SGK ----------
+# ---------- E: Quản lý metadata SGK ----------
 def load_sgk_metadata(sgk_name):
     meta_path = os.path.join(SGK_BAI_DIR, sgk_name, "metadata.json")
     if not os.path.exists(meta_path):
@@ -648,11 +569,9 @@ def list_sgk_da_tach():
         if os.path.isdir(subdir):
             meta = load_sgk_metadata(name)
             if meta:
-                out.append({
-                    "sgk_name": name,
-                    "so_bai": meta.get("so_bai", 0),
-                    "nguon": meta.get("nguon", "unknown"),
-                })
+                out.append({"sgk_name": name,
+                            "so_bai": meta.get("so_bai", 0),
+                            "nguon": meta.get("nguon", "unknown")})
     return out
 
 
@@ -660,27 +579,22 @@ def suggest_sgk_name(mon, lop):
     return "SGK_" + _slugify(mon).title().replace("_", "") + "_" + str(lop)
 
 
-# ---------- PHẦN F: SINH TÊN FILE + KIỂM TRA TRÙNG ----------
+# ---------- F: Sinh tên file + kiểm tra trùng ----------
 def _sinh_ten_file(stt, ten_bai):
-    """Sinh tên file cho bài mới."""
     safe = _slugify(ten_bai)[:40] or f"bai_{stt:02d}"
     return f"bai_{stt:02d}_{safe}.pdf"
 
 
 def _kiem_tra_file_trung(sgk_name, ten_file, ds_file_moi=None):
-    """Kiểm tra file có trùng với file đã có trong SGK không."""
     sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
     if os.path.exists(os.path.join(sgk_dir, ten_file)):
         return True
-
     if ds_file_moi and ten_file in ds_file_moi:
         return True
-
     return False
 
 
 def doi_ten_bai_va_file(sgk_name, so_bai, ten_bai_moi):
-    """Đổi tên bài và đổi tên file PDF tương ứng."""
     meta = load_sgk_metadata(sgk_name)
     if not meta or not meta.get("ds_bai"):
         return (False, "SGK chưa có bài nào")
@@ -690,7 +604,6 @@ def doi_ten_bai_va_file(sgk_name, so_bai, ten_bai_moi):
         if b.get("so_bai") == so_bai:
             bai_can_sua = b
             break
-
     if not bai_can_sua:
         return (False, f"Không tìm thấy bài số {so_bai}")
 
@@ -724,7 +637,6 @@ def doi_ten_bai_va_file(sgk_name, so_bai, ten_bai_moi):
 
     if not os.path.exists(fpath_cu):
         return (False, f"File cũ không tồn tại: {file_cu}")
-
     if os.path.exists(fpath_moi):
         return (False, f"File mới đã tồn tại: {file_moi}")
 
@@ -736,24 +648,18 @@ def doi_ten_bai_va_file(sgk_name, so_bai, ten_bai_moi):
     bai_can_sua["file"] = file_moi
     bai_can_sua["ten_bai"] = ten_bai_moi
     save_sgk_metadata(sgk_name, meta)
-
     return (True, f"Đã đổi: {file_cu} → {file_moi}")
 
 
-# ---------- PHẦN G: NẠP BÀI TỪ PDF RỜI / ZIP ----------
+# ---------- G: Nạp PDF rời / ZIP ----------
 def nap_bai_pdf(sgk_name, ten_bai, file_obj):
-    """Nạp 1 file PDF bài vào SGK."""
     sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
     os.makedirs(sgk_dir, exist_ok=True)
 
     meta = load_sgk_metadata(sgk_name)
     if not meta:
-        meta = {
-            "sgk_name": sgk_name,
-            "nguon": "manual",
-            "so_bai": 0,
-            "ds_bai": [],
-        }
+        meta = {"sgk_name": sgk_name, "nguon": "manual",
+                "so_bai": 0, "ds_bai": []}
 
     for b in meta["ds_bai"]:
         if b.get("ten_bai", "").strip().lower() == ten_bai.strip().lower():
@@ -777,34 +683,23 @@ def nap_bai_pdf(sgk_name, ten_bai, file_obj):
     except Exception as e:
         return (False, f"Lỗi lưu file: {e}", "")
 
-    meta["ds_bai"].append({
-        "file": fname,
-        "ten_bai": ten_bai,
-        "so_bai": stt,
-        "page_pdf_start": 1,
-        "page_pdf_end": 1,
-    })
+    meta["ds_bai"].append({"file": fname, "ten_bai": ten_bai,
+                            "so_bai": stt,
+                            "page_pdf_start": 1, "page_pdf_end": 1})
     meta["so_bai"] = len(meta["ds_bai"])
     save_sgk_metadata(sgk_name, meta)
-
     return (True, "", fname)
 
 
 def nap_zip_sgk(sgk_name, zip_file_obj):
-    """Nạp file ZIP chứa nhiều PDF bài vào SGK."""
     import zipfile
-
     sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
     os.makedirs(sgk_dir, exist_ok=True)
 
     meta = load_sgk_metadata(sgk_name)
     if not meta:
-        meta = {
-            "sgk_name": sgk_name,
-            "nguon": "manual",
-            "so_bai": 0,
-            "ds_bai": [],
-        }
+        meta = {"sgk_name": sgk_name, "nguon": "manual",
+                "so_bai": 0, "ds_bai": []}
 
     ten_da_co = set()
     for b in meta["ds_bai"]:
@@ -822,19 +717,15 @@ def nap_zip_sgk(sgk_name, zip_file_obj):
                 if n.lower().endswith(".pdf")
                 and not n.startswith("__MACOSX")
             ])
-
             for pdf_name in pdf_names:
                 base = os.path.basename(pdf_name)
                 ten_bai = os.path.splitext(base)[0].strip()
-
                 if not ten_bai:
                     continue
-
                 if ten_bai.lower() in ten_da_co:
                     so_trung += 1
                     ds_trung.append(ten_bai)
                     continue
-
                 try:
                     data = zf.read(pdf_name)
                 except Exception:
@@ -843,44 +734,34 @@ def nap_zip_sgk(sgk_name, zip_file_obj):
                 stt = len(meta["ds_bai"]) + 1
                 fname = _sinh_ten_file(stt, ten_bai)
                 fpath = os.path.join(sgk_dir, fname)
-
                 if _kiem_tra_file_trung(sgk_name, fname):
                     so_trung += 1
                     ds_trung.append(ten_bai)
                     continue
-
                 try:
                     with open(fpath, "wb") as f:
                         f.write(data)
                 except Exception:
                     continue
-
                 meta["ds_bai"].append({
-                    "file": fname,
-                    "ten_bai": ten_bai,
+                    "file": fname, "ten_bai": ten_bai,
                     "so_bai": stt,
-                    "page_pdf_start": 1,
-                    "page_pdf_end": 1,
-                })
+                    "page_pdf_start": 1, "page_pdf_end": 1})
                 ten_da_co.add(ten_bai.lower())
                 so_ok += 1
                 ds_ok.append(ten_bai)
-
     except Exception as e:
         return (-1, 0, [], [str(e)])
 
     meta["so_bai"] = len(meta["ds_bai"])
     save_sgk_metadata(sgk_name, meta)
-
     return (so_ok, so_trung, ds_ok, ds_trung)
 
 
-# ---------- PHẦN H: TÁCH PDF GỘP ----------
+# ---------- H: Tách PDF gộp ----------
 def parse_danh_sach_bai(text):
-    """Parse danh sách bài từ text."""
     if not text or not text.strip():
         return ([], ["Danh sách rỗng"])
-
     ds_bai = []
     ds_loi = []
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
@@ -892,52 +773,36 @@ def parse_danh_sach_bai(text):
             parts = [p.strip() for p in line.split("\t")]
         else:
             parts = [p.strip() for p in line.split(",")]
-
         parts = [p for p in parts if p != ""]
 
         if len(parts) < 3:
-            ds_loi.append(
-                f"Dòng {i}: Cần 3 cột (Tên bài, Trang BĐ, Trang KT). "
-                f"Nhận được: `{line}`"
-            )
+            ds_loi.append(f"Dòng {i}: Cần 3 cột. Nhận: `{line}`")
             continue
 
         ten_bai = parts[0].strip()
-        trang_bd_str = parts[1].strip()
-        trang_kt_str = parts[2].strip()
+        bd_str = parts[1].strip()
+        kt_str = parts[2].strip()
 
         if not ten_bai:
             ds_loi.append(f"Dòng {i}: Tên bài rỗng")
             continue
-
-        if not trang_bd_str.isdigit():
-            ds_loi.append(
-                f"Dòng {i}: Trang BĐ không phải số: `{trang_bd_str}`"
-            )
+        if not bd_str.isdigit():
+            ds_loi.append(f"Dòng {i}: Trang BĐ không phải số: `{bd_str}`")
+            continue
+        if not kt_str.isdigit():
+            ds_loi.append(f"Dòng {i}: Trang KT không phải số: `{kt_str}`")
             continue
 
-        if not trang_kt_str.isdigit():
-            ds_loi.append(
-                f"Dòng {i}: Trang KT không phải số: `{trang_kt_str}`"
-            )
-            continue
-
-        ds_bai.append({
-            "ten_bai": ten_bai,
-            "trang_bd": int(trang_bd_str),
-            "trang_kt": int(trang_kt_str),
-        })
-
+        ds_bai.append({"ten_bai": ten_bai,
+                       "trang_bd": int(bd_str),
+                       "trang_kt": int(kt_str)})
     return (ds_bai, ds_loi)
 
 
 def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
-    """Kiểm tra danh sách bài có hợp lệ không."""
     ds_loi = []
-
     if not ds_bai:
-        ds_loi.append("Danh sách bài rỗng.")
-        return ds_loi
+        return ["Danh sách bài rỗng."]
 
     for i, b in enumerate(ds_bai, start=1):
         ten = b.get("ten_bai", "")
@@ -946,172 +811,99 @@ def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
 
         if not ten:
             ds_loi.append(f"Dòng {i}: Tên bài rỗng")
-
         if bd <= 0:
-            ds_loi.append(
-                f"Dòng {i} ({ten}): Trang BĐ phải > 0 (đang = {bd})"
-            )
-
+            ds_loi.append(f"Dòng {i} ({ten}): Trang BĐ phải > 0")
         if kt <= 0:
-            ds_loi.append(
-                f"Dòng {i} ({ten}): Trang KT phải > 0 (đang = {kt}). "
-                f"Vui lòng nhập đủ trang KT."
-            )
-
+            ds_loi.append(f"Dòng {i} ({ten}): Trang KT phải > 0")
         if bd > kt:
-            ds_loi.append(
-                f"Dòng {i} ({ten}): Trang BĐ ({bd}) > Trang KT ({kt})"
-            )
-
+            ds_loi.append(f"Dòng {i} ({ten}): BĐ ({bd}) > KT ({kt})")
         if bd > tong_so_trang_pdf:
-            ds_loi.append(
-                f"Dòng {i} ({ten}): Trang BĐ ({bd}) vượt quá "
-                f"tổng số trang PDF ({tong_so_trang_pdf})"
-            )
-
+            ds_loi.append(f"Dòng {i} ({ten}): BĐ ({bd}) > "
+                          f"tổng trang ({tong_so_trang_pdf})")
         if kt > tong_so_trang_pdf:
-            ds_loi.append(
-                f"Dòng {i} ({ten}): Trang KT ({kt}) vượt quá "
-                f"tổng số trang PDF ({tong_so_trang_pdf})"
-            )
+            ds_loi.append(f"Dòng {i} ({ten}): KT ({kt}) > "
+                          f"tổng trang ({tong_so_trang_pdf})")
 
-    ten_da_gap = {}
+    seen = {}
     for i, b in enumerate(ds_bai, start=1):
-        ten_chuan = _chuan_hoa_tim_kiem(b.get("ten_bai", ""))
-        if ten_chuan in ten_da_gap:
-            ds_loi.append(
-                f"Dòng {i}: Trùng tên bài với dòng "
-                f"{ten_da_gap[ten_chuan]} (`{b.get('ten_bai', '')}`)"
-            )
+        c = _chuan_hoa_tim_kiem(b.get("ten_bai", ""))
+        if c in seen:
+            ds_loi.append(f"Dòng {i}: Trùng tên với dòng {seen[c]}")
         else:
-            ten_da_gap[ten_chuan] = i
-
+            seen[c] = i
     return ds_loi
 
 
 def tach_pdf_theo_danh_sach(pdf_bytes, ds_bai):
-    """Tách PDF gộp thành nhiều PDF nhỏ theo danh sách bài."""
     if not HAS_PYMUPDF:
-        return [{
-            "ten_bai": "",
-            "file_name": "",
-            "pdf_bytes": b"",
-            "so_trang": 0,
-            "ok": False,
-            "error": "Chưa cài pymupdf",
-        }]
-
+        return [{"ten_bai": "", "file_name": "", "pdf_bytes": b"",
+                 "so_trang": 0, "ok": False, "error": "Chưa cài pymupdf"}]
     results = []
-
     try:
         doc_src = fitz.open(stream=pdf_bytes, filetype="pdf")
         total_pages = len(doc_src)
     except Exception as e:
-        return [{
-            "ten_bai": "",
-            "file_name": "",
-            "pdf_bytes": b"",
-            "so_trang": 0,
-            "ok": False,
-            "error": f"Không mở được PDF: {e}",
-        }]
+        return [{"ten_bai": "", "file_name": "", "pdf_bytes": b"",
+                 "so_trang": 0, "ok": False,
+                 "error": f"Không mở được PDF: {e}"}]
 
     for i, b in enumerate(ds_bai):
         ten_bai = str(b.get("ten_bai", "") or f"Bài {i+1}").strip()
         trang_bd = int(b.get("trang_bd", 0))
         trang_kt = int(b.get("trang_kt", 0))
-
         p_bd = trang_bd - 1
         p_kt = trang_kt - 1
 
         if p_bd < 0 or p_kt < 0 or p_bd >= total_pages or p_kt >= total_pages:
-            results.append({
-                "ten_bai": ten_bai,
-                "file_name": "",
-                "pdf_bytes": b"",
-                "so_trang": 0,
-                "ok": False,
-                "error": (
-                    f"Trang không hợp lệ "
-                    f"(BĐ={trang_bd}, KT={trang_kt}, "
-                    f"PDF có {total_pages} trang)"
-                ),
-            })
+            results.append({"ten_bai": ten_bai, "file_name": "",
+                             "pdf_bytes": b"", "so_trang": 0, "ok": False,
+                             "error": f"Trang không hợp lệ (BĐ={trang_bd}, "
+                                      f"KT={trang_kt}, PDF có {total_pages})"})
             continue
-
         if p_bd > p_kt:
-            results.append({
-                "ten_bai": ten_bai,
-                "file_name": "",
-                "pdf_bytes": b"",
-                "so_trang": 0,
-                "ok": False,
-                "error": f"Trang BĐ ({trang_bd}) > trang KT ({trang_kt})",
-            })
+            results.append({"ten_bai": ten_bai, "file_name": "",
+                             "pdf_bytes": b"", "so_trang": 0, "ok": False,
+                             "error": f"BĐ > KT"})
             continue
 
         try:
             doc_new = fitz.open()
             for p in range(p_bd, p_kt + 1):
                 doc_new.insert_pdf(doc_src, from_page=p, to_page=p)
-
             buf = io.BytesIO()
             doc_new.save(buf)
             doc_new.close()
-
             pdf_out = buf.getvalue()
             so_trang = p_kt - p_bd + 1
-
             safe = _slugify(ten_bai)[:40] or f"bai_{i+1:02d}"
             fname = f"bai_{i+1:02d}_{safe}.pdf"
-
-            results.append({
-                "ten_bai": ten_bai,
-                "file_name": fname,
-                "pdf_bytes": pdf_out,
-                "so_trang": so_trang,
-                "ok": True,
-                "error": "",
-            })
-
+            results.append({"ten_bai": ten_bai, "file_name": fname,
+                             "pdf_bytes": pdf_out, "so_trang": so_trang,
+                             "ok": True, "error": ""})
         except Exception as e:
-            results.append({
-                "ten_bai": ten_bai,
-                "file_name": "",
-                "pdf_bytes": b"",
-                "so_trang": 0,
-                "ok": False,
-                "error": str(e),
-            })
-
+            results.append({"ten_bai": ten_bai, "file_name": "",
+                             "pdf_bytes": b"", "so_trang": 0, "ok": False,
+                             "error": str(e)})
     doc_src.close()
     return results
 
 
 def tach_va_nap_theo_danh_sach(sgk_name, pdf_bytes, ds_bai):
-    """Tách PDF gộp và nạp vào SGK."""
     kq_tach = tach_pdf_theo_danh_sach(pdf_bytes, ds_bai)
-
     sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
     os.makedirs(sgk_dir, exist_ok=True)
 
     meta = load_sgk_metadata(sgk_name)
     if not meta:
-        meta = {
-            "sgk_name": sgk_name,
-            "nguon": "manual",
-            "so_bai": 0,
-            "ds_bai": [],
-        }
+        meta = {"sgk_name": sgk_name, "nguon": "manual",
+                "so_bai": 0, "ds_bai": []}
 
     ten_da_co = set()
     for b in meta["ds_bai"]:
         ten_da_co.add(b.get("ten_bai", "").strip().lower())
-
     ds_file_da_co = set()
     for b in meta["ds_bai"]:
         ds_file_da_co.add(b.get("file", ""))
-
     ds_file_moi = set()
 
     so_ok = 0
@@ -1125,12 +917,10 @@ def tach_va_nap_theo_danh_sach(sgk_name, pdf_bytes, ds_bai):
 
     for kq in kq_tach:
         ten_bai = kq["ten_bai"]
-
         if not kq["ok"]:
             so_loi += 1
             ds_loi.append((ten_bai, kq["error"]))
             continue
-
         if ten_bai.strip().lower() in ten_da_co:
             so_trung_bai += 1
             ds_trung_bai.append(ten_bai)
@@ -1138,7 +928,6 @@ def tach_va_nap_theo_danh_sach(sgk_name, pdf_bytes, ds_bai):
 
         stt = len(meta["ds_bai"]) + len(ds_ok) + 1
         fname = _sinh_ten_file(stt, ten_bai)
-
         if fname in ds_file_da_co or fname in ds_file_moi:
             so_trung_file += 1
             ds_trung_file.append((ten_bai, fname))
@@ -1153,13 +942,9 @@ def tach_va_nap_theo_danh_sach(sgk_name, pdf_bytes, ds_bai):
             ds_loi.append((ten_bai, f"Lỗi lưu file: {e}"))
             continue
 
-        meta["ds_bai"].append({
-            "file": fname,
-            "ten_bai": ten_bai,
-            "so_bai": stt,
-            "page_pdf_start": 1,
-            "page_pdf_end": 1,
-        })
+        meta["ds_bai"].append({"file": fname, "ten_bai": ten_bai,
+                                "so_bai": stt,
+                                "page_pdf_start": 1, "page_pdf_end": 1})
         ten_da_co.add(ten_bai.strip().lower())
         ds_file_da_co.add(fname)
         ds_file_moi.add(fname)
@@ -1168,45 +953,32 @@ def tach_va_nap_theo_danh_sach(sgk_name, pdf_bytes, ds_bai):
 
     meta["so_bai"] = len(meta["ds_bai"])
     save_sgk_metadata(sgk_name, meta)
-
-    return {
-        "so_ok": so_ok,
-        "so_trung_bai": so_trung_bai,
-        "so_trung_file": so_trung_file,
-        "so_loi": so_loi,
-        "ds_ok": ds_ok,
-        "ds_trung_bai": ds_trung_bai,
-        "ds_trung_file": ds_trung_file,
-        "ds_loi": ds_loi,
-    }
+    return {"so_ok": so_ok, "so_trung_bai": so_trung_bai,
+            "so_trung_file": so_trung_file, "so_loi": so_loi,
+            "ds_ok": ds_ok, "ds_trung_bai": ds_trung_bai,
+            "ds_trung_file": ds_trung_file, "ds_loi": ds_loi}
 
 
 def tao_zip_cac_bai(sgk_name):
-    """Tạo file ZIP chứa toàn bộ bài của SGK."""
     import zipfile
-
     meta = load_sgk_metadata(sgk_name)
     if not meta or not meta.get("ds_bai"):
         return None
-
     sgk_dir = os.path.join(SGK_BAI_DIR, sgk_name)
     zip_buffer = io.BytesIO()
-
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for b in meta["ds_bai"]:
             fpath = os.path.join(sgk_dir, b.get("file", ""))
             if os.path.exists(fpath):
                 zf.write(fpath, arcname=b.get("file", ""))
-
         meta_path = os.path.join(sgk_dir, "metadata.json")
         if os.path.exists(meta_path):
             zf.write(meta_path, arcname="metadata.json")
-
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
 
-# ---------- PHẦN I: TÌM BÀI THEO TÊN ----------
+# ---------- I: Tìm bài theo tên ----------
 def _chuan_hoa_tim_kiem(s):
     if not s:
         return ""
@@ -1242,11 +1014,9 @@ def find_bai_by_name(sgk_name, ten_bai, threshold=0.45):
     ten_can = _chuan_hoa_tim_kiem(ten_bai)
     if not ten_can:
         return None
-
     for b in meta["ds_bai"]:
         if _chuan_hoa_tim_kiem(b.get("ten_bai", "")) == ten_can:
             return b
-
     best = None
     best_score = 0.0
     for b in meta["ds_bai"]:
@@ -1255,7 +1025,6 @@ def find_bai_by_name(sgk_name, ten_bai, threshold=0.45):
         if score > best_score:
             best_score = score
             best = b
-
     if best and best_score >= threshold:
         return best
     return None
@@ -1275,14 +1044,191 @@ def render_danh_sach_bai(sgk_name, expanded=False):
         return
     rows = []
     for b in meta["ds_bai"]:
-        rows.append({
-            "STT": b.get("so_bai", ""),
-            "Tên bài": b.get("ten_bai", ""),
-        })
+        rows.append({"STT": b.get("so_bai", ""),
+                     "Tên bài": b.get("ten_bai", "")})
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
-# ---------- KẾT THÚC PHẦN 2/6 ----------
+# ---------- J: Đọc file Lịch báo giảng ----------
+def doc_lich_bao_giang(file_obj):
+    """Đọc file Lịch BG (docx/xlsx/csv/txt) → list các dòng.
+
+    Mỗi dòng có: ten_bai, trang_bd, trang_kt, mon, lop, tiet_ppct
+    """
+    if file_obj is None:
+        return ([], ["Chưa có file"])
+
+    try:
+        data = file_obj.read()
+    except Exception as e:
+        return ([], [f"Lỗi đọc file: {e}"])
+
+    name = file_obj.name.lower()
+    rows = []
+
+    try:
+        if name.endswith((".xlsx", ".xls", ".xlsm")):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+            ws = wb[wb.sheetnames[0]]
+            all_rows = [
+                [str(c) if c is not None else "" for c in row]
+                for row in ws.iter_rows(values_only=True)
+            ]
+            rows = [r for r in all_rows if any(c.strip() for c in r)]
+
+        elif name.endswith(".csv"):
+            text = None
+            for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1258"]:
+                try:
+                    text = data.decode(enc)
+                    break
+                except Exception:
+                    continue
+            if text is None:
+                text = data.decode("utf-8", errors="ignore")
+            sample = text[:2000]
+            delim = "," if sample.count(",") >= sample.count(";") else ";"
+            rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+
+        elif name.endswith(".docx"):
+            d = Document(io.BytesIO(data))
+            if d.tables:
+                t = d.tables[0]
+                rows = [[c.text.strip() for c in row.cells]
+                        for row in t.rows]
+            else:
+                for p in d.paragraphs:
+                    line = p.text.strip()
+                    if not line:
+                        continue
+                    parts = [x.strip() for x in re.split(
+                        r"\t|\s{2,}|\|", line) if x.strip()]
+                    if len(parts) >= 3:
+                        rows.append(parts)
+
+        elif name.endswith(".txt"):
+            text = None
+            for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1258"]:
+                try:
+                    text = data.decode(enc)
+                    break
+                except Exception:
+                    continue
+            if text is None:
+                text = data.decode("utf-8", errors="ignore")
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                parts = [x.strip() for x in re.split(
+                    r"\t|\s{2,}|\|", line) if x.strip()]
+                if len(parts) >= 3:
+                    rows.append(parts)
+
+        else:
+            return ([], [f"Định dạng không hỗ trợ: {name}"])
+
+    except Exception as e:
+        return ([], [f"Lỗi đọc: {e}"])
+
+    # Chuẩn hóa + tìm cột
+    ds_bai = []
+    if not rows:
+        return ([], ["File không có dữ liệu"])
+
+    # Tìm dòng header
+    header = None
+    header_idx = 0
+    for i, r in enumerate(rows[:5]):
+        joined = " ".join(str(x) for x in r).lower()
+        if ("bài" in joined or "tên bài" in joined
+                or "trang" in joined or "tiết" in joined):
+            header = [_norm_header(x) for x in r]
+            header_idx = i
+            break
+
+    if header is None:
+        header = [_norm_header(x) for x in rows[0]]
+        header_idx = 0
+
+    # Tìm chỉ số cột
+    def _find_col(cands):
+        for i, h in enumerate(header):
+            for c in cands:
+                cn = _norm_header(c)
+                if cn in h or h in cn:
+                    return i
+        return None
+
+    col_ten = _find_col(["tên bài", "ten bai", "bài", "bai",
+                         "tên bài dạy", "chủ đề"])
+    col_trang = _find_col(["trang sgk", "trang", "trang pdf"])
+    col_mon = _find_col(["môn", "mon"])
+    col_lop = _find_col(["lớp", "lop"])
+    col_tiet_ppct = _find_col(["tiết ppct", "ppct", "tiết ct"])
+
+    if col_ten is None or col_trang is None:
+        return ([], [
+            "Không tìm thấy cột 'Tên bài' và 'Trang SGK' trong file. "
+            f"Cột hiện có: {header}"
+        ])
+
+    for r in rows[header_idx + 1:]:
+        def _get(idx, default=""):
+            if idx is None or idx >= len(r):
+                return default
+            return str(r[idx] or "").strip()
+
+        ten = _get(col_ten)
+        trang_str = _get(col_trang)
+        mon = _get(col_mon, "")
+        lop = _get(col_lop, "")
+        tiet_ppct = _get(col_tiet_ppct, "")
+
+        if not ten or not trang_str:
+            continue
+        if ten.lower() in ("tên bài", "ten bai", "bài", "bai"):
+            continue
+
+        # Parse trang: "25-26" hoặc "25"
+        try:
+            parts = re.split(r"[-–,;\s]+", trang_str)
+            nums = [int(p) for p in parts if p.strip().isdigit()]
+            if not nums:
+                continue
+            trang_bd = nums[0]
+            trang_kt = nums[1] if len(nums) > 1 else nums[0]
+        except Exception:
+            continue
+
+        ds_bai.append({
+            "ten_bai": ten,
+            "trang_bd": trang_bd,
+            "trang_kt": trang_kt,
+            "mon": mon,
+            "lop": lop,
+            "tiet_ppct": tiet_ppct,
+        })
+
+    if not ds_bai:
+        return ([], ["Không đọc được dòng nào từ file"])
+    return (ds_bai, [])
+
+
+def _norm_header(s):
+    """Chuẩn hóa tên cột."""
+    if not s:
+        return ""
+    s = str(s).strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.replace("đ", "d")
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+# ============ KẾT THÚC PHẦN 2/6 ============
 
 # ============================================================
 # PHẦN 3/6: RULES 12 MÔN + MẪU 5512 + PROMPT
@@ -1891,9 +1837,8 @@ with st.sidebar:
                 meta = load_sgk_metadata(sgk["sgk_name"])
                 if meta and meta.get("ds_bai"):
                     for b in meta["ds_bai"]:
-                        st.caption(
-                            f"  • Bài {b.get('so_bai', '?')}: "
-                            f"{b.get('ten_bai', '?')}")
+                        st.caption(f"  • Bài {b.get('so_bai', '?')}: "
+                                    f"{b.get('ten_bai', '?')}")
                 st.markdown("---")
 
     if st.button("🔄 Tải lại", use_container_width=True):
@@ -1907,21 +1852,20 @@ with st.sidebar:
 
     st.subheader("🧹 Dọn dẹp")
     with st.expander("🗑️ Dọn rác và cache", expanded=False):
-        st.caption("Chọn mục cần dọn:")
         if st.button("🧼 Xóa phiên làm việc tạm",
                      use_container_width=True, key="clean_session"):
             for k in ["draft", "last_topic", "weekly_results",
                       "lich_bao_giang", "ocr_session_cache"]:
                 if k in st.session_state:
                     del st.session_state[k]
-            st.success("✅ Đã xóa phiên làm việc tạm")
+            st.success("✅ Đã xóa phiên")
             st.rerun()
 
         if st.button("♻️ Xóa cache Streamlit",
                      use_container_width=True, key="clean_cache"):
             st.cache_data.clear()
             st.cache_resource.clear()
-            st.success("✅ Đã xóa cache Streamlit")
+            st.success("✅ Đã xóa cache")
             st.rerun()
 
         if st.button("🗑️ Xóa cache OCR local",
@@ -1947,7 +1891,7 @@ with st.sidebar:
                     "matran_hientai", "mt_saved_sel", "dt_mt_sel"]:
                     del st.session_state[k]
                     _deleted += 1
-            st.success(f"✅ Đã xóa {_deleted} mục.")
+            st.success(f"✅ Đã xóa {_deleted} mục")
             st.rerun()
 
         if GITHUB_TOKEN:
@@ -1967,7 +1911,7 @@ with st.sidebar:
                  use_container_width=True, key="reset_all"):
         for k in list(st.session_state.keys()):
             del st.session_state[k]
-        st.success("✅ Đã reset. Đang tải lại...")
+        st.success("✅ Đã reset")
         st.rerun()
 
 
@@ -2018,7 +1962,7 @@ def call_ai_cached(prompt, system=""):
 (tab_sgk, tab_manual, tab_kho, tab_mau,
  tab_matrix, tab_despec, tab_exam, tab_edit, tab_match) = st.tabs([
     "📚 SGK đã tách",
-    "📥 Nạp bài đã tách",
+    "📥 Nạp SGK",
     "📂 Kho tri thức",
     "📐 Nạp mẫu giáo án",
     "🧩 Nạp ma trận đề",
@@ -2033,13 +1977,11 @@ def call_ai_cached(prompt, system=""):
 # ============================================================
 with tab_sgk:
     st.markdown("### 📚 SGK đã tách")
-    st.info("💡 Xem danh sách SGK đã nạp, tải file PDF từng bài "
-            "hoặc tải cả bộ dạng ZIP. Để nạp SGK mới, vào tab "
-            "**📥 Nạp bài đã tách**.")
+    st.info("💡 Xem danh sách SGK đã nạp, tải PDF từng bài hoặc ZIP.")
 
     _ds_sgk_t1 = list_sgk_da_tach()
     if not _ds_sgk_t1:
-        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp bài đã tách**.")
+        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp SGK**.")
     else:
         _sgk_t1 = st.selectbox(
             "Chọn SGK",
@@ -2060,93 +2002,72 @@ with tab_sgk:
             for _i, _b in enumerate(_ds_bai_t1):
                 _c1, _c2 = st.columns([4, 1])
                 with _c1:
-                    st.write(
-                        f"**Bài {_b.get('so_bai', _i+1)}**: "
-                        f"{_b.get('ten_bai', '')}"
-                    )
+                    st.write(f"**Bài {_b.get('so_bai', _i+1)}**: "
+                             f"{_b.get('ten_bai', '')}")
                 with _c2:
-                    _fpath_bai = os.path.join(
-                        SGK_BAI_DIR, _sgk_t1, _b.get("file", ""))
-                    if os.path.exists(_fpath_bai):
-                        with open(_fpath_bai, "rb") as _f:
-                            _bytes_bai = _f.read()
+                    _fp = os.path.join(SGK_BAI_DIR, _sgk_t1,
+                                        _b.get("file", ""))
+                    if os.path.exists(_fp):
+                        with open(_fp, "rb") as _f:
+                            _bytes = _f.read()
                         st.download_button(
-                            "⬇️ PDF",
-                            _bytes_bai,
+                            "⬇️ PDF", _bytes,
                             file_name=_b.get("file", f"bai_{_i+1}.pdf"),
                             mime="application/pdf",
                             key=f"t1_dl_bai_{_i}",
-                            use_container_width=True,
-                        )
+                            use_container_width=True)
                     else:
-                        st.button("❌ Mất file",
-                                  key=f"t1_dl_bai_missing_{_i}",
-                                  disabled=True,
+                        st.button("❌ Mất file", disabled=True,
+                                  key=f"t1_miss_{_i}",
                                   use_container_width=True)
 
             st.markdown("#### 📦 Tải toàn bộ (ZIP)")
-            _zip_bytes_t1 = tao_zip_cac_bai(_sgk_t1)
-            if _zip_bytes_t1:
+            _zip = tao_zip_cac_bai(_sgk_t1)
+            if _zip:
                 st.download_button(
-                    f"⬇️ Tải tất cả ({len(_ds_bai_t1)} file PDF + metadata)",
-                    _zip_bytes_t1,
-                    file_name=f"{_sgk_t1}_da_tach.zip",
-                    mime="application/zip",
-                    type="primary",
-                    use_container_width=True,
-                    key=f"t1_dl_zip_{_sgk_t1}",
-                )
+                    f"⬇️ Tải tất cả ({len(_ds_bai_t1)} PDF + metadata)",
+                    _zip, file_name=f"{_sgk_t1}_da_tach.zip",
+                    mime="application/zip", type="primary",
+                    use_container_width=True, key=f"t1_zip_{_sgk_t1}")
 
-            _meta_path2 = os.path.join(
-                SGK_BAI_DIR, _sgk_t1, "metadata.json")
-            if os.path.exists(_meta_path2):
-                with open(_meta_path2, "rb") as _f:
-                    _meta_bytes = _f.read()
-                st.download_button(
-                    "⬇️ Tải metadata.json",
-                    _meta_bytes,
-                    file_name=f"{_sgk_t1}_metadata.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    key=f"t1_dl_meta_{_sgk_t1}",
-                )
+            _mp = os.path.join(SGK_BAI_DIR, _sgk_t1, "metadata.json")
+            if os.path.exists(_mp):
+                with open(_mp, "rb") as _f:
+                    _mb = _f.read()
+                st.download_button("⬇️ Tải metadata.json", _mb,
+                                    file_name=f"{_sgk_t1}_metadata.json",
+                                    mime="application/json",
+                                    use_container_width=True,
+                                    key=f"t1_meta_{_sgk_t1}")
 
             st.markdown("---")
-            st.markdown("#### 🗑️ Xóa SGK này")
-            st.caption("⚠️ Sẽ xóa toàn bộ file PDF bài và metadata.")
-            if st.button(
-                f"🗑️ Xóa SGK **{_sgk_t1}**",
-                type="secondary",
-                use_container_width=True,
-                key=f"t1_del_sgk_{_sgk_t1}",
-            ):
+            if st.button(f"🗑️ Xóa SGK **{_sgk_t1}**",
+                         use_container_width=True,
+                         key=f"t1_del_{_sgk_t1}"):
                 import shutil
                 try:
-                    shutil.rmtree(
-                        os.path.join(SGK_BAI_DIR, _sgk_t1))
-                    st.success(f"✅ Đã xóa SGK {_sgk_t1}")
+                    shutil.rmtree(os.path.join(SGK_BAI_DIR, _sgk_t1))
+                    st.success(f"✅ Đã xóa {_sgk_t1}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi: {e}")
 
 # ============================================================
-# TAB 2: NẠP BÀI ĐÃ TÁCH
+# TAB 2: NẠP SGK (3 TAB CON)
 # ============================================================
 with tab_manual:
-    st.markdown("### 📥 Nạp bài đã tách")
+    st.markdown("### 📥 Nạp SGK")
 
     _c1, _c2 = st.columns(2)
     with _c1:
         _mon_input = st.text_input(
             "Môn học",
-            value=st.session_state["memory"].get(
-                "default_subject", "Toán"),
+            value=st.session_state["memory"].get("default_subject", "Toán"),
             key="manual_mon")
     with _c2:
         _lop_input = st.text_input(
             "Lớp",
-            value=st.session_state["memory"].get(
-                "default_grade", "6"),
+            value=st.session_state["memory"].get("default_grade", "6"),
             key="manual_lop")
 
     _sgk_name_input = suggest_sgk_name(_mon_input, _lop_input)
@@ -2154,124 +2075,121 @@ with tab_manual:
 
     _meta_exist = load_sgk_metadata(_sgk_name_input)
     if _meta_exist:
-        st.success(
-            f"✅ SGK đã tồn tại với **{_meta_exist.get('so_bai', 0)} bài**. "
-            "File mới sẽ được **thêm vào** SGK này."
-        )
+        st.success(f"✅ SGK đã có **{_meta_exist.get('so_bai', 0)} bài**. "
+                   "File mới sẽ được **thêm vào**.")
     else:
-        st.info("🆕 SGK chưa tồn tại. Sẽ được tạo mới khi nạp.")
+        st.info("🆕 SGK chưa tồn tại. Sẽ được tạo mới.")
 
     st.markdown("---")
 
-    _sub1, _sub2 = st.tabs([
+    _sub1, _sub2, _sub3 = st.tabs([
         "📄 Tách từ PDF gộp",
         "📚 Nạp nhiều PDF rời",
+        "📦 Nạp từ ZIP",
     ])
 
-    # ============================================================
-    # TAB CON 1: TÁCH TỪ PDF GỘP
-    # ============================================================
+    # ---------- TAB CON 1: TÁCH TỪ PDF GỘP ----------
     with _sub1:
         st.markdown("#### 📄 Tách từ 1 file PDF gộp")
-        st.caption(
-            "Upload file PDF sách (đã đánh lại số trang 1→N). "
-            "Nhập danh sách bài + số trang, app sẽ tách."
-        )
+        st.caption("Upload file PDF sách (đã đánh lại số trang 1→N). "
+                   "Nạp file Lịch BG hoặc danh sách bài + số trang.")
 
         _pdf_gop = st.file_uploader(
-            "Chọn file PDF sách",
-            type=["pdf"],
+            "Chọn file PDF sách gộp", type=["pdf"],
             key="tach_pdf_gop")
 
         if _pdf_gop:
             _pdf_gop.seek(0)
             _pdf_bytes = _pdf_gop.read()
             _tong_trang = get_pdf_total_pages(_pdf_bytes)
-            st.success(
-                f"✅ Đã đọc file: **{_pdf_gop.name}** "
-                f"— **{_tong_trang} trang**"
-            )
+            st.success(f"✅ **{_pdf_gop.name}** — **{_tong_trang} trang**")
         else:
             _pdf_bytes = None
             _tong_trang = 0
 
         st.markdown("---")
 
-        st.markdown("##### 📋 Nhập danh sách bài")
-
-        _cach_nhap = st.radio(
-            "Cách nhập",
-            ["Dán text", "Nhập bảng trực tiếp"],
+        _nguon_ds = st.radio(
+            "Nguồn danh sách bài",
+            ["📄 Nạp từ file Lịch BG",
+             "✍️ Dán text",
+             "📋 Nhập bảng trực tiếp"],
             horizontal=True,
-            key="tach_cach_nhap")
+            key="tach_nguon_ds")
 
         _ds_bai_final = []
         _ds_loi_parse = []
 
-        if _cach_nhap == "Dán text":
-            st.caption(
-                "Mỗi dòng 1 bài. Format: `Tên bài | Trang BĐ | Trang KT` "
-                "(cũng nhận dấu phẩy `,` hoặc tab)"
-            )
+        # --- Nguồn 1: File Lịch BG ---
+        if _nguon_ds.startswith("📄 Nạp từ file Lịch BG"):
+            st.caption("Upload file Lịch BG (docx/xlsx/csv/txt). "
+                       "App sẽ đọc cột Tên bài + Trang SGK.")
+            _lbg_file = st.file_uploader(
+                "Chọn file Lịch BG",
+                type=["docx", "xlsx", "xls", "csv", "txt"],
+                key="tach_lbg_file")
+            if _lbg_file:
+                _lbg_file.seek(0)
+                _ds_bai_final, _ds_loi_parse = doc_lich_bao_giang(_lbg_file)
 
+                if _ds_loi_parse:
+                    st.error(f"❌ {len(_ds_loi_parse)} lỗi:")
+                    for _l in _ds_loi_parse:
+                        st.write(f"  • {_l}")
+                elif _ds_bai_final:
+                    st.success(
+                        f"✅ Đọc được **{len(_ds_bai_final)}** dòng "
+                        f"từ file Lịch BG")
+
+        # --- Nguồn 2: Dán text ---
+        elif _nguon_ds.startswith("✍️ Dán text"):
+            st.caption("Mỗi dòng: `Tên bài | Trang BĐ | Trang KT` "
+                       "(hoặc dấu phẩy, tab)")
             _text_input = st.text_area(
-                "Dán danh sách bài",
-                height=250,
+                "Dán danh sách bài", height=250,
                 key="tach_text_input",
-                placeholder=(
-                    "Bài 1. Tập hợp | 6 | 9\n"
-                    "Bài 2. Cách ghi số tự nhiên | 10 | 13\n"
-                    "Bài 3. Thứ tự trong tập hợp | 14 | 15\n"
-                    "..."
-                ))
-
+                placeholder="Bài 1. Tập hợp | 6 | 9\n"
+                            "Bài 2. Cách ghi số tự nhiên | 10 | 13\n...")
             if _text_input.strip():
                 _ds_bai_final, _ds_loi_parse = parse_danh_sach_bai(
                     _text_input)
-
                 if _ds_loi_parse:
-                    st.error(
-                        f"❌ Có **{len(_ds_loi_parse)}** lỗi khi parse:")
-                    for _loi in _ds_loi_parse:
-                        st.write(f"  • {_loi}")
+                    st.error(f"❌ {len(_ds_loi_parse)} lỗi:")
+                    for _l in _ds_loi_parse:
+                        st.write(f"  • {_l}")
 
+        # --- Nguồn 3: Nhập bảng ---
         else:
             st.caption("Nhập từng dòng: Tên bài, Trang BĐ, Trang KT")
-
             if "tach_bang_rows" not in st.session_state:
                 st.session_state["tach_bang_rows"] = [
                     {"ten_bai": "", "trang_bd": 0, "trang_kt": 0}
-                    for _ in range(5)
-                ]
+                    for _ in range(5)]
 
-            _btn_add, _btn_del, _btn_clear = st.columns([1, 1, 1])
-            with _btn_add:
-                if st.button("➕ Thêm dòng", key="tach_them_dong",
+            _b1, _b2, _b3 = st.columns([1, 1, 1])
+            with _b1:
+                if st.button("➕ Thêm dòng", key="tach_them",
                              use_container_width=True):
                     st.session_state["tach_bang_rows"].append(
                         {"ten_bai": "", "trang_bd": 0, "trang_kt": 0})
                     st.rerun()
-            with _btn_del:
-                if st.button("➖ Xóa dòng cuối", key="tach_xoa_dong",
+            with _b2:
+                if st.button("➖ Xóa cuối", key="tach_xoa",
                              use_container_width=True):
                     if st.session_state["tach_bang_rows"]:
                         st.session_state["tach_bang_rows"].pop()
                     st.rerun()
-            with _btn_clear:
-                if st.button("🗑️ Xóa tất cả", key="tach_xoa_het",
+            with _b3:
+                if st.button("🗑️ Xóa hết", key="tach_xoa_het",
                              use_container_width=True):
                     st.session_state["tach_bang_rows"] = []
                     st.rerun()
 
-            _h1, _h2, _h3, _h4 = st.columns([0.5, 4, 1, 1])
-            with _h1:
-                st.markdown("**STT**")
-            with _h2:
-                st.markdown("**Tên bài**")
-            with _h3:
-                st.markdown("**Trang BĐ**")
-            with _h4:
-                st.markdown("**Trang KT**")
+            _hh1, _hh2, _hh3, _hh4 = st.columns([0.5, 4, 1, 1])
+            with _hh1: st.markdown("**STT**")
+            with _hh2: st.markdown("**Tên bài**")
+            with _hh3: st.markdown("**Trang BĐ**")
+            with _hh4: st.markdown("**Trang KT**")
 
             for _i, _row in enumerate(st.session_state["tach_bang_rows"]):
                 _cols = st.columns([0.5, 4, 1, 1])
@@ -2279,61 +2197,45 @@ with tab_manual:
                     st.write(f"**{_i+1}**")
                 with _cols[1]:
                     _row["ten_bai"] = st.text_input(
-                        "Tên bài",
-                        value=_row.get("ten_bai", ""),
-                        key=f"tach_ten_{_i}",
-                        label_visibility="collapsed",
+                        "Tên bài", value=_row.get("ten_bai", ""),
+                        key=f"tach_ten_{_i}", label_visibility="collapsed",
                         placeholder="VD: Bài 1. Tập hợp")
                 with _cols[2]:
                     _row["trang_bd"] = st.number_input(
-                        "Trang BĐ",
-                        min_value=0, max_value=9999,
+                        "BĐ", min_value=0, max_value=9999,
                         value=int(_row.get("trang_bd", 0) or 0),
-                        step=1,
-                        key=f"tach_bd_{_i}",
+                        step=1, key=f"tach_bd_{_i}",
                         label_visibility="collapsed")
                 with _cols[3]:
                     _row["trang_kt"] = st.number_input(
-                        "Trang KT",
-                        min_value=0, max_value=9999,
+                        "KT", min_value=0, max_value=9999,
                         value=int(_row.get("trang_kt", 0) or 0),
-                        step=1,
-                        key=f"tach_kt_{_i}",
+                        step=1, key=f"tach_kt_{_i}",
                         label_visibility="collapsed")
 
-            _ds_bai_final = [
-                r for r in st.session_state["tach_bang_rows"]
-                if r.get("ten_bai", "").strip()
-            ]
+            _ds_bai_final = [r for r in st.session_state["tach_bang_rows"]
+                             if r.get("ten_bai", "").strip()]
 
+        # --- Kiểm tra + xem trước ---
         if _pdf_bytes is None:
             st.warning("⚠️ Chưa upload file PDF.")
         elif not _ds_bai_final:
-            st.info("💡 Chưa có bài nào. Nhập danh sách ở trên.")
+            st.info("💡 Chưa có bài nào.")
         elif _ds_loi_parse:
-            st.error("❌ Sửa lỗi parse trước khi xem trước.")
+            st.error("❌ Sửa lỗi trước.")
         else:
             st.markdown("---")
-
-            _ds_loi_check = kiem_tra_danh_sach_bai(
-                _ds_bai_final, _tong_trang)
+            _ds_loi_check = kiem_tra_danh_sach_bai(_ds_bai_final, _tong_trang)
 
             if _ds_loi_check:
-                st.error(
-                    f"❌ Có **{len(_ds_loi_check)}** lỗi trong danh sách:")
-                for _loi in _ds_loi_check:
-                    st.write(f"  • {_loi}")
-                st.warning(
-                    "⚠️ Vui lòng sửa các lỗi trên rồi thử lại. "
-                    "App **không tự suy** trang KT."
-                )
+                st.error(f"❌ {len(_ds_loi_check)} lỗi:")
+                for _l in _ds_loi_check:
+                    st.write(f"  • {_l}")
+                st.warning("⚠️ Sửa lỗi trước. App **không tự suy** trang KT.")
             else:
-                st.success(
-                    f"✅ Danh sách hợp lệ: **{len(_ds_bai_final)}** bài"
-                )
+                st.success(f"✅ Danh sách hợp lệ: **{len(_ds_bai_final)}** bài")
 
-                with st.expander("👁️ Xem trước danh sách bài",
-                                 expanded=True):
+                with st.expander("👁️ Xem trước danh sách bài", expanded=True):
                     _preview = []
                     for _i, _b in enumerate(_ds_bai_final, start=1):
                         _preview.append({
@@ -2341,209 +2243,170 @@ with tab_manual:
                             "Tên bài": _b["ten_bai"],
                             "Trang BĐ": _b["trang_bd"],
                             "Trang KT": _b["trang_kt"],
-                            "Số trang": _b["trang_kt"] - _b["trang_bd"] + 1,
+                            "Số trang": (_b["trang_kt"] - _b["trang_bd"] + 1),
                         })
-                    st.dataframe(_preview,
-                                 use_container_width=True,
+                    st.dataframe(_preview, use_container_width=True,
                                  hide_index=True)
 
-                st.caption(
-                    f"📄 File PDF: **{_tong_trang} trang** | "
-                    f"📚 Sẽ tách: **{len(_ds_bai_final)} bài**"
-                )
+                st.caption(f"📄 File PDF: **{_tong_trang} trang** | "
+                            f"📚 Sẽ tách: **{len(_ds_bai_final)} bài**")
 
-                if st.button(
-                    "🚀 Tách và nạp",
-                    type="primary",
-                    use_container_width=True,
-                    key="btn_tach_gop",
-                ):
-                    with st.spinner("Đang tách PDF..."):
+                if st.button("🚀 Tách và nạp", type="primary",
+                             use_container_width=True, key="btn_tach_gop"):
+                    with st.spinner("Đang tách..."):
                         _kq = tach_va_nap_theo_danh_sach(
                             _sgk_name_input, _pdf_bytes, _ds_bai_final)
 
                     st.markdown("---")
-                    st.markdown("#### 📊 Báo cáo kết quả")
-
-                    st.success(
-                        f"✅ Tách thành công: **{_kq['so_ok']}** bài"
-                    )
+                    st.markdown("#### 📊 Báo cáo")
+                    st.success(f"✅ Tách thành công: **{_kq['so_ok']}** bài")
 
                     if _kq["so_trung_bai"] > 0:
-                        st.warning(
-                            f"⚠️ Trùng tên bài: "
-                            f"**{_kq['so_trung_bai']}** bài"
-                        )
+                        st.warning(f"⚠️ Trùng tên bài: "
+                                   f"**{_kq['so_trung_bai']}**")
                         for _t in _kq["ds_trung_bai"]:
                             st.write(f"  • {_t}")
 
                     if _kq["so_trung_file"] > 0:
-                        st.error(
-                            f"❌ Trùng tên file: "
-                            f"**{_kq['so_trung_file']}** bài. "
-                            "Vào tab **✏️ Sửa tên bài SGK** để đổi tên."
-                        )
-                        for _ten, _fname in _kq["ds_trung_file"]:
-                            st.write(
-                                f"  • **{_ten}** → sinh file trùng: "
-                                f"`{_fname}`"
-                            )
+                        st.error(f"❌ Trùng tên file: "
+                                 f"**{_kq['so_trung_file']}**. "
+                                 "Vào tab **✏️ Sửa tên bài SGK**.")
+                        for _t, _f in _kq["ds_trung_file"]:
+                            st.write(f"  • **{_t}** → `{_f}`")
 
                     if _kq["so_loi"] > 0:
-                        st.error(
-                            f"❌ Lỗi: **{_kq['so_loi']}** bài"
-                        )
-                        for _ten, _loi in _kq["ds_loi"]:
-                            st.write(f"  • {_ten}: {_loi}")
+                        st.error(f"❌ Lỗi: **{_kq['so_loi']}**")
+                        for _t, _l in _kq["ds_loi"]:
+                            st.write(f"  • {_t}: {_l}")
 
                     if _kq["so_ok"] > 0:
-                        _zip_bytes = tao_zip_cac_bai(_sgk_name_input)
-                        if _zip_bytes:
+                        _zip = tao_zip_cac_bai(_sgk_name_input)
+                        if _zip:
                             st.download_button(
-                                f"⬇️ Tải ZIP "
-                                f"({_kq['so_ok']} bài + metadata)",
-                                _zip_bytes,
+                                f"⬇️ Tải ZIP ({_kq['so_ok']} bài + metadata)",
+                                _zip,
                                 file_name=f"{_sgk_name_input}_da_tach.zip",
-                                mime="application/zip",
-                                type="primary",
+                                mime="application/zip", type="primary",
                                 use_container_width=True,
-                                key="dl_zip_tach_gop",
-                            )
+                                key="dl_zip_tach_gop")
                         st.balloons()
 
-    # ============================================================
-    # TAB CON 2: NẠP NHIỀU PDF RỜI
-    # ============================================================
+    # ---------- TAB CON 2: NẠP PDF RỜI ----------
     with _sub2:
         st.markdown("#### 📚 Nạp nhiều file PDF rời")
-        st.caption(
-            "Mỗi file PDF = 1 bài. Tên file (bỏ đuôi .pdf) = tên bài. "
-            "Sắp xếp A→Z. Trùng tên → bỏ qua."
-        )
+        st.caption("Mỗi file = 1 bài. Tên file (bỏ .pdf) = tên bài. "
+                   "Sắp xếp A→Z. Trùng → bỏ qua.")
 
         _files_roi = st.file_uploader(
-            "Chọn nhiều file PDF",
-            type=["pdf"],
-            accept_multiple_files=True,
-            key="manual_pdf_files")
+            "Chọn nhiều file PDF", type=["pdf"],
+            accept_multiple_files=True, key="manual_pdf_files")
 
         if _files_roi:
             st.caption(f"📦 Đã chọn **{len(_files_roi)}** file")
 
-            with st.expander("👁️ Xem trước danh sách file",
-                             expanded=False):
-                _files_sorted_preview = sorted(
-                    _files_roi, key=lambda f: f.name.lower())
-                _preview_roi = []
-                for _i, _f in enumerate(_files_sorted_preview, start=1):
-                    _ten = os.path.splitext(_f.name)[0].strip()
-                    _preview_roi.append({
-                        "STT": _i,
-                        "Tên file": _f.name,
-                        "Tên bài": _ten,
-                    })
-                st.dataframe(_preview_roi,
-                             use_container_width=True,
-                             hide_index=True)
+            with st.expander("👁️ Xem trước", expanded=False):
+                _fs = sorted(_files_roi, key=lambda f: f.name.lower())
+                _pr = []
+                for _i, _f in enumerate(_fs, start=1):
+                    _pr.append({"STT": _i, "File": _f.name,
+                                "Tên bài": os.path.splitext(_f.name)[0]})
+                st.dataframe(_pr, use_container_width=True, hide_index=True)
 
-            if st.button(
-                "📥 Nạp tất cả",
-                type="primary",
-                use_container_width=True,
-                key="btn_nap_pdf_roi",
-            ):
-                _files_sorted = sorted(
-                    _files_roi, key=lambda f: f.name.lower())
-
+            if st.button("📥 Nạp tất cả", type="primary",
+                         use_container_width=True, key="btn_nap_roi"):
+                _fs = sorted(_files_roi, key=lambda f: f.name.lower())
                 _prog = st.progress(0)
                 _status = st.empty()
-                _so_ok = 0
-                _ds_trung_bai = []
-                _ds_trung_file = []
-                _ds_loi = []
+                _ok = 0
+                _trung_bai = []
+                _trung_file = []
+                _loi = []
 
-                for _idx, _f in enumerate(_files_sorted):
-                    _status.write(
-                        f"Đang nạp {_idx+1}/{len(_files_sorted)}: "
-                        f"{_f.name}"
-                    )
-                    _prog.progress(
-                        int((_idx + 1) / len(_files_sorted) * 100))
-
+                for _idx, _f in enumerate(_fs):
+                    _status.write(f"Đang nạp {_idx+1}/{len(_fs)}: {_f.name}")
+                    _prog.progress(int((_idx + 1) / len(_fs) * 100))
                     _ten = os.path.splitext(_f.name)[0].strip()
-
                     if not _ten:
-                        _ds_loi.append(f"{_f.name}: tên rỗng")
+                        _loi.append(f"{_f.name}: tên rỗng")
                         continue
-
                     try:
                         _f.seek(0)
                     except Exception:
                         pass
 
-                    _ok, _msg, _fname = nap_bai_pdf(
-                        _sgk_name_input, _ten, _f)
-
-                    if _ok:
-                        _so_ok += 1
-                    elif "Trùng tên bài" in _msg:
-                        _ds_trung_bai.append(_ten)
-                    elif "Trùng tên file" in _msg:
-                        _ds_trung_file.append((_ten, _msg))
+                    _r_ok, _r_msg, _ = nap_bai_pdf(_sgk_name_input, _ten, _f)
+                    if _r_ok:
+                        _ok += 1
+                    elif "Trùng tên bài" in _r_msg:
+                        _trung_bai.append(_ten)
+                    elif "Trùng tên file" in _r_msg:
+                        _trung_file.append((_ten, _r_msg))
                     else:
-                        _ds_loi.append(f"{_ten}: {_msg}")
+                        _loi.append(f"{_ten}: {_r_msg}")
 
                 _prog.progress(100)
                 _status.write("✅ Hoàn tất!")
 
                 st.markdown("---")
-                st.markdown("#### 📊 Báo cáo kết quả")
-                st.success(f"✅ Đã nạp: **{_so_ok}** bài")
-
-                if _ds_trung_bai:
-                    st.warning(
-                        f"⚠️ Trùng tên bài: "
-                        f"**{len(_ds_trung_bai)}** bài"
-                    )
-                    for _t in _ds_trung_bai:
+                st.markdown("#### 📊 Báo cáo")
+                st.success(f"✅ Đã nạp: **{_ok}** bài")
+                if _trung_bai:
+                    st.warning(f"⚠️ Trùng tên bài: **{len(_trung_bai)}**")
+                    for _t in _trung_bai:
+                        st.write(f"  • {_t}")
+                if _trung_file:
+                    st.error(f"❌ Trùng tên file: **{len(_trung_file)}**")
+                    for _t, _m in _trung_file:
+                        st.write(f"  • **{_t}**: {_m}")
+                if _loi:
+                    st.error(f"❌ Lỗi: **{len(_loi)}**")
+                    for _t in _loi:
                         st.write(f"  • {_t}")
 
-                if _ds_trung_file:
-                    st.error(
-                        f"❌ Trùng tên file: "
-                        f"**{len(_ds_trung_file)}** bài. "
-                        "Vào tab **✏️ Sửa tên bài SGK** để đổi tên."
-                    )
-                    for _ten, _msg in _ds_trung_file:
-                        st.write(f"  • **{_ten}**: {_msg}")
-
-                if _ds_loi:
-                    st.error(f"❌ Lỗi **{len(_ds_loi)}** file:")
-                    for _t in _ds_loi:
-                        st.write(f"  • {_t}")
-
-                if _so_ok > 0:
-                    _zip_bytes = tao_zip_cac_bai(_sgk_name_input)
-                    if _zip_bytes:
+                if _ok > 0:
+                    _zip = tao_zip_cac_bai(_sgk_name_input)
+                    if _zip:
                         st.download_button(
-                            f"⬇️ Tải ZIP ({_so_ok} bài + metadata)",
-                            _zip_bytes,
+                            f"⬇️ Tải ZIP ({_ok} bài)",
+                            _zip,
                             file_name=f"{_sgk_name_input}_da_tach.zip",
-                            mime="application/zip",
-                            type="primary",
-                            use_container_width=True,
-                            key="dl_zip_roi",
-                        )
+                            mime="application/zip", type="primary",
+                            use_container_width=True, key="dl_zip_roi")
                     st.balloons()
 
+    # ---------- TAB CON 3: NẠP TỪ ZIP ----------
+    with _sub3:
+        st.markdown("#### 📦 Nạp từ file ZIP")
+        st.caption("Upload file ZIP chứa nhiều PDF bài.")
+
+        _zip_file = st.file_uploader("Chọn file ZIP", type=["zip"],
+                                      key="manual_zip_file")
+        if _zip_file:
+            st.caption(f"📦 **{_zip_file.name}**")
+            if st.button("📦 Giải nén và nạp", type="primary",
+                         use_container_width=True, key="btn_nap_zip"):
+                with st.spinner("Đang giải nén..."):
+                    _ok, _trung, _ds_ok, _ds_trung = nap_zip_sgk(
+                        _sgk_name_input, _zip_file)
+                if _ok == -1:
+                    st.error(f"❌ Lỗi: {_ds_trung[0]}")
+                else:
+                    st.success(f"✅ Đã nạp: **{_ok}** bài")
+                    if _trung > 0:
+                        st.warning(f"❌ Bỏ qua: **{_trung}** trùng")
+                        for _t in _ds_trung:
+                            st.write(f"  • {_t}")
+                    if _ok > 0:
+                        st.balloons()
+                        st.rerun()
+
+    # Trạng thái SGK
     st.markdown("---")
     _meta_sau = load_sgk_metadata(_sgk_name_input)
     if _meta_sau and _meta_sau.get("ds_bai"):
         st.markdown("#### 📊 SGK hiện có")
-        st.caption(
-            f"📚 **{_sgk_name_input}** — "
-            f"{len(_meta_sau['ds_bai'])} bài"
-        )
+        st.caption(f"📚 **{_sgk_name_input}** — "
+                    f"{len(_meta_sau['ds_bai'])} bài")
         render_danh_sach_bai(_sgk_name_input)
 
 # ============================================================
@@ -2564,12 +2427,12 @@ with tab_kho:
                 with col1:
                     with st.expander("📄 " + name):
                         content = data_dict[name]
-                        st.caption(f"Kích thước: {len(content)} ký tự")
+                        st.caption(f"{len(content)} ký tự")
                         st.text(content[:2000])
                 with col2:
                     if st.button("🗑️", key=f"del_{key}_{name}"):
                         with st.spinner("Đang xóa..."):
-                            ok, msg = gh_delete(f"data/{folder}/" + name)
+                            ok, _ = gh_delete(f"data/{folder}/" + name)
                             if ok:
                                 st.session_state[key] = load_folder(folder)
                                 st.rerun()
@@ -2585,12 +2448,11 @@ with tab_kho:
 # TAB 4: NẠP MẪU GIÁO ÁN
 # ============================================================
 with tab_mau:
-    st.markdown("### 📐 Nạp mẫu giáo án (CV 5512)")
-    st.info("💡 Upload mẫu giáo án. Hỗ trợ: `.docx`, `.txt`, `.md`.")
+    st.markdown("### 📐 Nạp mẫu giáo án")
+    st.info("Upload mẫu giáo án. Hỗ trợ `.docx`, `.txt`, `.md`.")
 
     _mau_files = st.file_uploader(
-        "Chọn 1 hoặc nhiều file mẫu",
-        type=["docx", "txt", "md"],
+        "Chọn mẫu", type=["docx", "txt", "md"],
         accept_multiple_files=True, key="mau_upload")
 
     if _mau_files:
@@ -2599,178 +2461,133 @@ with tab_mau:
                 try:
                     _raw = _mf.read()
                     if _mf.name.lower().endswith(".docx"):
-                        _mau_text = _read_docx_safe(_raw)
+                        _mt = _read_docx_safe(_raw)
                     else:
-                        _mau_text = _raw.decode("utf-8", errors="ignore")
-                    _ok, _msg = kiem_tra_mau_5512(_mau_text)
+                        _mt = _raw.decode("utf-8", errors="ignore")
+                    _ok, _msg = kiem_tra_mau_5512(_mt)
                     _c1, _c2 = st.columns([3, 1])
                     with _c1:
-                        st.caption(
-                            f"Kích thước: **{len(_mau_text)}** ký tự | "
-                            "Kiểm tra 5512: " +
-                            ("✅ **OK**" if _ok else f"⚠️ {_msg}"))
-                        st.text_area("Xem trước", _mau_text[:3000],
-                                     height=200,
-                                     key=f"preview_mau_{_mf.name}")
+                        st.caption(f"{len(_mt)} ký tự | "
+                                    + ("✅ OK" if _ok else f"⚠️ {_msg}"))
+                        st.text_area("Xem trước", _mt[:3000], height=200,
+                                      key=f"prev_mau_{_mf.name}")
                     with _c2:
                         st.write("")
-                        if st.button("✅ Dùng mẫu này",
-                                     key=f"use_mau_{_mf.name}",
-                                     use_container_width=True,
-                                     type="primary"):
+                        if st.button("✅ Dùng", key=f"use_mau_{_mf.name}",
+                                     use_container_width=True, type="primary"):
                             st.session_state["mau_5512_dang_dung"] = {
                                 "ten_mau": _mf.name, "che_do": "user",
-                                "nguon": "upload", "cau_truc": _mau_text}
+                                "nguon": "upload", "cau_truc": _mt}
                             if GITHUB_TOKEN:
-                                gh_save(f"data/templates/{_mf.name}",
-                                        _mau_text,
+                                gh_save(f"data/templates/{_mf.name}", _mt,
                                         f"Upload template {_mf.name}")
-                                st.session_state["templates"] = \
-                                    load_templates()
-                            st.success(f"✅ Đã đặt **{_mf.name}** làm mẫu.")
+                                st.session_state["templates"] = load_templates()
+                            st.success(f"✅ Đã đặt **{_mf.name}**")
                             st.rerun()
-                        if st.button("🗑️ Xóa khỏi kho",
-                                     key=f"del_mau_{_mf.name}",
+                        if st.button("🗑️", key=f"del_mau_{_mf.name}",
                                      use_container_width=True):
                             if GITHUB_TOKEN:
                                 gh_delete(f"data/templates/{_mf.name}")
-                                st.session_state["templates"] = \
-                                    load_templates()
-                                st.success("✅ Đã xóa.")
+                                st.session_state["templates"] = load_templates()
                                 st.rerun()
                 except Exception as _e:
-                    st.error(f"❌ Lỗi đọc mẫu: {_e}")
+                    st.error(f"❌ {_e}")
 
     _mau_now = st.session_state.get("mau_5512_dang_dung")
     st.markdown("---")
     if _mau_now:
-        st.success(f"📌 **Mẫu đang dùng:** `{_mau_now.get('ten_mau', 'N/A')}`"
-                   f" (nguồn: {_mau_now.get('nguon', 'N/A')})")
-        if st.button("↩️ Quay lại mẫu mặc định", key="reset_mau",
+        st.success(f"📌 Đang dùng: `{_mau_now.get('ten_mau', 'N/A')}`")
+        if st.button("↩️ Mẫu mặc định", key="reset_mau",
                      use_container_width=True):
             st.session_state["mau_5512_dang_dung"] = None
-            st.success("✅ Đã quay lại mẫu 5512 mặc định.")
             st.rerun()
     else:
         st.info("📌 Đang dùng **mẫu 5512 hardcode**.")
-
-    if st.session_state["templates"]:
-        st.markdown("### 📚 Mẫu đã lưu trên GitHub")
-        for _tname in list(st.session_state["templates"].keys()):
-            _c1, _c2 = st.columns([5, 1])
-            with _c1:
-                with st.expander(f"📄 {_tname}"):
-                    st.text(st.session_state["templates"][_tname][:2000])
-            with _c2:
-                if st.button("✅ Dùng", key=f"use_saved_mau_{_tname}",
-                             use_container_width=True):
-                    st.session_state["mau_5512_dang_dung"] = {
-                        "ten_mau": _tname, "che_do": "user",
-                        "nguon": "github",
-                        "cau_truc": st.session_state["templates"][_tname]}
-                    st.success(f"✅ Đã dùng mẫu **{_tname}**.")
-                    st.rerun()
 
 # ============================================================
 # TAB 5: NẠP MA TRẬN ĐỀ
 # ============================================================
 with tab_matrix:
-    st.markdown("### 🧩 Nạp ma trận đề kiểm tra")
-    st.info("💡 Upload ma trận đề (Excel/CSV/Word) hoặc nhập tay.")
+    st.markdown("### 🧩 Nạp ma trận đề")
 
     _c1, _c2, _c3 = st.columns([1, 1, 1])
     with _c1:
-        _mt_mon = st.text_input(
-            "Môn",
+        _mt_mon = st.text_input("Môn",
             value=st.session_state["memory"].get("default_subject", "Toán"),
             key="mt_mon")
     with _c2:
-        _mt_lop = st.text_input(
-            "Lớp",
+        _mt_lop = st.text_input("Lớp",
             value=st.session_state["memory"].get("default_grade", "6"),
             key="mt_lop")
     with _c3:
-        _mt_loai = st.selectbox(
-            "Loại đề",
+        _mt_loai = st.selectbox("Loại đề",
             ["Giữa kì 1", "Cuối kì 1", "Giữa kì 2", "Cuối kì 2",
-             "15 phút", "1 tiết", "Khác"],
-            key="mt_loai")
+             "15 phút", "1 tiết", "Khác"], key="mt_loai")
 
-    _mt_file = st.file_uploader("Upload file ma trận",
-                                type=["xlsx", "xls", "csv", "docx", "txt"],
-                                key="mt_upload")
+    _mt_file = st.file_uploader("Upload ma trận",
+        type=["xlsx", "xls", "csv", "docx", "txt"], key="mt_upload")
     _mt_text = ""
     if _mt_file:
         try:
-            _mt_bytes = _mt_file.read()
+            _b = _mt_file.read()
             _n = _mt_file.name.lower()
             if _n.endswith((".xlsx", ".xls", ".xlsm")):
-                _mt_text = _read_excel_safe(_mt_bytes)
+                _mt_text = _read_excel_safe(_b)
             elif _n.endswith(".csv"):
-                _mt_text = _read_csv_safe(_mt_bytes)
+                _mt_text = _read_csv_safe(_b)
             elif _n.endswith(".docx"):
-                _mt_text = _read_docx_safe(_mt_bytes)
+                _mt_text = _read_docx_safe(_b)
             else:
-                _mt_text = _mt_bytes.decode("utf-8", errors="ignore")
-            st.success(f"✅ Đã đọc ma trận ({len(_mt_text)} ký tự).")
+                _mt_text = _b.decode("utf-8", errors="ignore")
+            st.success(f"✅ Đọc {len(_mt_text)} ký tự")
         except Exception as _e:
-            st.error(f"❌ Lỗi đọc file: {_e}")
+            st.error(f"❌ {_e}")
 
-    _mt_manual = st.text_area("Hoặc dán ma trận vào đây",
-                              value=_mt_text, height=250,
-                              key="mt_manual",
-                              placeholder="VD:\n"
-                              "| Chủ đề | Nhận biết | Thông hiểu | "
-                              "Vận dụng | Vận dụng cao |\n"
-                              "| Ước chung lớn nhất | 2 câu | 1 câu | "
-                              "1 câu | 0 |\n")
+    _mt_manual = st.text_area("Hoặc dán ma trận", value=_mt_text,
+        height=250, key="mt_manual",
+        placeholder="| Chủ đề | NB | TH | VD | VDC |\n"
+                    "| Ước chung lớn nhất | 2 | 1 | 1 | 0 |")
 
-    _c_save, _c_view = st.columns([1, 1])
-    with _c_save:
+    _cs, _cv = st.columns([1, 1])
+    with _cs:
         if st.button("💾 Lưu ma trận", type="primary",
                      use_container_width=True, key="mt_save"):
             if not _mt_manual.strip():
-                st.warning("⚠️ Chưa có nội dung ma trận.")
+                st.warning("⚠️ Chưa có nội dung")
             else:
-                _mt_key = (f"{_slugify(_mt_mon).title().replace('_', '')}_"
-                           f"{_mt_lop}_{_slugify(_mt_loai)}")
-                st.session_state[f"matran_{_mt_key}"] = {
+                _k = (f"{_slugify(_mt_mon).title().replace('_', '')}_"
+                      f"{_mt_lop}_{_slugify(_mt_loai)}")
+                st.session_state[f"matran_{_k}"] = {
                     "mon": _mt_mon, "lop": _mt_lop,
                     "loai": _mt_loai, "noi_dung": _mt_manual}
                 if GITHUB_TOKEN:
-                    gh_save(f"data/schedule/matran_{_mt_key}.md",
-                            _mt_manual, f"Ma trận {_mt_key}")
+                    gh_save(f"data/schedule/matran_{_k}.md", _mt_manual,
+                            f"Ma trận {_k}")
                     st.session_state["schedule"] = load_schedule()
-                st.success(f"✅ Đã lưu ma trận `{_mt_key}`.")
+                st.success(f"✅ Lưu `{_k}`")
                 st.rerun()
-
-    with _c_view:
-        _mt_keys = [k.replace("matran_", "")
-                    for k in st.session_state.keys()
-                    if k.startswith("matran_")
-                    and isinstance(st.session_state.get(k), dict)]
-        if _mt_keys:
-            _default_idx = 0
-            _saved_sel = st.session_state.get("mt_saved_sel")
-            if _saved_sel in _mt_keys:
-                _default_idx = _mt_keys.index(_saved_sel)
-            _mt_sel = st.selectbox("Ma trận đã lưu trong phiên",
-                                   _mt_keys, index=_default_idx,
-                                   key="mt_saved_sel")
-            _mt_session_key = f"matran_{_mt_sel}"
-            _mt_val = st.session_state.get(_mt_session_key)
-            if isinstance(_mt_val, dict):
+    with _cv:
+        _mks = [k.replace("matran_", "") for k in st.session_state.keys()
+                if k.startswith("matran_")
+                and isinstance(st.session_state.get(k), dict)]
+        if _mks:
+            _di = 0
+            _ss = st.session_state.get("mt_saved_sel")
+            if _ss in _mks:
+                _di = _mks.index(_ss)
+            _msel = st.selectbox("Ma trận đã lưu", _mks, index=_di,
+                                  key="mt_saved_sel")
+            _mk = f"matran_{_msel}"
+            _mv = st.session_state.get(_mk)
+            if isinstance(_mv, dict):
                 st.caption("Xem trước:")
-                st.text(str(_mt_val.get("noi_dung", ""))[:500])
-            else:
-                st.warning("⚠️ Ma trận không đúng định dạng.")
+                st.text(str(_mv.get("noi_dung", ""))[:500])
 
 # ============================================================
 # TAB 6: TẠO ĐẶC TẢ ĐỀ
 # ============================================================
 with tab_despec:
-    st.markdown("### 📋 Tạo đặc tả đề từ ma trận")
-    st.info("💡 Chọn ma trận → AI sinh **bảng đặc tả đề**.")
+    st.markdown("### 📋 Tạo đặc tả đề")
 
     _mt_keys_all = [k.replace("matran_", "")
                     for k in st.session_state.keys()
@@ -2778,515 +2595,311 @@ with tab_despec:
                     and isinstance(st.session_state.get(k), dict)]
 
     if not _mt_keys_all:
-        st.warning("⚠️ Chưa có ma trận nào. Vào tab **🧩 Nạp ma trận đề**.")
+        st.warning("⚠️ Chưa có ma trận.")
     else:
-        _default_idx = 0
-        _saved_dt = st.session_state.get("dt_mt_sel")
-        if _saved_dt in _mt_keys_all:
-            _default_idx = _mt_keys_all.index(_saved_dt)
+        _di = 0
+        _sdt = st.session_state.get("dt_mt_sel")
+        if _sdt in _mt_keys_all:
+            _di = _mt_keys_all.index(_sdt)
         _dt_key = st.selectbox("Chọn ma trận", _mt_keys_all,
-                               index=_default_idx, key="dt_mt_sel")
-        _dt_session_key = f"matran_{_dt_key}"
-        _dt_val = st.session_state.get(_dt_session_key)
-
-        if not isinstance(_dt_val, dict):
-            st.error("❌ Ma trận không đúng định dạng. Nạp lại ở tab 🧩.")
+                                index=_di, key="dt_mt_sel")
+        _dtv = st.session_state.get(f"matran_{_dt_key}")
+        if not isinstance(_dtv, dict):
+            st.error("❌ Ma trận không đúng định dạng.")
         else:
-            _dt_mt = _dt_val
             _c1, _c2 = st.columns(2)
             with _c1:
-                st.caption(f"📚 Môn: **{_dt_mt.get('mon', '')}** | "
-                           f"Lớp: **{_dt_mt.get('lop', '')}** | "
-                           f"Loại: **{_dt_mt.get('loai', '')}**")
+                st.caption(f"📚 {_dtv.get('mon', '')} | "
+                           f"{_dtv.get('lop', '')} | "
+                           f"{_dtv.get('loai', '')}")
             with _c2:
-                _dt_tg = st.text_input("Thời gian làm bài (phút)",
-                                       value="45", key="dt_tg")
+                _dt_tg = st.text_input("Thời gian (phút)", value="45",
+                                        key="dt_tg")
 
-            if st.button("🚀 Sinh đặc tả đề", type="primary",
+            if st.button("🚀 Sinh đặc tả", type="primary",
                          use_container_width=True, key="dt_run"):
                 if not available_providers:
-                    st.error("❌ Chưa có API key.")
+                    st.error("❌ Chưa có API key")
                 else:
-                    _dt_prompt = f"""Bạn là chuyên gia khảo thí THCS.
-Sinh BẢNG ĐẶC TẢ ĐỀ KIỂM TRA theo chuẩn CV 7991/BGDĐT-GDTrH.
-
-Môn: {_dt_mt.get('mon', '')}
-Lớp: {_dt_mt.get('lop', '')}
-Loại: {_dt_mt.get('loai', '')}
+                    _dp = f"""Bạn là chuyên gia khảo thí THCS.
+Sinh BẢNG ĐẶC TẢ ĐỀ KIỂM TRA theo CV 7991/BGDĐT-GDTrH.
+Môn: {_dtv.get('mon', '')}
+Lớp: {_dtv.get('lop', '')}
+Loại: {_dtv.get('loai', '')}
 Thời gian: {_dt_tg} phút
-
-MA TRẬN GỐC:
+MA TRẬN:
 \"\"\"
-{_dt_mt.get('noi_dung', '')}
+{_dtv.get('noi_dung', '')}
 \"\"\"
-
-YÊU CẦU:
-- Bảng Markdown: TT | Chủ đề | Mạch kiến thức | Yêu cầu cần đạt |
-  Số câu (NB/TH/VD/VDC) | Điểm | Câu hỏi minh họa
-- Mỗi dòng = 1 đơn vị kiến thức
-- Cuối bảng có dòng TỔNG
-- KHÔNG viết ngoài bảng
-"""
-                    with st.spinner("🤖 Đang sinh đặc tả..."):
+YÊU CẦU: Bảng Markdown có cột TT | Chủ đề | Mạch kiến thức |
+Yêu cầu cần đạt | Số câu (NB/TH/VD/VDC) | Điểm | Câu hỏi minh họa.
+Cuối bảng có TỔNG."""
+                    with st.spinner("🤖 Đang sinh..."):
                         try:
-                            _dt_result = call_ai(_dt_prompt)
+                            _dr = call_ai(_dp)
                             st.session_state["dacta_hientai"] = {
                                 "ma_tran_key": _dt_key,
-                                "mon": _dt_mt.get("mon", ""),
-                                "lop": _dt_mt.get("lop", ""),
-                                "loai": _dt_mt.get("loai", ""),
-                                "noi_dung": _dt_result}
-                            save_history(
-                                "Đặc tả đề",
-                                f"{_dt_mt.get('mon', '')} "
-                                f"{_dt_mt.get('lop', '')} "
-                                f"{_dt_mt.get('loai', '')}",
-                                _dt_result)
-                            st.success("✅ Đã sinh đặc tả.")
+                                "mon": _dtv.get("mon", ""),
+                                "lop": _dtv.get("lop", ""),
+                                "loai": _dtv.get("loai", ""),
+                                "noi_dung": _dr}
+                            save_history("Đặc tả đề",
+                                f"{_dtv.get('mon', '')} {_dtv.get('lop', '')}",
+                                _dr)
+                            st.success("✅ Đã sinh")
                         except Exception as _e:
-                            st.error(f"❌ Lỗi AI: {_e}")
+                            st.error(f"❌ {_e}")
 
             if st.session_state.get("dacta_hientai"):
-                _dt_now = st.session_state["dacta_hientai"]
+                _dn = st.session_state["dacta_hientai"]
                 st.markdown("---")
-                st.markdown("### 📄 Đặc tả đề")
-                st.text_area("Nội dung (có thể sửa)",
-                             _dt_now.get("noi_dung", ""),
-                             height=400, key="dt_edit")
+                st.text_area("Nội dung", _dn.get("noi_dung", ""),
+                              height=400, key="dt_edit")
                 _c1, _c2 = st.columns(2)
                 with _c1:
-                    st.download_button(
-                        "⬇️ Tải đặc tả (Word)",
-                        make_doc("Đặc tả đề",
-                                 _dt_now.get("noi_dung", ""),
-                                 subject_name=_dt_now.get("mon", "")),
-                        file_name=f"DacTa_{_slugify(_dt_now.get('mon', ''))}_"
-                                  f"{_dt_now.get('lop', '')}.docx",
+                    st.download_button("⬇️ Word",
+                        make_doc("Đặc tả đề", _dn.get("noi_dung", ""),
+                                 subject_name=_dn.get("mon", "")),
+                        file_name=f"DacTa_{_slugify(_dn.get('mon', ''))}.docx",
                         mime="application/vnd.openxmlformats-officedocument."
                              "wordprocessingml.document",
                         type="primary", use_container_width=True)
                 with _c2:
-                    st.download_button(
-                        "⬇️ Tải đặc tả (TXT)",
-                        _dt_now.get("noi_dung", "").encode("utf-8"),
-                        file_name=f"DacTa_{_slugify(_dt_now.get('mon', ''))}_"
-                                  f"{_dt_now.get('lop', '')}.txt",
+                    st.download_button("⬇️ TXT",
+                        _dn.get("noi_dung", "").encode("utf-8"),
+                        file_name=f"DacTa_{_slugify(_dn.get('mon', ''))}.txt",
                         mime="text/plain", use_container_width=True)
 
 # ============================================================
 # TAB 7: TẠO ĐỀ + ĐÁP ÁN
 # ============================================================
 with tab_exam:
-    st.markdown("### 📝 Tạo đề kiểm tra + đáp án")
-    st.info("💡 Chọn **đặc tả đề** → AI tạo **đề + đáp án + biểu điểm**.")
+    st.markdown("### 📝 Tạo đề + đáp án")
 
     if not st.session_state.get("dacta_hientai"):
-        st.warning("⚠️ Chưa có đặc tả. Vào tab **📋 Tạo đặc tả đề** trước.")
+        st.warning("⚠️ Chưa có đặc tả.")
     else:
-        _dt_now = st.session_state["dacta_hientai"]
+        _dn = st.session_state["dacta_hientai"]
         _c1, _c2, _c3 = st.columns(3)
         with _c1:
-            _ex_hinhthuc = st.selectbox(
-                "Hình thức",
+            _ht = st.selectbox("Hình thức",
                 ["Trắc nghiệm 100%", "Tự luận 100%",
-                 "Trắc nghiệm + Tự luận"],
-                key="ex_hinhthuc")
+                 "Trắc nghiệm + Tự luận"], key="ex_hinhthuc")
         with _c2:
-            _ex_socau = st.text_input("Tổng số câu", value="20",
-                                       key="ex_socau")
+            _sc = st.text_input("Tổng số câu", value="20", key="ex_socau")
         with _c3:
-            _ex_thangdiem = st.text_input("Thang điểm", value="10",
-                                           key="ex_thangdiem")
-
-        _ex_yeucau = st.text_area("Yêu cầu bổ sung", value="",
-                                   height=80, key="ex_yeucau",
-                                   placeholder="VD: 4 mã đề, có hình ảnh...")
+            _td = st.text_input("Thang điểm", value="10", key="ex_thangdiem")
+        _yc = st.text_area("Yêu cầu bổ sung", value="", height=80,
+                            key="ex_yeucau")
 
         if st.button("🚀 Sinh đề + đáp án", type="primary",
                      use_container_width=True, key="ex_run"):
             if not available_providers:
-                st.error("❌ Chưa có API key.")
+                st.error("❌ Chưa có API key")
             else:
-                _ex_prompt = f"""Bạn là chuyên gia khảo thí THCS.
-Từ ĐẶC TẢ ĐỀ dưới đây, sinh ĐỀ KIỂM TRA + ĐÁP ÁN + BIỂU ĐIỂM.
-
-Môn: {_dt_now.get('mon', '')}
-Lớp: {_dt_now.get('lop', '')}
-Loại: {_dt_now.get('loai', '')}
-Hình thức: {_ex_hinhthuc}
-Tổng số câu: {_ex_socau}
-Thang điểm: {_ex_thangdiem}
-Yêu cầu bổ sung: {_ex_yeucau or "Không"}
-
+                _ep = f"""Bạn là chuyên gia khảo thí THCS.
+Sinh ĐỀ KIỂM TRA + ĐÁP ÁN + BIỂU ĐIỂM.
+Môn: {_dn.get('mon', '')}
+Lớp: {_dn.get('lop', '')}
+Loại: {_dn.get('loai', '')}
+Hình thức: {_ht}
+Số câu: {_sc}
+Thang điểm: {_td}
+Yêu cầu: {_yc or 'Không'}
 ĐẶC TẢ:
 \"\"\"
-{_dt_now.get('noi_dung', '')}
+{_dn.get('noi_dung', '')}
 \"\"\"
-
-YÊU CẦU:
-### PHẦN A: ĐỀ KIỂM TRA
-### PHẦN B: ĐÁP ÁN + BIỂU ĐIỂM
-- Unicode toán: x², √, ≤, ≥, π
-- Không viết "Người ra đề", "Ký tên"
-"""
-                with st.spinner("🤖 Đang sinh đề + đáp án..."):
+PHẦN A: ĐỀ KIỂM TRA
+PHẦN B: ĐÁP ÁN + BIỂU ĐIỂM"""
+                with st.spinner("🤖 Đang sinh..."):
                     try:
-                        _ex_result = call_ai(_ex_prompt)
+                        _er = call_ai(_ep)
                         st.session_state["de_kiem_tra_hientai"] = {
-                            "mon": _dt_now.get("mon", ""),
-                            "lop": _dt_now.get("lop", ""),
-                            "loai": _dt_now.get("loai", ""),
-                            "noi_dung": _ex_result}
-                        save_history(
-                            "Đề kiểm tra",
-                            f"{_dt_now.get('mon', '')} "
-                            f"{_dt_now.get('lop', '')}",
-                            _ex_result)
-                        st.success("✅ Đã sinh đề + đáp án.")
+                            "mon": _dn.get("mon", ""),
+                            "lop": _dn.get("lop", ""),
+                            "loai": _dn.get("loai", ""),
+                            "noi_dung": _er}
+                        save_history("Đề kiểm tra",
+                            f"{_dn.get('mon', '')} {_dn.get('lop', '')}", _er)
+                        st.success("✅ Đã sinh")
                     except Exception as _e:
-                        st.error(f"❌ Lỗi AI: {_e}")
+                        st.error(f"❌ {_e}")
 
         if st.session_state.get("de_kiem_tra_hientai"):
-            _ex_now = st.session_state["de_kiem_tra_hientai"]
+            _en = st.session_state["de_kiem_tra_hientai"]
             st.markdown("---")
-            st.markdown("### 📄 Đề kiểm tra + Đáp án")
-            st.text_area("Nội dung (có thể sửa)",
-                         _ex_now.get("noi_dung", ""),
-                         height=500, key="ex_edit")
+            st.text_area("Nội dung", _en.get("noi_dung", ""),
+                          height=500, key="ex_edit")
             _c1, _c2 = st.columns(2)
             with _c1:
-                st.download_button(
-                    "⬇️ Tải đề (Word)",
-                    make_doc("Đề kiểm tra",
-                             _ex_now.get("noi_dung", ""),
-                             subject_name=_ex_now.get("mon", "")),
-                    file_name=f"DeKiemTra_{_slugify(_ex_now.get('mon', ''))}_"
-                              f"{_ex_now.get('lop', '')}.docx",
+                st.download_button("⬇️ Word",
+                    make_doc("Đề kiểm tra", _en.get("noi_dung", ""),
+                             subject_name=_en.get("mon", "")),
+                    file_name=f"DeKiemTra_{_slugify(_en.get('mon', ''))}.docx",
                     mime="application/vnd.openxmlformats-officedocument."
                          "wordprocessingml.document",
                     type="primary", use_container_width=True)
             with _c2:
-                st.download_button(
-                    "⬇️ Tải đề (TXT)",
-                    _ex_now.get("noi_dung", "").encode("utf-8"),
-                    file_name=f"DeKiemTra_{_slugify(_ex_now.get('mon', ''))}_"
-                              f"{_ex_now.get('lop', '')}.txt",
+                st.download_button("⬇️ TXT",
+                    _en.get("noi_dung", "").encode("utf-8"),
+                    file_name=f"DeKiemTra_{_slugify(_en.get('mon', ''))}.txt",
                     mime="text/plain", use_container_width=True)
 
 # ============================================================
 # TAB 8: SỬA TÊN BÀI SGK
 # ============================================================
 with tab_edit:
-    st.markdown("### ✏️ Sửa tên bài SGK đã tách")
-    st.info(
-        "💡 Sửa **tên bài**. Khi lưu, app sẽ **đổi tên file PDF** "
-        "tương ứng. Nếu tên file mới trùng với file khác → báo lỗi."
-    )
+    st.markdown("### ✏️ Sửa tên bài SGK")
+    st.info("Sửa **tên bài**. Khi lưu, app đổi tên file PDF tương ứng.")
 
     _ds_edit = list_sgk_da_tach()
     if not _ds_edit:
-        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp bài đã tách**.")
+        st.warning("⚠️ Chưa có SGK.")
     else:
-        _sgk_edit_name = st.selectbox(
-            "Chọn SGK cần sửa",
-            [s["sgk_name"] for s in _ds_edit],
-            key="edit_sgk_sel")
-
-        _meta_edit = load_sgk_metadata(_sgk_edit_name)
-        if not _meta_edit or not _meta_edit.get("ds_bai"):
-            st.warning("SGK này chưa có bài nào.")
+        _se = st.selectbox("Chọn SGK",
+            [s["sgk_name"] for s in _ds_edit], key="edit_sgk_sel")
+        _me = load_sgk_metadata(_se)
+        if not _me or not _me.get("ds_bai"):
+            st.warning("SGK chưa có bài.")
         else:
-            _ds_bai = _meta_edit["ds_bai"]
-            st.caption(
-                f"📚 **{_sgk_edit_name}** — {len(_ds_bai)} bài"
-            )
-
-            st.markdown("---")
+            _db = _me["ds_bai"]
+            st.caption(f"📚 **{_se}** — {len(_db)} bài")
 
             _h1, _h2, _h3 = st.columns([0.5, 3, 3])
-            with _h1:
-                st.markdown("**STT**")
-            with _h2:
-                st.markdown("**Tên bài**")
-            with _h3:
-                st.markdown("**Tên file hiện tại**")
+            with _h1: st.markdown("**STT**")
+            with _h2: st.markdown("**Tên bài**")
+            with _h3: st.markdown("**File**")
 
-            for _i, _b in enumerate(_ds_bai):
+            for _i, _b in enumerate(_db):
                 _cols = st.columns([0.5, 3, 3])
                 with _cols[0]:
                     st.write(f"**{_b.get('so_bai', _i+1)}**")
                 with _cols[1]:
-                    st.text_input(
-                        "Tên bài",
-                        value=_b.get("ten_bai", ""),
-                        key=f"edit_ten_{_i}",
-                        label_visibility="collapsed",
-                        placeholder="Gõ tên bài đúng theo SGK")
+                    st.text_input("Tên", value=_b.get("ten_bai", ""),
+                                   key=f"edit_ten_{_i}",
+                                   label_visibility="collapsed")
                 with _cols[2]:
-                    st.text_input(
-                        "File",
-                        value=_b.get("file", ""),
-                        key=f"edit_file_view_{_i}",
-                        label_visibility="collapsed",
-                        disabled=True)
+                    st.text_input("File", value=_b.get("file", ""),
+                                   key=f"edit_file_{_i}", disabled=True,
+                                   label_visibility="collapsed")
 
-            st.markdown("---")
-
-            if st.button(
-                "💾 Lưu thay đổi",
-                type="primary",
-                use_container_width=True,
-                key="edit_save_all",
-            ):
-                _so_doi_bai = 0
-                _so_doi_file = 0
-                _so_loi = 0
-                _ds_loi = []
-
-                for _i, _b in enumerate(_ds_bai):
-                    _so_bai = _b.get("so_bai", _i + 1)
-                    _ten_cu = _b.get("ten_bai", "")
-                    _ten_moi = st.session_state.get(
-                        f"edit_ten_{_i}", _ten_cu).strip()
-
-                    if _ten_moi == _ten_cu:
+            if st.button("💾 Lưu thay đổi", type="primary",
+                         use_container_width=True, key="edit_save_all"):
+                _ok_b = 0
+                _ok_f = 0
+                _loi = 0
+                _dsl = []
+                for _i, _b in enumerate(_db):
+                    _sb = _b.get("so_bai", _i + 1)
+                    _tc = _b.get("ten_bai", "")
+                    _tm = st.session_state.get(f"edit_ten_{_i}", _tc).strip()
+                    if _tm == _tc:
                         continue
-
-                    _ok, _msg = doi_ten_bai_va_file(
-                        _sgk_edit_name, _so_bai, _ten_moi)
-
-                    if _ok:
-                        if "file giữ nguyên" in _msg:
-                            _so_doi_bai += 1
-                        else:
-                            _so_doi_bai += 1
-                            _so_doi_file += 1
+                    _r_ok, _r_msg = doi_ten_bai_va_file(_se, _sb, _tm)
+                    if _r_ok:
+                        _ok_b += 1
+                        if "file giữ nguyên" not in _r_msg:
+                            _ok_f += 1
                     else:
-                        _so_loi += 1
-                        _ds_loi.append(
-                            f"Bài {_so_bai} (`{_ten_cu}` → "
-                            f"`{_ten_moi}`): {_msg}")
+                        _loi += 1
+                        _dsl.append(f"Bài {_sb}: {_r_msg}")
 
                 st.markdown("---")
-                st.markdown("#### 📊 Báo cáo")
-                if _so_doi_bai == 0 and _so_loi == 0:
-                    st.info("ℹ️ Không có thay đổi nào.")
+                if _ok_b == 0 and _loi == 0:
+                    st.info("ℹ️ Không có thay đổi.")
                 else:
-                    if _so_doi_bai > 0:
-                        st.success(
-                            f"✅ Đã đổi tên bài: "
-                            f"**{_so_doi_bai}** bài"
-                        )
-                        if _so_doi_file > 0:
-                            st.caption(
-                                f"   Trong đó đổi tên file: "
-                                f"**{_so_doi_file}** file"
-                            )
-                    if _so_loi > 0:
-                        st.error(f"❌ Lỗi: **{_so_loi}** bài")
-                        for _l in _ds_loi:
+                    if _ok_b > 0:
+                        st.success(f"✅ Đổi tên: **{_ok_b}** bài "
+                                    f"(đổi file: {_ok_f})")
+                    if _loi > 0:
+                        st.error(f"❌ Lỗi: **{_loi}**")
+                        for _l in _dsl:
                             st.write(f"  • {_l}")
-
-                    if _so_doi_bai > 0:
+                    if _ok_b > 0:
                         st.balloons()
                         st.rerun()
 
             st.markdown("---")
-            _meta_reload = load_sgk_metadata(_sgk_edit_name)
-            st.download_button(
-                "⬇️ Tải metadata.json",
-                json.dumps(_meta_reload, ensure_ascii=False, indent=2)
-                    .encode("utf-8"),
-                file_name=f"{_sgk_edit_name}_metadata.json",
-                mime="application/json",
+            _mr = load_sgk_metadata(_se)
+            st.download_button("⬇️ Tải metadata.json",
+                json.dumps(_mr, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name=f"{_se}_metadata.json", mime="application/json",
                 use_container_width=True)
 
 # ============================================================
-# TAB 9: KHỚP TÊN BÀI VỚI LỊCH BÁO GIẢNG
+# TAB 9: KHỚP TÊN VỚI LỊCH BÁO GIẢNG
 # ============================================================
 with tab_match:
-    st.markdown("### 📝 Khớp tên bài SGK với Lịch báo giảng")
-    st.info("💡 Dán danh sách tên bài từ **Lịch báo giảng** vào ô bên dưới. "
-            "App sẽ so khớp với tên bài hiện tại trong SGK và cho phép "
-            "gán lại tên chuẩn.")
+    st.markdown("### 📝 Khớp tên SGK với Lịch BG")
 
     _ds_match = list_sgk_da_tach()
     if not _ds_match:
-        st.warning("⚠️ Chưa có SGK nào. Vào tab **📥 Nạp bài đã tách**.")
+        st.warning("⚠️ Chưa có SGK.")
     else:
-        _sgk_match_name = st.selectbox(
-            "Chọn SGK cần khớp",
-            [s["sgk_name"] for s in _ds_match],
-            key="match_sgk_sel")
-
-        _meta_match = load_sgk_metadata(_sgk_match_name)
-        if not _meta_match or not _meta_match.get("ds_bai"):
-            st.warning("SGK này chưa có bài nào.")
+        _sm = st.selectbox("Chọn SGK",
+            [s["sgk_name"] for s in _ds_match], key="match_sgk_sel")
+        _mm = load_sgk_metadata(_sm)
+        if not _mm or not _mm.get("ds_bai"):
+            st.warning("SGK chưa có bài.")
         else:
-            _ds_bai_match = _meta_match["ds_bai"]
-            st.markdown(f"**📚 {_sgk_match_name}** — "
-                        f"{len(_ds_bai_match)} bài trong SGK")
+            _dbm = _mm["ds_bai"]
+            st.markdown(f"**📚 {_sm}** — {len(_dbm)} bài")
 
-            st.markdown("#### 1️⃣ Dán danh sách tên bài từ Lịch BG")
-            st.caption("Mỗi dòng 1 tên bài. Thứ tự dòng phải khớp với "
-                       "thứ tự bài trong SGK.")
+            _t = st.text_area("Dán danh sách tên bài (mỗi dòng 1 tên)",
+                value="", height=250, key="match_ten_input")
 
-            _default_match_text = ""
-            _lbg_now = st.session_state.get("lich_bao_giang", [])
-            if _lbg_now:
-                _ten_tu_lbg = [r.get("ten_bai", "").strip()
-                               for r in _lbg_now
-                               if r.get("ten_bai", "").strip()]
-                if _ten_tu_lbg:
-                    _default_match_text = "\n".join(_ten_tu_lbg)
+            _ten_moi = [ln.strip() for ln in _t.splitlines() if ln.strip()]
 
-            _match_text = st.text_area(
-                "Danh sách tên bài (mỗi dòng 1 bài)",
-                value=_default_match_text,
-                height=250,
-                key="match_ten_input",
-                placeholder=("VD:\nTập hợp\nCách ghi số tự nhiên\n"
-                             "Thứ tự trong tập hợp các số tự nhiên\n..."))
-
-            _c_tk1, _c_tk2 = st.columns([1, 3])
-            with _c_tk1:
-                if st.button("📥 Lấy từ Lịch BG hiện tại",
-                             key="match_load_lbg",
-                             use_container_width=True):
-                    _lbg_now2 = st.session_state.get("lich_bao_giang", [])
-                    if _lbg_now2:
-                        _ten2 = [r.get("ten_bai", "").strip()
-                                  for r in _lbg_now2
-                                  if r.get("ten_bai", "").strip()]
-                        if _ten2:
-                            st.session_state["match_ten_input"] = \
-                                "\n".join(_ten2)
-                            st.success(
-                                f"✅ Đã lấy {len(_ten2)} tên từ Lịch BG.")
-                            st.rerun()
-                        else:
-                            st.warning("Lịch BG chưa có tên bài nào.")
-                    else:
-                        st.warning("Chưa có Lịch BG trong phiên.")
-
-            with _c_tk2:
-                st.caption("💡 Nếu bạn đã nhập Lịch BG ở phần dưới → "
-                           "bấm nút này để tự điền.")
-
-            _ten_moi = [ln.strip() for ln in _match_text.splitlines()
-                        if ln.strip()]
-
-            st.markdown("---")
-            st.markdown("#### 2️⃣ Đối chiếu và gán tên")
-
-            if not _ten_moi:
-                st.info("Chưa có tên bài nào trong ô trên.")
-            else:
-                st.caption(
-                    f"SGK có **{len(_ds_bai_match)}** bài | "
-                    f"Danh sách mới có **{len(_ten_moi)}** tên")
-
-                if len(_ten_moi) != len(_ds_bai_match):
-                    st.warning(
-                        f"⚠️ Số lượng không khớp: SGK có "
-                        f"{len(_ds_bai_match)} bài, danh sách có "
-                        f"{len(_ten_moi)} tên. App sẽ ghép theo thứ tự, "
-                        f"các bài dư sẽ giữ nguyên tên cũ.")
-
+            if _ten_moi:
                 _h1, _h2, _h3 = st.columns([0.5, 2.5, 2.5])
-                with _h1:
-                    st.markdown("**STT**")
-                with _h2:
-                    st.markdown("**Tên hiện tại trong SGK**")
-                with _h3:
-                    st.markdown("**Tên mới (từ Lịch BG)**")
+                with _h1: st.markdown("**STT**")
+                with _h2: st.markdown("**Hiện tại**")
+                with _h3: st.markdown("**Mới**")
 
-                _ten_ap_dung = []
-                for _i, _b in enumerate(_ds_bai_match):
+                _tad = []
+                for _i, _b in enumerate(_dbm):
                     _cols = st.columns([0.5, 2.5, 2.5])
                     with _cols[0]:
                         st.write(f"**{_i+1}**")
                     with _cols[1]:
-                        st.text_input(
-                            "Tên hiện tại",
+                        st.text_input("Hiện tại",
                             value=_b.get("ten_bai", ""),
-                            key=f"match_old_{_i}",
-                            disabled=True,
+                            key=f"m_old_{_i}", disabled=True,
                             label_visibility="collapsed")
                     with _cols[2]:
-                        _default_new = ""
-                        if _i < len(_ten_moi):
-                            _default_new = _ten_moi[_i]
-                        _new_val = st.text_input(
-                            "Tên mới",
-                            value=_default_new,
-                            key=f"match_new_{_i}",
-                            label_visibility="collapsed",
-                            placeholder="Tên bài đúng")
-                        _ten_ap_dung.append(_new_val)
+                        _dn = _ten_moi[_i] if _i < len(_ten_moi) else ""
+                        _nv = st.text_input("Mới", value=_dn,
+                            key=f"m_new_{_i}",
+                            label_visibility="collapsed")
+                        _tad.append(_nv)
 
-                st.markdown("---")
-
-                _c_ap1, _c_ap2 = st.columns([1, 1])
-                with _c_ap1:
-                    if st.button(
-                        "✅ Áp dụng tên mới vào SGK",
-                        type="primary",
-                        use_container_width=True,
-                        key="match_apply"):
-                        _errs = []
-                        _seen = {}
-                        _count = 0
-                        for _k, _bk in enumerate(_ds_bai_match):
-                            _ten = _ten_ap_dung[_k].strip() \
-                                if _k < len(_ten_ap_dung) else ""
-                            if not _ten:
-                                _ten = _bk.get("ten_bai", "")
-                            _ten_chuan = _chuan_hoa_tim_kiem(_ten)
-                            if _ten_chuan in _seen:
-                                _errs.append(
-                                    f"Dòng {_k+1}: Trùng với dòng "
-                                    f"{_seen[_ten_chuan] + 1} ({_ten})")
-                            else:
-                                _seen[_ten_chuan] = _k
-                            if _ten != _bk.get("ten_bai", ""):
-                                _bk["ten_bai"] = _ten
-                                _count += 1
-
-                        if _errs:
-                            for _e in _errs:
-                                st.error("❌ " + _e)
+                if st.button("✅ Áp dụng", type="primary",
+                             use_container_width=True, key="match_apply"):
+                    _errs = []
+                    _seen = {}
+                    _count = 0
+                    for _k, _bk in enumerate(_dbm):
+                        _t = _tad[_k].strip() if _k < len(_tad) else ""
+                        if not _t:
+                            _t = _bk.get("ten_bai", "")
+                        _tc = _chuan_hoa_tim_kiem(_t)
+                        if _tc in _seen:
+                            _errs.append(f"Dòng {_k+1}: Trùng dòng "
+                                          f"{_seen[_tc]+1}")
                         else:
-                            _meta_match["ds_bai"] = _ds_bai_match
-                            save_sgk_metadata(_sgk_match_name, _meta_match)
-                            st.success(
-                                f"✅ Đã cập nhật **{_count}** tên bài. "
-                                "Vào **Soạn 1 bài** hoặc **Soạn cả tuần** "
-                                "để dùng tên mới.")
-                            st.balloons()
-
-                with _c_ap2:
-                    if st.button(
-                        "🔄 Tải lại từ file",
-                        use_container_width=True,
-                        key="match_reload"):
-                        st.rerun()
-
-                with st.expander("👁️ Xem trước kết quả sau khi áp dụng",
-                                 expanded=False):
-                    _preview = []
-                    for _k, _bk in enumerate(_ds_bai_match):
-                        _old = _bk.get("ten_bai", "")
-                        _new = _ten_ap_dung[_k] if _k < len(_ten_ap_dung) \
-                            else ""
-                        _preview.append({
-                            "STT": _k + 1,
-                            "Tên cũ": _old,
-                            "Tên mới": _new if _new else _old,
-                            "Thay đổi": "✅" if _new and _new != _old
-                                        else "—"})
-                    st.dataframe(_preview, use_container_width=True,
-                                 hide_index=True)
+                            _seen[_tc] = _k
+                        if _t != _bk.get("ten_bai", ""):
+                            _bk["ten_bai"] = _t
+                            _count += 1
+                    if _errs:
+                        for _e in _errs:
+                            st.error("❌ " + _e)
+                    else:
+                        _mm["ds_bai"] = _dbm
+                        save_sgk_metadata(_sm, _mm)
+                        st.success(f"✅ Cập nhật {_count} tên")
+                        st.balloons()
 
 # ============ KẾT THÚC PHẦN 4/6 ============
 
