@@ -101,20 +101,6 @@ def _check_ollama():
         return False
 
 
-# ============ OLLAMA LOCAL AI ============
-OLLAMA_HOST = cfg("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = cfg("OLLAMA_MODEL", "qwen2.5:3b")
-USE_OLLAMA = cfg("USE_OLLAMA", "true").lower() == "true"
-
-
-def _check_ollama():
-    try:
-        req = urllib.request.Request(f"{OLLAMA_HOST}/api/tags")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
-
 GITHUB_TOKEN = cfg("GITHUB_TOKEN", "")
 GITHUB_REPO = cfg("GITHUB_REPO", "P20217474/Thcs_teacher")
 GITHUB_BRANCH = cfg("GITHUB_BRANCH", "main")
@@ -1872,12 +1858,12 @@ with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
 
-    # ===== TRẠNG THÁI AI =====
+    # ===== TRẠNG THÁI AI (check động mỗi lần rerun) =====
     _ollama_now = USE_OLLAMA and _check_ollama()
-if _ollama_now:
-    st.success(f"🏠 Ollama local: {OLLAMA_MODEL}")
-else:
-    st.warning("⚠️ Ollama chưa chạy (dùng `ollama serve`)")
+    if _ollama_now:
+        st.success(f"🏠 Ollama local: {OLLAMA_MODEL}")
+    else:
+        st.warning("⚠️ Ollama chưa chạy (dùng `ollama serve`)")
     st.caption(f"☁️ AI cloud: {len(available_providers)} provider")
 
     st.divider()
@@ -3027,7 +3013,7 @@ with tab_exam:
 
         if st.button("🚀 Sinh đề + đáp án", type="primary",
                      use_container_width=True, key="ex_run"):
-            if not OLLAMA_AVAILABLE and not available_providers:
+            if not (USE_OLLAMA and _check_ollama()) and not available_providers:
                 st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
             else:
                 _ep = f"""Bạn là chuyên gia khảo thí THCS.
