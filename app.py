@@ -2247,7 +2247,7 @@ def call_ai(prompt, system="", silent=False):
     """Gọi AI — ưu tiên API cloud miễn phí, fallback Ollama local.
 
     Thứ tự:
-    1. Cloud providers (Gemini → Groq → Mistral → OpenRouter → T-Box)
+    1. Cloud providers (theo thứ tự trong available_providers)
     2. Ollama local (nếu có)
 
     Returns:
@@ -2255,11 +2255,13 @@ def call_ai(prompt, system="", silent=False):
         None nếu tất cả fail
     """
     ds_loi = []
+    ds_loi_chi_tiet = []   # Lưu chi tiết đầy đủ để debug
 
     # ===== ƯU TIÊN 1: Cloud providers =====
     for pk in available_providers:
         ham_goi = _CALL_DISPATCH.get(pk)
         if not ham_goi:
+            ds_loi_chi_tiet.append(f"⚠️ {pk}: không có hàm dispatch")
             continue
         for mn in PREFERRED_MODELS.get(pk, []):
             ok, result = ham_goi(prompt, system, mn)
@@ -2267,6 +2269,9 @@ def call_ai(prompt, system="", silent=False):
                 return result
             else:
                 ds_loi.append(f"{pk}/{mn}: {str(result)[:200]}")
+                ds_loi_chi_tiet.append(
+                    f"❌ {pk} | model={mn} | lỗi: {str(result)[:300]}"
+                )
 
     # ===== ƯU TIÊN 2: Ollama Local (dự phòng) =====
     ollama_ok = USE_OLLAMA and _check_ollama()
@@ -2276,11 +2281,32 @@ def call_ai(prompt, system="", silent=False):
             return result
         else:
             ds_loi.append(f"OLLAMA/{OLLAMA_MODEL}: {str(result)[:200]}")
+            ds_loi_chi_tiet.append(
+                f"❌ OLLAMA | model={OLLAMA_MODEL} | "
+                f"lỗi: {str(result)[:300]}"
+            )
+    else:
+        ds_loi_chi_tiet.append(
+            "⚠️ OLLAMA: không chạy (dùng `ollama serve`)"
+        )
 
+    # ===== Hiển thị lỗi đầy đủ =====
     if not silent:
-        st.error("❌ Tất cả provider đều lỗi. Chi tiết:")
-        for _l in ds_loi[-5:]:
-            st.caption("• " + _l)
+        st.error(
+            f"❌ Tất cả {len(ds_loi)} lần thử đều lỗi. "
+            f"Chi tiết từng provider:"
+        )
+        for _l in ds_loi_chi_tiet:
+            st.caption(_l)
+
+        with st.expander("📋 Xem tất cả lỗi (raw)", expanded=False):
+            for _l in ds_loi:
+                st.text(_l)
+
+        st.info(
+            "💡 Gợi ý: Kiểm tra key trong Settings → Secrets. "
+            "Có thể do: key sai, hết quota, hoặc model không còn tồn tại."
+        )
     return None
 
 
