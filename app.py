@@ -1323,7 +1323,7 @@ def doc_lich_bao_giang(file_obj):
 #   - get_subject_rules, _chuan_hoa_ten_mon
 #   - detect_end_of_chapter, detect_luyen_tap_chung
 #   - kiem_tra_mau_5512, get_mau_dang_dung
-#   - build_exec_prompt
+#   - build_exec_prompt (đã cập nhật quy tắc trình bày)
 # ============================================================
 
 MAU_5512_MAC_DINH = {
@@ -1374,6 +1374,100 @@ c) Tổ chức thực hiện và sản phẩm:
 * HƯỚNG DẪN VỀ NHÀ
 - ...
 """,
+}
+
+
+# ============================================================
+# BẢNG KÝ HIỆU UNICODE CHO TẤT CẢ 12 MÔN
+# ============================================================
+KY_HIEU_MON = {
+    "Toán": (
+        "Phân số: a/b (VD: 3/4). "
+        "Số mũ: x², x³, xⁿ. Chỉ số dưới: x₁, a₁. "
+        "Căn: √x, ∛x. "
+        "So sánh: ≤, ≥, ≠, ≈, <, >. "
+        "Phép toán: ×, ÷, ·, ±. "
+        "Tập hợp: ∈, ∉, ⊂, ⊃, ∪, ∩, ∅, ℕ, ℤ, ℚ, ℝ. "
+        "Hy Lạp: π, α, β, γ, Δ, δ, θ, λ, μ, σ. "
+        "Góc: ∠, △, ⊥, ∥, °. "
+        "Tổng: ∑, ∏, ∫. "
+        "Vô cực: ∞."
+    ),
+    "Ngữ văn": (
+        "Dấu câu: “...” (trích dẫn), ‘...’. "
+        "Gạch đầu dòng: •, -, –. "
+        "Mũi tên: →, ⇒. "
+        "Ghi chú: (1), (2). "
+        "Nhấn mạnh: in đậm, in nghiêng."
+    ),
+    "Tiếng Anh": (
+        "Phiên âm IPA: /ˈɪŋ.ɡlɪʃ/, /ˈtiː.tʃər/. "
+        "Trọng âm: ˈ (âm chính), ˌ (âm phụ). "
+        "Ký hiệu ngữ pháp: N (noun), V (verb), Adj, Adv, Prep. "
+        "Viết tắt: S (subject), O (object)."
+    ),
+    "Khoa học tự nhiên": (
+        "Đơn vị đo: m, cm, km, g, kg, mL, L, °C, s, h. "
+        "Công thức: v = s/t, P = 10m. "
+        "Ký hiệu hóa học: H₂O, CO₂, O₂, NaCl, HCl. "
+        "Mũi tên phản ứng: →. "
+        "Điều kiện: t° (nhiệt độ), ↑ (khí), ↓ (kết tủa). "
+        "Số mũ: ², ³, ⁺, ⁻, ₂, ₃."
+    ),
+    "Lịch sử": (
+        "Thế kỷ: I, II, III, IV, V, VI, VII, VIII, IX, X, "
+        "XI, XII, XIII, XIV, XV, XVI, XVII, XVIII, XIX, XX, XXI. "
+        "Năm: 1945, 1954, 1975. "
+        "Mũi tên: → (diễn biến), ⇒ (kết quả). "
+        "Ký hiệu: ↔ (tương quan), ≈ (khoảng)."
+    ),
+    "Địa lí": (
+        "Tọa độ: 21°01′B, 105°48′Đ. "
+        "Kinh độ, vĩ độ: °, ′, ″, B (Bắc), N (Nam), "
+        "Đ (Đông), T (Tây). "
+        "Mũi tên: →, ↔. "
+        "Ký hiệu: ∼ (xấp xỉ), ≈. "
+        "Đơn vị: km², triệu người, %, ‰."
+    ),
+    "Giáo dục công dân": (
+        "Gạch đầu dòng: •, -, –. "
+        "Số thứ tự: (1), (2), (3). "
+        "Mũi tên: →, ⇒. "
+        "Nhấn mạnh: in đậm, in nghiêng."
+    ),
+    "Mỹ thuật": (
+        "Màu sắc: đỏ, cam, vàng, lục, lam, chàm, tím. "
+        "Ký hiệu: ○ (vòng), □ (vuông), △ (tam giác). "
+        "Tỷ lệ vàng: 1:1.618. "
+        "Ghi chú: (1), (2)."
+    ),
+    "Âm nhạc": (
+        "Nốt nhạc: Đồ, Rê, Mi, Pha, Son, La, Si. "
+        "Ký hiệu: ♪, ♫, ♬, ♩, ♭ (giáng), ♯ (thăng), ♮ (bình). "
+        "Trường độ: 𝅗𝅥 (nốt trắng), 𝅘𝅥 (nốt đen), ♪ (móc đơn). "
+        "Số chỉ nhịp: 2/4, 3/4, 4/4, 6/8."
+    ),
+    "Giáo dục thể chất": (
+        "Động tác: chạy, nhảy, ném, bắt, đá. "
+        "Khoảng cách: m, cm. "
+        "Thời gian: s, phút. "
+        "Nhịp: 1-2-3-4. "
+        "Ký hiệu: →, ⇒."
+    ),
+    "Hoạt động trải nghiệm, hướng nghiệp": (
+        "Gạch đầu dòng: •, -, –. "
+        "Mũi tên: →, ↔, ⇒. "
+        "Số thứ tự: (1), (2), (3). "
+        "Ký hiệu nhóm: ①, ②, ③, ④. "
+        "Đánh dấu: ✓, ✗, ★, ☆."
+    ),
+    "Tin học": (
+        "Ký hiệu lập trình: <, >, ≤, ≥, ≠, =, +, -, *, /, %, //. "
+        "Ngoặc: (), [], {}. "
+        "Mũi tên: →, ⇒, ←. "
+        "So sánh: ==, !=, <=, >=. "
+        "Logic: AND, OR, NOT, ∧, ∨, ¬."
+    ),
 }
 
 
@@ -1638,26 +1732,20 @@ def _chuan_hoa_ten_mon(ten_mon):
 
 
 def get_subject_rules(ten_mon):
-    """Tra bộ quy tắc theo tên môn.
-    Linh hoạt với viết hoa, dấu, viết tắt.
-    Trả về (tên_chuẩn, rules) hoặc (None, None).
-    """
+    """Tra bộ quy tắc theo tên môn."""
     if not ten_mon:
         return (None, None)
     ten_chuan = _chuan_hoa_ten_mon(ten_mon)
 
-    # 1. Khớp chính xác tên môn
     for key, rules in SUBJECT_RULES.items():
         if _chuan_hoa_ten_mon(key) == ten_chuan:
             return (key, rules)
 
-    # 2. Khớp tên gọi khác
     for key, rules in SUBJECT_RULES.items():
         for alias in rules.get("ten_goi_khac", []):
             if _chuan_hoa_ten_mon(alias) == ten_chuan:
                 return (key, rules)
 
-    # 3. Khớp mờ
     for key, rules in SUBJECT_RULES.items():
         key_chuan = _chuan_hoa_ten_mon(key)
         if key_chuan in ten_chuan or ten_chuan in key_chuan:
@@ -1696,9 +1784,7 @@ def detect_luyen_tap_chung(topic):
 
 
 def kiem_tra_mau_5512(mau_text):
-    """Kiểm tra mẫu có đủ cấu trúc 5512 không.
-    Trả về (ok, msg).
-    """
+    """Kiểm tra mẫu có đủ cấu trúc 5512 không."""
     if not mau_text:
         return (False, "Mẫu rỗng")
 
@@ -1735,8 +1821,11 @@ def get_mau_dang_dung():
     return MAU_5512_MAC_DINH
 
 
+# ============================================================
+# BUILD PROMPT — CẤM LATEX, HỖ TRỢ 12 MÔN
+# ============================================================
 def build_exec_prompt(plan):
-    """Xây prompt 5512 tối ưu token."""
+    """Xây prompt 5512 với quy tắc trình bày ký hiệu đúng chuẩn."""
     mem = st.session_state["memory"]
 
     # 1. Tra môn
@@ -1756,6 +1845,9 @@ def build_exec_prompt(plan):
             "danh_gia": ["Kiến thức", "Kỹ năng", "Thái độ"],
             "khong_nen": "",
         }
+
+    # Lấy ký hiệu đặc trưng của môn
+    ky_hieu_mon = KY_HIEU_MON.get(ten_mon_chuan, "")
 
     # 2. Lấy mẫu 5512
     mau = get_mau_dang_dung()
@@ -1797,6 +1889,39 @@ def build_exec_prompt(plan):
     p.append("Đánh giá: " + " | ".join(rules.get("danh_gia", [])))
     if rules.get("khong_nen"):
         p.append("KHÔNG NÊN: " + rules["khong_nen"])
+    p.append("")
+
+    # KÝ HIỆU ĐẶC TRƯNG CỦA MÔN
+    if ky_hieu_mon:
+        p.append("=== KÝ HIỆU UNICODE ĐƯỢC DÙNG CHO MÔN "
+                 + ten_mon_chuan.upper() + " ===")
+        p.append(ky_hieu_mon)
+        p.append("")
+
+    # QUY TẮC TRÌNH BÀY TOÁN — CẤM LATEX
+    p.append("=== QUY TẮC TRÌNH BÀY KÝ HIỆU (BẮT BUỘC) ===")
+    p.append("🚫 TUYỆT ĐỐI KHÔNG dùng LaTeX:")
+    p.append("   - KHÔNG viết \\frac{3}{4} → viết 3/4")
+    p.append("   - KHÔNG viết \\text{km} → viết km")
+    p.append("   - KHÔNG viết \\times → viết ×")
+    p.append("   - KHÔNG viết \\div → viết ÷")
+    p.append("   - KHÔNG viết x^{2} → viết x²")
+    p.append("   - KHÔNG viết x_{1} → viết x₁")
+    p.append("   - KHÔNG viết \\sqrt{x} → viết √x")
+    p.append("   - KHÔNG viết $...$ hoặc $$...$$ (math mode)")
+    p.append("")
+    p.append("✅ DÙNG KÝ HIỆU UNICODE trực tiếp:")
+    p.append("   - Phân số: 3/4, 15/20, (a+b)/2")
+    p.append("   - Số mũ: x², x³, xⁿ, 10⁶")
+    p.append("   - Chỉ số dưới: x₁, a₂, H₂O, CO₂")
+    p.append("   - Căn: √x, ∛x, √(a+b)")
+    p.append("   - So sánh: ≤, ≥, ≠, ≈, <, >")
+    p.append("   - Phép toán: ×, ÷, ·, ±")
+    p.append("   - Tập hợp: ∈, ∉, ⊂, ∪, ∩, ∅, ℕ, ℤ, ℚ, ℝ")
+    p.append("   - Hy Lạp: π, α, β, γ, Δ, δ, θ, λ, μ, σ")
+    p.append("   - Góc, hình: ∠, △, ⊥, ∥, °")
+    p.append("   - Mũi tên: →, ⇒, ↔, ←")
+    p.append("   - Đơn vị: km, cm, m, kg, g, L, mL, °C, km/h")
     p.append("")
 
     # Nguồn SGK
@@ -1846,7 +1971,7 @@ def build_exec_prompt(plan):
     p.append("4. Cột Sản phẩm mỗi bước phải có:")
     p.append("   - Kiến thức SGK")
     p.append("   - Các bước giải (nếu có)")
-    p.append("   - Ký hiệu toán/đặc trưng môn")
+    p.append("   - Ký hiệu Unicode đặc trưng môn")
     p.append("   - Mô tả hình ảnh (nếu có)")
     p.append("   - Dự kiến câu trả lời của HS")
     p.append("")
@@ -1856,14 +1981,18 @@ def build_exec_prompt(plan):
     p.append("6. Trong ô bảng dùng <br> để xuống dòng. "
              "Mỗi bước riêng dòng.")
     p.append("")
-    p.append("7. Ký hiệu Unicode: x², √, ≤, ≥, π, ∈.")
+    p.append("7. KHÔNG viết 'Người soạn', 'Ký tên', 'Sông Đốc' cuối bài.")
     p.append("")
-    p.append("8. KHÔNG viết 'Người soạn', 'Ký tên', 'Sông Đốc' cuối bài.")
-    p.append("")
-    p.append("9. Hướng dẫn về nhà cuối bài gồm 3 gạch đầu dòng:")
+    p.append("8. Hướng dẫn về nhà cuối bài gồm 3 gạch đầu dòng:")
     p.append("   - Đọc và ghi nhớ nội dung chính")
     p.append("   - Làm bài tập SGK")
     p.append("   - Chuẩn bị bài mới")
+    p.append("")
+    p.append("9. VỀ CÔNG THỨC TOÁN VÀ KÝ HIỆU:")
+    p.append("   - Viết phân số dạng a/b, KHÔNG dùng dấu gạch ngang")
+    p.append("   - Viết số mũ dạng Unicode x², KHÔNG dùng x^2")
+    p.append("   - Đơn vị viết liền sau số: 60 km/h, 5 kg, 100 °C")
+    p.append("   - Dùng Unicode cho mọi ký hiệu toán/lý/hóa")
     p.append("")
 
     return "\n".join(p)
@@ -3311,21 +3440,165 @@ with tab_match:
 # PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI
 # ============================================================
 # Chức năng:
-#   - fix_math, _set_run_font, add_para, add_table, _add_heading
+#   - fix_math: chuyển LaTeX → Unicode (đã cập nhật đầy đủ)
+#   - _set_run_font, add_para, add_table, _add_heading
 #   - write_content_to_doc, make_doc
 #   - Nút "Soạn 1 bài" (chỉ dùng TÊN BÀI, bỏ trang PDF)
 # ============================================================
 
+
 def fix_math(text):
-    """Chuyển ký hiệu LaTeX đơn giản thành Unicode."""
-    text = re.sub(r"\^2\b", "²", text)
-    text = re.sub(r"\^3\b", "³", text)
-    text = re.sub(r"_2\b", "₂", text)
-    text = text.replace("sqrt(", "√(").replace("\\sqrt{", "√")
-    text = text.replace("\\times", "×").replace("\\div", "÷")
-    text = text.replace("\\leq", "≤").replace("\\geq", "≥")
-    text = text.replace("\\pi", "π").replace("\\alpha", "α")
+    """Chuyển LaTeX đơn giản thành Unicode tiếng Việt.
+
+    Xử lý:
+    - Phân số: \\frac{a}{b} → a/b
+    - Căn: \\sqrt{x} → √(x)
+    - Số mũ: x^{2} → x², x^2 → x²
+    - Chỉ số dưới: x_{1} → x₁, H_2O → H₂O
+    - Ký hiệu: \\times → ×, \\div → ÷, \\leq → ≤, \\geq → ≥
+    - Hy Lạp: \\pi → π, \\alpha → α
+    - Math mode: $...$ và $$...$$ → bỏ dấu
+    - \\text{...} → giữ nội dung
+    """
+    if not text:
+        return text
+
+    # ============ BƯỚC 1: PHÂN SỐ ============
+    # \frac{a}{b} → a/b (xử lý lồng nhau bằng vòng lặp)
+    for _ in range(5):
+        text_new = re.sub(
+            r"\\(?:d|t)?frac\{([^{}]+)\}\{([^{}]+)\}",
+            r"(\1)/(\2)", text
+        )
+        if text_new == text:
+            break
+        text = text_new
+
+    # ============ BƯỚC 2: CĂN ============
+    for _ in range(3):
+        text_new = re.sub(r"\\sqrt\[([^\]]+)\]\{([^{}]+)\}",
+                          r"(\2)^(1/\1)", text)
+        text_new = re.sub(r"\\sqrt\{([^{}]+)\}", r"√(\1)", text_new)
+        if text_new == text:
+            break
+        text = text_new
+    text = re.sub(r"\\sqrt\[?([^\]]*)\]?", "", text)
+    text = text.replace("\\sqrt", "√")
+
+    # ============ BƯỚC 3: SỐ MŨ ============
+    _SUP = {
+        "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+        "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+        "n": "ⁿ", "i": "ⁱ", "+": "⁺", "-": "⁻",
+        "(": "⁽", ")": "⁾", "a": "ᵃ", "b": "ᵇ",
+        "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "x": "ˣ", "y": "ʸ",
+    }
+
+    def _thay_mu(m):
+        so = m.group(1)
+        return "".join(_SUP.get(c, c) for c in so)
+
+    text = re.sub(r"\^\{([^{}]+)\}", _thay_mu, text)
+    text = re.sub(r"\^([0-9n])", _thay_mu, text)
+
+    # ============ BƯỚC 4: CHỈ SỐ DƯỚI ============
+    _SUB = {
+        "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+        "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+        "+": "₊", "-": "₋", "=": "₌",
+        "a": "ₐ", "e": "ₑ", "i": "ᵢ", "o": "ₒ", "x": "ₓ",
+    }
+
+    def _thay_sub(m):
+        so = m.group(1)
+        return "".join(_SUB.get(c, c) for c in so)
+
+    text = re.sub(r"_\{([^{}]+)\}", _thay_sub, text)
+    text = re.sub(r"_([0-9ai])", _thay_sub, text)
+
+    # ============ BƯỚC 5: KÝ HIỆU TOÁN ============
+    _SYMBOLS = {
+        "\\times": "×", "\\div": "÷", "\\cdot": "·",
+        "\\pm": "±", "\\mp": "∓",
+        "\\leq": "≤", "\\geq": "≥",
+        "\\le": "≤", "\\ge": "≥",
+        "\\neq": "≠", "\\ne": "≠",
+        "\\approx": "≈", "\\sim": "∼",
+        "\\equiv": "≡", "\\propto": "∝",
+        "\\infty": "∞", "\\partial": "∂",
+        "\\in": "∈", "\\notin": "∉",
+        "\\subset": "⊂", "\\supset": "⊃",
+        "\\cup": "∪", "\\cap": "∩",
+        "\\emptyset": "∅", "\\varnothing": "∅",
+        "\\forall": "∀", "\\exists": "∃",
+        "\\angle": "∠", "\\triangle": "△",
+        "\\perp": "⊥", "\\parallel": "∥",
+        "\\sum": "∑", "\\prod": "∏", "\\int": "∫",
+        "\\to": "→", "\\rightarrow": "→",
+        "\\Rightarrow": "⇒", "\\leftarrow": "←",
+        "\\leftrightarrow": "↔",
+        "\\uparrow": "↑", "\\downarrow": "↓",
+        "\\ldots": "…", "\\cdots": "⋯", "\\vdots": "⋮",
+        "\\dots": "…",
+        "\\circ": "°", "\\degree": "°",
+        "\\%": "%",
+        "\\ ": " ",
+        "\\,": " ", "\\;": " ", "\\!": "",
+    }
+    for latex, uni in _SYMBOLS.items():
+        text = text.replace(latex, uni)
+
+    # ============ BƯỚC 6: HY LẠP ============
+    _HYLAP = {
+        "\\alpha": "α", "\\beta": "β", "\\gamma": "γ",
+        "\\delta": "δ", "\\Delta": "Δ",
+        "\\epsilon": "ε", "\\varepsilon": "ε",
+        "\\zeta": "ζ", "\\eta": "η",
+        "\\theta": "θ", "\\Theta": "Θ",
+        "\\iota": "ι", "\\kappa": "κ",
+        "\\lambda": "λ", "\\Lambda": "Λ",
+        "\\mu": "μ", "\\nu": "ν", "\\xi": "ξ",
+        "\\pi": "π", "\\Pi": "Π",
+        "\\rho": "ρ", "\\sigma": "σ", "\\Sigma": "Σ",
+        "\\tau": "τ", "\\upsilon": "υ",
+        "\\phi": "φ", "\\varphi": "φ", "\\Phi": "Φ",
+        "\\chi": "χ", "\\psi": "ψ", "\\Psi": "Ψ",
+        "\\omega": "ω", "\\Omega": "Ω",
+    }
+    for latex, uni in _HYLAP.items():
+        text = text.replace(latex, uni)
+
+    # ============ BƯỚC 7: \text{} \mathrm{} ============
+    for _ in range(3):
+        text_new = re.sub(r"\\text\{([^{}]+)\}", r"\1", text)
+        text_new = re.sub(r"\\mathrm\{([^{}]+)\}", r"\1", text_new)
+        text_new = re.sub(r"\\mathbf\{([^{}]+)\}", r"\1", text_new)
+        text_new = re.sub(r"\\mathit\{([^{}]+)\}", r"\1", text_new)
+        text_new = re.sub(r"\\mathbb\{([^{}]+)\}", r"\1", text_new)
+        text_new = re.sub(r"\\mathcal\{([^{}]+)\}", r"\1", text_new)
+        if text_new == text:
+            break
+        text = text_new
+
+    # ============ BƯỚC 8: MATH MODE ============
+    text = re.sub(r"\$\$([^\$]+)\$\$", r"\1", text)
     text = re.sub(r"\$([^\$]+)\$", r"\1", text)
+    text = text.replace("\\(", "").replace("\\)", "")
+    text = text.replace("\\[", "").replace("\\]", "")
+    text = text.replace("\\begin{equation}", "")
+    text = text.replace("\\end{equation}", "")
+    text = text.replace("\\begin{align}", "")
+    text = text.replace("\\end{align}", "")
+
+    # ============ BƯỚC 9: DẤU \ CÒN SÓT ============
+    text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
+    text = re.sub(r"\\", "", text)
+
+    # ============ BƯỚC 10: DỌN KHOẢNG TRẮNG ============
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s*([,;:\.\!\?])\s*", r"\1 ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
     return text
 
 
@@ -3345,6 +3618,7 @@ def _set_run_font(run, size=14, bold=False):
 
 def add_para(doc, text, style=None):
     """Thêm 1 đoạn văn vào docx."""
+    text = fix_math(text)
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
     text = re.sub(r"^[\-\+\*\•\#]+\s*", "", text)
     text = re.sub(r"^\d+[\.\)]\s+", "", text)
@@ -3368,6 +3642,7 @@ def add_para(doc, text, style=None):
 
 def _tach_dong_trong_o(val):
     """Tách nội dung 1 ô bảng thành nhiều dòng hợp lý."""
+    val = fix_math(val)
     val = val.replace("<br>", "\n").replace("<br/>", "\n")
     val = val.replace("<br />", "\n")
     val = re.sub(r"(?<!^)(?<!\n)(?=Bước\s*\d+\s*:)", "\n", val)
@@ -3486,6 +3761,7 @@ def add_table(doc, rows):
 
 def _add_heading(doc, text):
     """Thêm heading. Nhận diện 3 dòng tiêu đề 5512."""
+    text = fix_math(text)
     text = re.sub(r"^[\*#\-\+\\]+\s*", "", text)
     text = text.rstrip("*").strip()
 
@@ -3494,7 +3770,6 @@ def _add_heading(doc, text):
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(6)
 
-    # 3 dòng tiêu đề 5512
     is_ten_bai = bool(re.match(r"^TÊN\s*BÀI\s*DẠY\s*:", text, re.I))
     is_mon_hoc = bool(re.match(r"^Môn\s*học\s*:", text, re.I))
     is_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện\s*:",
@@ -3529,7 +3804,6 @@ def _add_heading(doc, text):
             _set_run_font(run_content, 14, bold=False)
         return p
 
-    # Heading a) b) c)
     if re.match(r"^[a-z]\)\s", text):
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         p.paragraph_format.first_line_indent = Inches(0.39)
@@ -3559,7 +3833,6 @@ def _add_heading(doc, text):
             run.italic = True
         return p
 
-    # Heading thường
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
@@ -3581,7 +3854,6 @@ def write_content_to_doc(d, content):
         content = re.sub(r"</" + tag + r">", "", content)
     content = re.sub(r"^\s*[-=]{3,}\s*$", "", content, flags=re.MULTILINE)
 
-    # Cắt phần thừa
     lines = content.splitlines()
     start_idx = 0
     for idx, line in enumerate(lines):
@@ -3623,7 +3895,6 @@ def write_content_to_doc(d, content):
             i += 1
             continue
 
-        # Bảng
         if stripped.startswith("|") and stripped.endswith("|"):
             tl = []
             j = i
@@ -3658,7 +3929,6 @@ def write_content_to_doc(d, content):
             i = j
             continue
 
-        # 3 dòng tiêu đề 5512
         if re.match(r"^\*\*\s*TÊN\s*BÀI\s*DẠY", stripped, re.I):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
@@ -3672,26 +3942,22 @@ def write_content_to_doc(d, content):
             i += 1
             continue
 
-        # Heading I, II, III
         if re.match(r"^\*\*\s*(I|II|III|IV|V)\.\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Heading 1. 2. 3.
         if re.match(r"^\*\*\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and \
            len(stripped) < 120:
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Heading a) b) c)
         if re.match(r"^\*\*\s*[a-z]\)\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Markdown headings
         if stripped.startswith("#### "):
             _add_heading(d, re.sub(r"[\*#\\]", "", stripped[5:].strip()))
         elif stripped.startswith("### "):
@@ -3776,7 +4042,6 @@ with _col3:
     _tiet_chon = st.text_input("⏱️ Số tiết", value="1",
                                 key="chon_tiet_soan")
 
-# Xem danh sách tên bài để tra cứu
 if _danh_sach_sgk:
     with st.expander("🔍 Tra cứu tên bài SGK", expanded=False):
         _sgk_tc = st.selectbox("Chọn SGK",
@@ -3799,7 +4064,6 @@ if _danh_sach_sgk:
         else:
             st.info("SGK này chưa có bài nào.")
 
-# Banner môn
 _rules = SUBJECT_RULES.get(_mon_chon, {})
 if _rules:
     _kh = _rules.get("ky_hieu", "")
@@ -3828,37 +4092,37 @@ with _c_btn2:
         st.rerun()
 
 if _run_btn and cmd.strip():
-    # === KIỂM TRA ĐẦU VÀO ===
     _errors = []
 
-    # 1. Kiểm tra API
-    if not available_providers:
-        _errors.append("❌ Chưa có API key.")
+    if not (USE_OLLAMA and _check_ollama()) and not available_providers:
+        _errors.append("❌ Chưa có AI nào (Ollama hoặc API key).")
 
-    # 2. Kiểm tra mẫu
     _mau = get_mau_dang_dung()
     _ok_mau, _msg_mau = kiem_tra_mau_5512(_mau.get("cau_truc", ""))
     if not _ok_mau:
         _errors.append("❌ Mẫu 5512 không đạt: " + _msg_mau)
 
-    # 3. Kiểm tra SGK đã tách chưa
     _sgk_name_can = suggest_sgk_name(_mon_chon, _lop_chon)
     _meta_sgk = load_sgk_metadata(_sgk_name_can)
     if not _meta_sgk:
         _errors.append(
-            f"❌ Chưa tách SGK: **{_sgk_name_can}**. "
-            "Vào tab **📤 Upload SGK gốc** hoặc **📚 Nạp bài đã tách**.")
+            f"⚠️ Chưa có SGK: **{_sgk_name_can}**. "
+            "Vẫn có thể soạn nhưng nội dung sẽ chung chung hơn.")
 
     if _errors:
         for e in _errors:
-            st.error(e)
-    else:
-        # === TÌM BÀI THEO TÊN ===
+            if e.startswith("⚠️"):
+                st.warning(e)
+            else:
+                st.error(e)
+
+    if not any(e.startswith("❌") for e in _errors):
         sgk_excerpt = ""
         bai_tim_duoc = None
 
         with st.spinner("📖 Đang tìm bài trong SGK..."):
-            bai_tim_duoc = find_bai_by_name(_sgk_name_can, cmd.strip())
+            if _meta_sgk:
+                bai_tim_duoc = find_bai_by_name(_sgk_name_can, cmd.strip())
 
         if bai_tim_duoc:
             st.info(
@@ -3873,14 +4137,12 @@ if _run_btn and cmd.strip():
                     )
                 else:
                     st.warning("⚠️ Không đọc được nội dung bài.")
-        else:
+        elif _meta_sgk:
             st.warning(
                 f"⚠️ Không tìm thấy bài **{cmd}** trong SGK "
-                f"`{_sgk_name_can}`. Kiểm tra lại tên bài ở tab "
-                f"**✏️ Sửa tên bài SGK** hoặc **📝 Khớp tên với Lịch BG**."
+                f"`{_sgk_name_can}`. Vẫn soạn nhưng không có nguồn SGK."
             )
 
-        # === GỌI AI ===
         with st.spinner("🤖 Đang sinh giáo án..."):
             _plan = {
                 "task": "Soạn kế hoạch bài dạy",
@@ -3903,7 +4165,6 @@ if _run_btn and cmd.strip():
             except Exception as e:
                 st.error("❌ Lỗi AI: " + str(e))
 
-# Hiển thị kết quả
 if st.session_state.get("draft"):
     st.divider()
     st.subheader("📄 Kết quả")
