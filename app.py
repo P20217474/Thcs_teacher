@@ -1858,13 +1858,19 @@ with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
 
-    # ===== TRẠNG THÁI AI (check động mỗi lần rerun) =====
+    # ===== TRẠNG THÁI AI =====
     _ollama_now = USE_OLLAMA and _check_ollama()
+    _so_cloud = len(available_providers)
+
     if _ollama_now:
         st.success(f"🏠 Ollama local: {OLLAMA_MODEL}")
+        if _so_cloud > 0:
+            st.caption(f"☁️ Dự phòng: {_so_cloud} cloud provider")
+    elif _so_cloud > 0:
+        st.info(f"☁️ AI cloud: {_so_cloud} provider")
     else:
-        st.warning("⚠️ Ollama chưa chạy (dùng `ollama serve`)")
-    st.caption(f"☁️ AI cloud: {len(available_providers)} provider")
+        st.error("❌ Chưa có AI nào.")
+        st.caption("Cần Ollama local HOẶC ít nhất 1 API key cloud.")
 
     st.divider()
 
@@ -1874,12 +1880,12 @@ with st.sidebar:
             ok, msg = gh_test()
             st.success("✅ " + msg) if ok else st.error("❌ " + msg)
     else:
-        st.error("❌ Chưa có GITHUB_TOKEN")
+        st.warning("⚠️ Chưa có GITHUB_TOKEN (không lưu được lịch sử)")
 
     if GEMINI_KEY:
         st.success("🔍 Gemini Vision sẵn sàng")
     else:
-        st.warning("⚠️ Chưa có GEMINI_API_KEY")
+        st.caption("ℹ️ Chưa có GEMINI_API_KEY (không OCR được ảnh)")
 
     mem["teacher_name"] = st.text_input(
         "Giáo viên", value=mem.get("teacher_name", ""))
@@ -2159,24 +2165,53 @@ def _goi_openrouter(prompt, system, model):
         return (False, f"Parse lỗi: {e}")
 
 
-def _goi_nvidia(prompt, system, model):
-    """Gọi NVIDIA NIM API (OpenAI-compatible)."""
-    api_key = PROVIDER_KEYS.get("NVIDIA_API_KEY", "")
+def _goi_mistral(prompt, system, model):
+    """Gọi Mistral AI API (OpenAI-compatible)."""
+    api_key = PROVIDER_KEYS.get("MISTRAL_API_KEY", "")
     if not api_key:
-        return (False, "Chưa có NVIDIA_API_KEY")
+        return (False, "Chưa có MISTRAL_API_KEY")
 
-    url = "https://integrate.api.nvidia.com/v1/chat/completions"
+    url = "https://api.mistral.ai/v1/chat/completions"
     msgs = []
     if system:
         msgs.append({"role": "system", "content": system})
     msgs.append({"role": "user", "content": prompt})
 
-    payload = {
-        "model": model,
-        "messages": msgs,
-        "temperature": 0.7,
-        "max_tokens": 8192,
+    payload = {"model": model, "messages": msgs, "temperature": 0.7}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + api_key,
     }
+    ok, data = _http_post_json(url, headers, payload)
+
+    if not ok:
+        return (False, data)
+
+    try:
+        choices = data.get("choices", [])
+        if not choices:
+            return (False, "Không có choices")
+        text = choices[0].get("message", {}).get("content", "").strip()
+        if not text:
+            return (False, "Text rỗng")
+        return (True, text)
+    except Exception as e:
+        return (False, f"Parse lỗi: {e}")
+
+
+def _goi_tbox(prompt, system, model):
+    """Gọi Ant T-Box (Bailing) API (OpenAI-compatible)."""
+    api_key = PROVIDER_KEYS.get("TBOX_API_KEY", "")
+    if not api_key:
+        return (False, "Chưa có TBOX_API_KEY")
+
+    url = "https://api.tbox.cn/api/llm/v1/chat/completions"
+    msgs = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+
+    payload = {"model": model, "messages": msgs, "temperature": 0.7}
     headers = {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + api_key,
@@ -2203,16 +2238,17 @@ _CALL_DISPATCH = {
     "GEMINI_API_KEY": _goi_gemini,
     "GROQ_API_KEY": _goi_groq,
     "OPENROUTER_API_KEY": _goi_openrouter,
-    "NVIDIA_API_KEY": _goi_nvidia,
+    "MISTRAL_API_KEY": _goi_mistral,
+    "TBOX_API_KEY": _goi_tbox,
 }
 
 
 def call_ai(prompt, system="", silent=False):
-    """Gọi AI — ưu tiên Ollama local (không token), fallback cloud nếu có.
+    """Gọi AI — ưu tiên API cloud miễn phí, fallback Ollama local.
 
     Thứ tự:
-    1. Ollama local (nếu đang chạy)
-    2. Cloud providers (nếu có token)
+    1. Cloud providers (Gemini → Groq → Mistral → OpenRouter → T-Box)
+    2. Ollama local (nếu có)
 
     Returns:
         text (str) nếu thành công
@@ -2220,16 +2256,7 @@ def call_ai(prompt, system="", silent=False):
     """
     ds_loi = []
 
-    # ===== ƯU TIÊN 1: Ollama Local (check động) =====
-    ollama_ok = USE_OLLAMA and _check_ollama()
-    if ollama_ok:
-        ok, result = _goi_ollama(prompt, system, OLLAMA_MODEL)
-        if ok and result and len(result.strip()) > 30:
-            return result
-        else:
-            ds_loi.append(f"OLLAMA/{OLLAMA_MODEL}: {str(result)[:200]}")
-
-    # ===== ƯU TIÊN 2: Cloud providers =====
+    # ===== ƯU TIÊN 1: Cloud providers =====
     for pk in available_providers:
         ham_goi = _CALL_DISPATCH.get(pk)
         if not ham_goi:
@@ -2240,6 +2267,15 @@ def call_ai(prompt, system="", silent=False):
                 return result
             else:
                 ds_loi.append(f"{pk}/{mn}: {str(result)[:200]}")
+
+    # ===== ƯU TIÊN 2: Ollama Local (dự phòng) =====
+    ollama_ok = USE_OLLAMA and _check_ollama()
+    if ollama_ok:
+        ok, result = _goi_ollama(prompt, system, OLLAMA_MODEL)
+        if ok and result and len(result.strip()) > 30:
+            return result
+        else:
+            ds_loi.append(f"OLLAMA/{OLLAMA_MODEL}: {str(result)[:200]}")
 
     if not silent:
         st.error("❌ Tất cả provider đều lỗi. Chi tiết:")
@@ -2937,7 +2973,8 @@ with tab_despec:
 
             if st.button("🚀 Sinh đặc tả", type="primary",
                          use_container_width=True, key="dt_run"):
-                if not (USE_OLLAMA and _check_ollama()) and not available_providers:
+                if not (USE_OLLAMA and _check_ollama()) \
+                        and not available_providers:
                     st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
                 else:
                     _dp = f"""Bạn là chuyên gia khảo thí THCS.
@@ -3013,7 +3050,8 @@ with tab_exam:
 
         if st.button("🚀 Sinh đề + đáp án", type="primary",
                      use_container_width=True, key="ex_run"):
-            if not (USE_OLLAMA and _check_ollama()) and not available_providers:
+            if not (USE_OLLAMA and _check_ollama()) \
+                    and not available_providers:
                 st.error("❌ Chưa có AI nào (Ollama hoặc API key)")
             else:
                 _ep = f"""Bạn là chuyên gia khảo thí THCS.
