@@ -847,11 +847,7 @@ def parse_danh_sach_bai(text):
 
 
 def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
-    """Kiểm tra danh sách bài có hợp lệ không.
-
-    KHÔNG kiểm tra trùng tên bài — vì 1 bài có thể dạy nhiều lớp,
-    nhiều tiết trong tuần.
-    """
+    """Kiểm tra danh sách bài có hợp lệ không."""
     ds_loi = []
     if not ds_bai:
         return ["Danh sách bài rỗng."]
@@ -880,16 +876,7 @@ def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
 
 
 def gop_bai_trung(ds_bai):
-    """Gộp các dòng trùng tên bài thành 1 bài.
-
-    - Tên bài: giữ nguyên (lần xuất hiện đầu)
-    - Trang BĐ: nhỏ nhất trong các dòng trùng
-    - Trang KT: lớn nhất trong các dòng trùng
-    - Giữ thêm: ds_mon, ds_lop, ds_tiet_ppct, so_dong_goc
-
-    Returns:
-        list bài đã gộp (theo thứ tự xuất hiện lần đầu)
-    """
+    """Gộp các dòng trùng tên bài thành 1 bài."""
     gop = {}
     thu_tu = []
 
@@ -1154,10 +1141,7 @@ def _norm_header(s):
 
 
 def doc_lich_bao_giang(file_obj):
-    """Đọc file Lịch BG (docx/xlsx/csv/txt) → list các dòng.
-
-    Mỗi dòng: ten_bai, trang_bd, trang_kt, mon, lop, tiet_ppct
-    """
+    """Đọc file Lịch BG (docx/xlsx/csv/txt) → list các dòng."""
     if file_obj is None:
         return ([], ["Chưa có file"])
 
@@ -3339,13 +3323,21 @@ with tab_match:
 # ============================================================
 # PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI
 # ============================================================
+# Chức năng:
+#   - fix_math: chuyển LaTeX → Unicode tiếng Việt
+#   - _set_run_font, _set_table_borders
+#   - add_para, add_table, _add_heading
+#   - write_content_to_doc, make_doc
+#   - Nút "Soạn 1 bài" + tùy chọn Tích hợp
+# ============================================================
+
 
 def fix_math(text):
     """Chuyển LaTeX đơn giản thành Unicode tiếng Việt."""
     if not text:
         return text
 
-    # PHÂN SỐ
+    # ============ PHÂN SỐ ============
     for _ in range(5):
         text_new = re.sub(
             r"\\(?:d|t)?frac\{([^{}]+)\}\{([^{}]+)\}",
@@ -3355,7 +3347,7 @@ def fix_math(text):
             break
         text = text_new
 
-    # CĂN
+    # ============ CĂN ============
     for _ in range(3):
         text_new = re.sub(r"\\sqrt\[([^\]]+)\]\{([^{}]+)\}",
                           r"(\2)^(1/\1)", text)
@@ -3366,7 +3358,7 @@ def fix_math(text):
     text = re.sub(r"\\sqrt\[?([^\]]*)\]?", "", text)
     text = text.replace("\\sqrt", "√")
 
-    # SỐ MŨ
+    # ============ SỐ MŨ ============
     _SUP = {
         "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
         "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
@@ -3382,7 +3374,7 @@ def fix_math(text):
     text = re.sub(r"\^\{([^{}]+)\}", _thay_mu, text)
     text = re.sub(r"\^([0-9n])", _thay_mu, text)
 
-    # CHỈ SỐ DƯỚI
+    # ============ CHỈ SỐ DƯỚI ============
     _SUB = {
         "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
         "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
@@ -3397,7 +3389,7 @@ def fix_math(text):
     text = re.sub(r"_\{([^{}]+)\}", _thay_sub, text)
     text = re.sub(r"_([0-9ai])", _thay_sub, text)
 
-    # KÝ HIỆU TOÁN
+    # ============ KÝ HIỆU TOÁN ============
     _SYMBOLS = {
         "\\times": "×", "\\div": "÷", "\\cdot": "·",
         "\\pm": "±", "\\mp": "∓",
@@ -3429,7 +3421,7 @@ def fix_math(text):
     for latex, uni in _SYMBOLS.items():
         text = text.replace(latex, uni)
 
-    # HY LẠP
+    # ============ HY LẠP ============
     _HYLAP = {
         "\\alpha": "α", "\\beta": "β", "\\gamma": "γ",
         "\\delta": "δ", "\\Delta": "Δ",
@@ -3449,7 +3441,7 @@ def fix_math(text):
     for latex, uni in _HYLAP.items():
         text = text.replace(latex, uni)
 
-    # \text{} \mathrm{} ...
+    # ============ \text{} \mathrm{} ============
     for _ in range(3):
         text_new = re.sub(r"\\text\{([^{}]+)\}", r"\1", text)
         text_new = re.sub(r"\\mathrm\{([^{}]+)\}", r"\1", text_new)
@@ -3461,17 +3453,17 @@ def fix_math(text):
             break
         text = text_new
 
-    # MATH MODE
+    # ============ MATH MODE ============
     text = re.sub(r"\$\$([^\$]+)\$\$", r"\1", text)
     text = re.sub(r"\$([^\$]+)\$", r"\1", text)
     text = text.replace("\\(", "").replace("\\)", "")
     text = text.replace("\\[", "").replace("\\]", "")
 
-    # DẤU \ CÒN SÓT
+    # ============ DẤU \ CÒN SÓT ============
     text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
     text = re.sub(r"\\", "", text)
 
-    # DỌN KHOẢNG TRẮNG
+    # ============ DỌN KHOẢNG TRẮNG ============
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" ?\n ?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -3494,6 +3486,31 @@ def _set_run_font(run, size=14, bold=False, italic=False):
         rfonts.set(qn(at), "Times New Roman")
 
 
+def _set_table_borders(table, sz=6, color="000000"):
+    """Set viền đơn cho toàn bộ bảng (tất cả các ô + đường giữa)."""
+    from docx.oxml import OxmlElement
+
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+
+    # Xóa tblBorders cũ nếu có
+    old_borders = tblPr.find(qn("w:tblBorders"))
+    if old_borders is not None:
+        tblPr.remove(old_borders)
+
+    # Tạo tblBorders mới — viền đơn bao toàn bộ + đường giữa
+    borders = OxmlElement("w:tblBorders")
+    for side in ["top", "left", "bottom", "right",
+                 "insideH", "insideV"]:
+        bd = OxmlElement(f"w:{side}")
+        bd.set(qn("w:val"), "single")
+        bd.set(qn("w:sz"), str(sz))
+        bd.set(qn("w:space"), "0")
+        bd.set(qn("w:color"), color)
+        borders.append(bd)
+    tblPr.append(borders)
+
+
 def add_para(doc, text, align="justify", size=14,
              bold=False, italic=False, space=2):
     """Thêm đoạn văn với canh lề + khoảng cách 2pt."""
@@ -3504,7 +3521,6 @@ def add_para(doc, text, align="justify", size=14,
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
     text = text.replace("<br />", "\n")
 
-    # Chọn canh lề
     align_map = {
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -3520,7 +3536,6 @@ def add_para(doc, text, align="justify", size=14,
         if not line:
             continue
 
-        # Loại bỏ bullet/markdown
         line = re.sub(r"^[\-\+\*\•\#]+\s*", "", line)
         line = re.sub(r"^\d+[\.\)]\s+", "", line)
         line = re.sub(r"^[a-z]\)\s+", "", line)
@@ -3533,8 +3548,8 @@ def add_para(doc, text, align="justify", size=14,
 
         p = doc.add_paragraph()
         p.alignment = align_value
-        p.paragraph_format.first_line_indent = Inches(0) \
-            if align == "center" else Inches(0.39)
+        p.paragraph_format.first_line_indent = \
+            Inches(0) if align == "center" else Inches(0.39)
         p.paragraph_format.left_indent = Inches(0)
         p.paragraph_format.right_indent = Inches(0)
         p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
@@ -3574,37 +3589,20 @@ def _tach_dong_trong_o(val):
     return "\n".join(merged)
 
 
-def _add_border_bottom(row):
-    """Vẽ 1 dòng kẻ đơn dưới dòng (dùng cho header bảng không viền)."""
-    from docx.oxml import OxmlElement
-    for cell in row.cells:
-        tcPr = cell._tc.get_or_add_tcPr()
-        borders = OxmlElement("w:tcBorders")
-        bottom = OxmlElement("w:bottom")
-        bottom.set(qn("w:val"), "single")
-        bottom.set(qn("w:sz"), "6")
-        bottom.set(qn("w:space"), "0")
-        bottom.set(qn("w:color"), "000000")
-        borders.append(bottom)
-        tcPr.append(borders)
-
-
 def add_table(doc, rows, style="grid", col_aligns=None,
               header_aligns=None):
-    """Thêm bảng với style tùy chọn.
+    """Thêm bảng với viền bao toàn bộ.
 
     Args:
         doc: Document
         rows: list các dòng (mỗi dòng là list các ô)
-        style: "grid" (có viền) hoặc "lines" (chỉ 1 dòng kẻ dưới header)
+        style: "grid" — luôn có viền (giữ tham số để tương thích)
         col_aligns: list canh lề cho từng cột nội dung
-                    ["center", "center", ..., "justify", ...]
-        header_aligns: list canh lề cho header (mặc định center hết)
+        header_aligns: list canh lề cho header
     """
     if not rows:
         return
 
-    # Làm sạch rows
     cleaned_rows = []
     for row in rows:
         while len(row) > 2 and len(row[-1].strip()) <= 2 and \
@@ -3615,30 +3613,24 @@ def add_table(doc, rows, style="grid", col_aligns=None,
         cleaned_rows.append(row)
 
     max_n = max(len(r) for r in cleaned_rows)
+    if max_n > 2:
+        for i, r in enumerate(cleaned_rows):
+            if len(r) > 2:
+                extra = " ".join(c.strip() for c in r[2:] if c.strip())
+                cleaned_rows[i] = [r[0], r[1] +
+                                   (" " + extra if extra else "")]
+        max_n = 2
     rows = cleaned_rows
     n = max_n
     if n < 1:
         return
 
     t = doc.add_table(rows=len(rows), cols=n)
+    t.style = "Table Grid"
 
-    if style == "grid":
-        t.style = "Table Grid"
-    else:
-        t.style = "Table Grid"
-        # Xóa viền tất cả ô trước
-        from docx.oxml import OxmlElement
-        for row_obj in t.rows:
-            for cell in row_obj.cells:
-                tcPr = cell._tc.get_or_add_tcPr()
-                borders = OxmlElement("w:tcBorders")
-                for side in ["top", "left", "right", "bottom"]:
-                    bd = OxmlElement(f"w:{side}")
-                    bd.set(qn("w:val"), "nil")
-                    borders.append(bd)
-                tcPr.append(borders)
+    # ===== SET VIỀN BAO TOÀN BỘ BẢNG =====
+    _set_table_borders(t, sz=6, color="000000")
 
-    # Xác định align cho từng cột
     if col_aligns is None:
         col_aligns = ["justify"] * n
     if header_aligns is None:
@@ -3716,10 +3708,6 @@ def add_table(doc, rows, style="grid", col_aligns=None,
                                 part.replace("**", ""))
                             _set_run_font(run, 13, bold=False)
 
-    # Nếu style "lines" → vẽ dòng kẻ đơn dưới header
-    if style == "lines" and len(t.rows) > 0:
-        _add_border_bottom(t.rows[0])
-
 
 def _add_heading(doc, text, size=14):
     """Thêm heading với định dạng đúng chuẩn."""
@@ -3730,7 +3718,6 @@ def _add_heading(doc, text, size=14):
     text = re.sub(r"^[\*#\-\+\\]+\s*", "", text)
     text = text.rstrip("*").strip()
 
-    # Nếu có nhiều dòng → tách
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     if len(lines) > 1:
         for line in lines:
@@ -3745,7 +3732,7 @@ def _add_heading(doc, text, size=14):
     p.paragraph_format.space_before = Pt(2)
     p.paragraph_format.space_after = Pt(2)
 
-    # 3 dòng tiêu đề 5512 — Center, đậm, size 14
+    # 3 dòng tiêu đề 5512 — Center, đậm
     is_ten_bai = bool(re.match(r"^TÊN\s*BÀI\s*DẠY\s*:", text, re.I))
     is_mon_hoc = bool(re.match(r"^Môn\s*học\s*:", text, re.I))
     is_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện\s*:",
@@ -3909,8 +3896,8 @@ def write_content_to_doc(d, content):
                     if 2 <= len(cells) <= 4:
                         rows.append(cells)
                 if rows:
-                    # Bảng 2 cột giáo án: không viền, 1 dòng kẻ dưới header
-                    add_table(d, rows, style="lines",
+                    # Bảng 2 cột giáo án: có viền toàn bộ, cả 2 cột Justify
+                    add_table(d, rows, style="grid",
                               col_aligns=["justify", "justify"],
                               header_aligns=["center", "center"])
             i = j
@@ -3959,7 +3946,6 @@ def write_content_to_doc(d, content):
         elif stripped.startswith("# "):
             _add_heading(d, re.sub(r"[\*#\\]", "", stripped[2:].strip()))
         else:
-            # Đoạn văn thường
             text = re.sub(r"^[\*#\-\+\\]+\s*", "", stripped)
             text = re.sub(r"^\*\*\\?\*?\s*", "", text)
             text = re.sub(r"\s*\*\*\\?\*?$", "", text)
@@ -3989,8 +3975,8 @@ def make_doc(title, body, subject_name=""):
         rfonts.set(qn(at), "Times New Roman")
     pf = style.paragraph_format
     pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
-    pf.space_before = Pt(0)
-    pf.space_after = Pt(0)
+    pf.space_before = Pt(2)
+    pf.space_after = Pt(2)
 
     write_content_to_doc(d, body)
 
@@ -4000,7 +3986,7 @@ def make_doc(title, body, subject_name=""):
 
 
 # ============================================================
-# SOẠN 1 BÀI — CẬP NHẬT CÓ TÙY CHỌN TÍCH HỢP
+# SOẠN 1 BÀI — CÓ TÙY CHỌN TÍCH HỢP
 # ============================================================
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
@@ -4271,6 +4257,333 @@ def _gop_lich_bao_giang(ds_rows):
 
 
 # ============================================================
+# HÀM TẠO PHIẾU BÁO GIẢNG WORD
+# ============================================================
+def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
+                               ngay_bd, buoi, mem):
+    """Tạo phiếu báo giảng Word theo mẫu chuẩn.
+
+    - Header 2 cột: UBND + CHXHCNVN
+    - Tiêu đề: PHIẾU BÁO GIẢNG BUỔI ...
+    - Bảng 7 cột có viền, gộp ô cột "Thứ ngày, tháng"
+    - Center cho cột 1-5,7; Justify cho cột 6 (Tên bài)
+    - ĐỘ RỘNG CỘT KHÁC NHAU (không đều)
+    """
+    from docx.oxml import OxmlElement
+    from docx.shared import Cm
+
+    d = Document()
+    s = d.sections[0]
+    s.top_margin = Inches(0.6)
+    s.bottom_margin = Inches(0.6)
+    s.left_margin = Inches(0.6)
+    s.right_margin = Inches(0.6)
+
+    # Style chung
+    style = d.styles["Normal"]
+    style.font.name = "Times New Roman"
+    style.font.size = Pt(14)
+    rpr = style.element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = rpr.makeelement(qn("w:rFonts"), {})
+        rpr.append(rfonts)
+    for at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
+        rfonts.set(qn(at), "Times New Roman")
+    pf = style.paragraph_format
+    pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    pf.space_before = Pt(2)
+    pf.space_after = Pt(2)
+
+    # ============================================================
+    # HEADER 2 CỘT (bảng 3 dòng, không viền)
+    # ============================================================
+    hdr_table = d.add_table(rows=3, cols=2)
+    hdr_table.autofit = True
+
+    # Xóa viền
+    for row_obj in hdr_table.rows:
+        for cell in row_obj.cells:
+            tcPr = cell._tc.get_or_add_tcPr()
+            borders = OxmlElement("w:tcBorders")
+            for side in ["top", "left", "right", "bottom", "insideH",
+                         "insideV"]:
+                bd = OxmlElement(f"w:{side}")
+                bd.set(qn("w:val"), "nil")
+                borders.append(bd)
+            tcPr.append(borders)
+
+    # Dòng 1
+    c = hdr_table.cell(0, 0)
+    p = c.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run("UBND XÃ SÔNG ĐỐC")
+    _set_run_font(run, 14, bold=False)
+
+    c = hdr_table.cell(0, 1)
+    p = c.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run("CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM")
+    _set_run_font(run, 12, bold=True)
+
+    # Dòng 2
+    c = hdr_table.cell(1, 0)
+    p = c.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    _ten_truong = mem.get("school", "TRƯỜNG THCS SÔNG ĐỐC")
+    run = p.add_run(_ten_truong.upper())
+    _set_run_font(run, 14, bold=True)
+    run.underline = True
+
+    c = hdr_table.cell(1, 1)
+    p = c.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run("Độc lập – Tự do – Hạnh phúc")
+    _set_run_font(run, 12, bold=True)
+    run.underline = True
+
+    # Dòng 3
+    c = hdr_table.cell(2, 0)
+    p = c.paragraphs[0]
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+
+    c = hdr_table.cell(2, 1)
+    p = c.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    _ngay_ht = datetime.now()
+    run = p.add_run(
+        f"Sông Đốc, ngày {_ngay_ht.day:02d} tháng "
+        f"{_ngay_ht.month:02d} năm {_ngay_ht.year}"
+    )
+    _set_run_font(run, 12, bold=False)
+    run.italic = True
+
+    # ============================================================
+    # TIÊU ĐỀ PHIẾU
+    # ============================================================
+    d.add_paragraph("")
+
+    p = d.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run("PHIẾU BÁO GIẢNG ")
+    _set_run_font(run, 14, bold=True)
+    run_do = p.add_run(f"BUỔI {buoi.upper()}")
+    _set_run_font(run_do, 14, bold=True)
+    run_do.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+
+    _ngay_kt = _ngay_bd + timedelta(days=6)
+    p = d.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run(
+        f"Tuần {tuan_so}, năm học {nam_hoc} "
+        f"(Từ {_ngay_bd.strftime('%d/%m/%Y')} "
+        f"đến {_ngay_kt.strftime('%d/%m/%Y')})"
+    )
+    _set_run_font(run, 14, bold=False)
+    run.italic = True
+
+    d.add_paragraph("")
+
+    # ============================================================
+    # BẢNG 7 CỘT LỊCH BÁO GIẢNG (có viền, gộp ô)
+    # ============================================================
+    _HEADERS = ["Thứ\nngày,\ntháng", "Tiết\nTKB", "Lớp", "Môn",
+                "Tiết\nPP\nCT", "Tên bài", "Ghi\nchú"]
+
+    _thu_order = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6",
+                  "Thứ 7", "Chủ nhật"]
+
+    # Tạo danh sách dòng
+    _ds_dong = []
+    for _thu in _thu_order:
+        _dong_cua_thu = []
+        for _b in lich_bao_giang:
+            if _thu not in _b.get("ds_thu", []):
+                continue
+            _ds_lop = _b.get("ds_lop", [])
+            _ds_tkb = _b.get("ds_tiet_tkb", [])
+            _ds_ppct = _b.get("ds_tiet_ppct", [])
+            _so_dong = max(len(_ds_lop), len(_ds_tkb),
+                            len(_ds_ppct), 1)
+            for _k in range(_so_dong):
+                _lop_k = _ds_lop[_k] if _k < len(_ds_lop) else ""
+                _tkb_k = _ds_tkb[_k] if _k < len(_ds_tkb) else ""
+                _ppct_k = _ds_ppct[_k] if _k < len(_ds_ppct) else ""
+                _dong_cua_thu.append({
+                    "thu": _thu,
+                    "lop": _lop_k,
+                    "mon": _b.get("mon", ""),
+                    "tiet_tkb": _tkb_k,
+                    "tiet_ppct": _ppct_k,
+                    "ten_bai": _b.get("ten_bai", ""),
+                    "ghi_chu": ", ".join(_b.get("ds_ghi_chu", [])),
+                })
+        _ds_dong.extend(_dong_cua_thu)
+
+    if not _ds_dong:
+        _ds_dong = [{
+            "thu": "", "lop": "", "mon": "", "tiet_tkb": "",
+            "tiet_ppct": "", "ten_bai": "", "ghi_chu": "",
+        }]
+
+    _n_dong = len(_ds_dong) + 1
+    _t = d.add_table(rows=_n_dong, cols=7)
+    _t.style = "Table Grid"
+
+    # ============================================================
+    # CỐ ĐỊNH ĐỘ RỘNG CỘT (KHÔNG ĐỀU NHAU)
+    # ============================================================
+    _col_widths_cm = [
+        2.5,   # Cột 1: Thứ ngày, tháng
+        1.2,   # Cột 2: Tiết TKB
+        1.6,   # Cột 3: Lớp
+        2.0,   # Cột 4: Môn
+        1.4,   # Cột 5: Tiết PPCT
+        7.5,   # Cột 6: Tên bài — rộng nhất
+        1.8,   # Cột 7: Ghi chú
+    ]
+
+    # Tắt autofit để Word không tự co giãn
+    _t.autofit = False
+
+    # Set độ rộng cho từng ô (Word yêu cầu set cả cell lẫn column)
+    for _row in _t.rows:
+        for _j, _cell in enumerate(_row.cells):
+            _cell.width = Cm(_col_widths_cm[_j])
+
+    # Set độ rộng cho cột
+    for _j, _col in enumerate(_t.columns):
+        _col.width = Cm(_col_widths_cm[_j])
+
+    # Set tblLayout = "fixed" để Word không tự điều chỉnh
+    _tblPr = _t._tbl.tblPr
+    if _tblPr is not None:
+        _layout = _tblPr.find(qn("w:tblLayout"))
+        if _layout is None:
+            _layout = _tblPr.makeelement(qn("w:tblLayout"), {})
+            _tblPr.append(_layout)
+        _layout.set(qn("w:type"), "fixed")
+
+        # Set tổng độ rộng bảng
+        _tblW = _tblPr.find(qn("w:tblW"))
+        if _tblW is None:
+            _tblW = _tblPr.makeelement(qn("w:tblW"), {})
+            _tblPr.append(_tblW)
+        _total_cm = sum(_col_widths_cm)
+        _tblW.set(qn("w:w"), str(int(_total_cm * 567)))
+        _tblW.set(qn("w:type"), "dxa")
+
+    # Header
+    for _j, _h in enumerate(_HEADERS):
+        c = _t.cell(0, _j)
+        c.text = ""
+        p = c.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+        for _k, _part in enumerate(_h.split("\n")):
+            if _k > 0:
+                p.add_run().add_break()
+            run = p.add_run(_part)
+            _set_run_font(run, 13, bold=True)
+
+    # Dữ liệu
+    for _i, _row in enumerate(_ds_dong, start=1):
+        c = _t.cell(_i, 0)
+        c.text = ""
+        p = c.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after = Pt(2)
+
+        _vals = [
+            _row["tiet_tkb"],
+            _row["lop"],
+            _row["mon"],
+            _row["tiet_ppct"],
+            _row["ten_bai"],
+            _row["ghi_chu"],
+        ]
+        _aligns = ["center", "center", "center", "center",
+                   "justify", "center"]
+
+        for _j, (_val, _align) in enumerate(zip(_vals, _aligns), start=1):
+            c = _t.cell(_i, _j)
+            c.text = ""
+            p = c.paragraphs[0]
+            align_map = {
+                "center": WD_ALIGN_PARAGRAPH.CENTER,
+                "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+            }
+            p.alignment = align_map.get(_align,
+                                         WD_ALIGN_PARAGRAPH.CENTER)
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+            run = p.add_run(str(_val))
+            _set_run_font(run, 13, bold=False)
+
+    # ============================================================
+    # GỘP Ô CỘT "Thứ ngày, tháng"
+    # ============================================================
+    for _thu in _thu_order:
+        _cac_dong = [
+            _i for _i, _r in enumerate(_ds_dong, start=1)
+            if _r["thu"] == _thu
+        ]
+        if not _cac_dong:
+            continue
+
+        _dong_dau = _cac_dong[0]
+        _dong_cuoi = _cac_dong[-1]
+
+        _idx_thu = _thu_order.index(_thu)
+        _ngay_cua_thu = _ngay_bd + timedelta(days=_idx_thu)
+
+        c = _t.cell(_dong_dau, 0)
+        c.text = ""
+        p = c.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+
+        run1 = p.add_run(f"{_thu}")
+        _set_run_font(run1, 13, bold=True)
+        p.add_run().add_break()
+        run2 = p.add_run(_ngay_cua_thu.strftime("%d/%m/%Y"))
+        _set_run_font(run2, 13, bold=False)
+
+        if _dong_cuoi > _dong_dau:
+            _cell_goc = _t.cell(_dong_dau, 0)
+            _cell_cuoi = _t.cell(_dong_cuoi, 0)
+            _cell_goc.merge(_cell_cuoi)
+
+    # ============================================================
+    # XUẤT FILE
+    # ============================================================
+    _b = io.BytesIO()
+    d.save(_b)
+    return _b.getvalue()
+
+
+# ============================================================
 # MỤC A: NẠP LỊCH BÁO GIẢNG
 # ============================================================
 st.markdown("### 📥 Nạp lịch báo giảng")
@@ -4292,8 +4605,7 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
 
     with st.expander("⚙️ Tùy chỉnh cột (nâng cao)", expanded=False):
         st.caption(
-            "Nếu file của bạn có tên cột khác, hãy nhập đúng tên cột "
-            "(phân cách bằng dấu phẩy)."
+            "Nếu file của bạn có tên cột khác, hãy nhập đúng tên cột."
         )
         _col_buoi = st.text_input("Cột Buổi",
                                    value="Buổi,Sáng/Chiều",
@@ -4347,29 +4659,27 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                     return i
         return None
 
-    # BẢNG CHUẨN HÓA "THỨ"
     _THU_MAP = {
         "2": "Thứ 2", "thu 2": "Thứ 2", "thứ 2": "Thứ 2",
         "t2": "Thứ 2", "thu hai": "Thứ 2", "thứ hai": "Thứ 2",
-        "hai": "Thứ 2", "monday": "Thứ 2", "mon": "Thứ 2",
+        "hai": "Thứ 2", "monday": "Thứ 2",
         "3": "Thứ 3", "thu 3": "Thứ 3", "thứ 3": "Thứ 3",
         "t3": "Thứ 3", "thu ba": "Thứ 3", "thứ ba": "Thứ 3",
-        "ba": "Thứ 3", "tuesday": "Thứ 3", "tue": "Thứ 3",
+        "ba": "Thứ 3",
         "4": "Thứ 4", "thu 4": "Thứ 4", "thứ 4": "Thứ 4",
         "t4": "Thứ 4", "thu tu": "Thứ 4", "thứ tư": "Thứ 4",
-        "tư": "Thứ 4", "wednesday": "Thứ 4", "wed": "Thứ 4",
+        "tư": "Thứ 4",
         "5": "Thứ 5", "thu 5": "Thứ 5", "thứ 5": "Thứ 5",
         "t5": "Thứ 5", "thu nam": "Thứ 5", "thứ năm": "Thứ 5",
-        "năm": "Thứ 5", "thursday": "Thứ 5", "thu": "Thứ 5",
+        "năm": "Thứ 5",
         "6": "Thứ 6", "thu 6": "Thứ 6", "thứ 6": "Thứ 6",
         "t6": "Thứ 6", "thu sau": "Thứ 6", "thứ sáu": "Thứ 6",
-        "sáu": "Thứ 6", "friday": "Thứ 6", "fri": "Thứ 6",
+        "sáu": "Thứ 6",
         "7": "Thứ 7", "thu 7": "Thứ 7", "thứ 7": "Thứ 7",
         "t7": "Thứ 7", "thu bay": "Thứ 7", "thứ bảy": "Thứ 7",
-        "bảy": "Thứ 7", "saturday": "Thứ 7", "sat": "Thứ 7",
+        "bảy": "Thứ 7",
         "cn": "Chủ nhật", "chunhat": "Chủ nhật",
         "chủ nhật": "Chủ nhật", "sunday": "Chủ nhật",
-        "sun": "Chủ nhật",
     }
 
     def _chuan_hoa_thu(s):
@@ -4599,8 +4909,7 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                         st.rerun()
             elif _parsed is not None and not _parsed:
                 st.warning(
-                    "⚠️ File rỗng hoặc không đọc được dòng nào. "
-                    "Kiểm tra lại tên cột trong mục **Tùy chỉnh cột**."
+                    "⚠️ File rỗng hoặc không đọc được dòng nào."
                 )
         except Exception as _e:
             st.error(f"❌ Lỗi đọc file: {_e}")
@@ -4728,7 +5037,6 @@ if st.session_state["lich_bao_giang"]:
             _results = []
             _total_rows = len(st.session_state["lich_bao_giang"])
 
-            # Lấy tùy chọn tích hợp từ session (nếu có)
             _tich_hop_tuan = st.session_state.get(
                 "tich_hop_radio", "Không tích hợp")
             _tich_hop_nd_tuan = st.session_state.get("tich_hop_text", "")
@@ -4824,304 +5132,6 @@ else:
 
 
 # ============================================================
-# HÀM TẠO PHIẾU BÁO GIẢNG WORD
-# ============================================================
-def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
-                               ngay_bd, buoi, mem):
-    """Tạo phiếu báo giảng Word theo mẫu chuẩn.
-
-    - Header 2 cột: UBND + CHXHCNVN
-    - Tiêu đề: PHIẾU BÁO GIẢNG BUỔI ...
-    - Bảng 7 cột, gộp ô cột "Thứ ngày, tháng"
-    - Center cho cột 1-5,7; Justify cho cột 6 (Tên bài)
-    """
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import nsmap
-
-    d = Document()
-    s = d.sections[0]
-    s.top_margin = Inches(0.6)
-    s.bottom_margin = Inches(0.6)
-    s.left_margin = Inches(0.6)
-    s.right_margin = Inches(0.6)
-
-    # Style chung
-    style = d.styles["Normal"]
-    style.font.name = "Times New Roman"
-    style.font.size = Pt(14)
-    rpr = style.element.get_or_add_rPr()
-    rfonts = rpr.find(qn("w:rFonts"))
-    if rfonts is None:
-        rfonts = rpr.makeelement(qn("w:rFonts"), {})
-        rpr.append(rfonts)
-    for at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
-        rfonts.set(qn(at), "Times New Roman")
-    pf = style.paragraph_format
-    pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
-    pf.space_before = Pt(2)
-    pf.space_after = Pt(2)
-
-    # ============================================================
-    # HEADER 2 CỘT (không viền)
-    # ============================================================
-    # Bảng 2 cột, 3 dòng
-    hdr_table = d.add_table(rows=3, cols=2)
-    hdr_table.autofit = True
-
-    # Xóa viền bảng header
-    for row_obj in hdr_table.rows:
-        for cell in row_obj.cells:
-            tcPr = cell._tc.get_or_add_tcPr()
-            borders = OxmlElement("w:tcBorders")
-            for side in ["top", "left", "right", "bottom", "insideH",
-                         "insideV"]:
-                bd = OxmlElement(f"w:{side}")
-                bd.set(qn("w:val"), "nil")
-                borders.append(bd)
-            tcPr.append(borders)
-
-    # Dòng 1: UBND / CỘNG HOÀ
-    c = hdr_table.cell(0, 0)
-    p = c.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    run = p.add_run("UBND XÃ SÔNG ĐỐC")
-    _set_run_font(run, 14, bold=False)
-
-    c = hdr_table.cell(0, 1)
-    p = c.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    run = p.add_run("CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM")
-    _set_run_font(run, 12, bold=True)
-
-    # Dòng 2: Trường / Độc lập
-    c = hdr_table.cell(1, 0)
-    p = c.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    _ten_truong = mem.get("school", "TRƯỜNG THCS SÔNG ĐỐC")
-    run = p.add_run(_ten_truong.upper())
-    _set_run_font(run, 14, bold=True)
-    run.underline = True
-
-    c = hdr_table.cell(1, 1)
-    p = c.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    run = p.add_run("Độc lập – Tự do – Hạnh phúc")
-    _set_run_font(run, 12, bold=True)
-    run.underline = True
-
-    # Dòng 3: trống / ngày tháng
-    c = hdr_table.cell(2, 0)
-    p = c.paragraphs[0]
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    # để trống
-
-    c = hdr_table.cell(2, 1)
-    p = c.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    _ngay_hien_tai = datetime.now()
-    run = p.add_run(
-        f"Sông Đốc, ngày {_ngay_hien_tai.day:02d} tháng "
-        f"{_ngay_hien_tai.month:02d} năm {_ngay_hien_tai.year}"
-    )
-    _set_run_font(run, 12, bold=False)
-    run.italic = True
-
-    # ============================================================
-    # TIÊU ĐỀ PHIẾU
-    # ============================================================
-    d.add_paragraph("")
-
-    p = d.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(6)
-    p.paragraph_format.space_after = Pt(2)
-    run = p.add_run("PHIẾU BÁO GIẢNG ")
-    _set_run_font(run, 14, bold=True)
-    run_do = p.add_run(f"BUỔI {buoi.upper()}")
-    _set_run_font(run_do, 14, bold=True)
-    run_do.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
-
-    # Dòng tuần + năm học + ngày
-    _ngay_kt = _ngay_bd + timedelta(days=6)
-    p = d.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(2)
-    run = p.add_run(
-        f"Tuần {tuan_so}, năm học {nam_hoc} "
-        f"(Từ {_ngay_bd.strftime('%d/%m/%Y')} "
-        f"đến {_ngay_kt.strftime('%d/%m/%Y')})"
-    )
-    _set_run_font(run, 14, bold=False)
-    run.italic = True
-
-    d.add_paragraph("")
-
-    # ============================================================
-    # BẢNG 7 CỘT LỊCH BÁO GIẢNG (gộp ô)
-    # ============================================================
-    # Chuẩn bị dữ liệu
-    _HEADERS = ["Thứ\nngày,\ntháng", "Tiết\nTKB", "Lớp", "Môn",
-                "Tiết\nPP\nCT", "Tên bài", "Ghi\nchú"]
-
-    # Gom theo thứ (mỗi thứ có nhiều tiết)
-    _theo_thu = {}
-    _thu_order = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6",
-                  "Thứ 7", "Chủ nhật"]
-
-    for _b in lich_bao_giang:
-        for _thu in _b.get("ds_thu", []):
-            if _thu not in _theo_thu:
-                _theo_thu[_thu] = []
-
-    # Tạo dòng cho mỗi (thứ, tiết TKB)
-    _ds_dong = []  # [(thu, lop, mon, tiet_tkb, tiet_ppct, ten_bai, ghi_chu)]
-    for _thu in _thu_order:
-        if _thu not in _theo_thu:
-            continue
-        # Đếm số dòng cho thứ này
-        _dong_cua_thu = []
-        for _b in lich_bao_giang:
-            if _thu in _b.get("ds_thu", []):
-                _ds_lop = _b.get("ds_lop", [])
-                _ds_tkb = _b.get("ds_tiet_tkb", [])
-                _ds_ppct = _b.get("ds_tiet_ppct", [])
-                _so_dong = max(len(_ds_lop), len(_ds_tkb), 1)
-                for _k in range(_so_dong):
-                    _lop_k = _ds_lop[_k] if _k < len(_ds_lop) else ""
-                    _tkb_k = _ds_tkb[_k] if _k < len(_ds_tkb) else ""
-                    _ppct_k = _ds_ppct[_k] if _k < len(_ds_ppct) else ""
-                    _dong_cua_thu.append({
-                        "thu": _thu,
-                        "lop": _lop_k,
-                        "mon": _b.get("mon", ""),
-                        "tiet_tkb": _tkb_k,
-                        "tiet_ppct": _ppct_k,
-                        "ten_bai": _b.get("ten_bai", ""),
-                        "ghi_chu": ", ".join(_b.get("ds_ghi_chu", [])),
-                    })
-        _ds_dong.extend(_dong_cua_thu)
-
-    # Tạo bảng: 1 header + N dòng
-    _n_dong = len(_ds_dong) + 1  # +1 header
-    _t = d.add_table(rows=_n_dong, cols=7)
-    _t.style = "Table Grid"
-
-    # Header
-    _aligns_header = ["center"] * 7
-    for _j, _h in enumerate(_HEADERS):
-        c = _t.cell(0, _j)
-        c.text = ""
-        p = c.paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(2)
-        p.paragraph_format.space_after = Pt(2)
-        p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-        # Xử lý \n trong header
-        for _k, _part in enumerate(_h.split("\n")):
-            if _k > 0:
-                p.add_run().add_break()
-            run = p.add_run(_part)
-            _set_run_font(run, 13, bold=True)
-
-    # Dữ liệu
-    for _i, _row in enumerate(_ds_dong, start=1):
-        # Cột 1: Thứ ngày, tháng — sẽ gộp sau
-        c = _t.cell(_i, 0)
-        c.text = ""
-        p = c.paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(2)
-        p.paragraph_format.space_after = Pt(2)
-
-        # Cột 2-7
-        _vals = [
-            _row["tiet_tkb"],
-            _row["lop"],
-            _row["mon"],
-            _row["tiet_ppct"],
-            _row["ten_bai"],
-            _row["ghi_chu"],
-        ]
-        _aligns = ["center", "center", "center", "center",
-                   "justify", "center"]
-
-        for _j, (_val, _align) in enumerate(zip(_vals, _aligns), start=1):
-            c = _t.cell(_i, _j)
-            c.text = ""
-            p = c.paragraphs[0]
-            align_map = {
-                "center": WD_ALIGN_PARAGRAPH.CENTER,
-                "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
-            }
-            p.alignment = align_map.get(_align,
-                                         WD_ALIGN_PARAGRAPH.CENTER)
-            p.paragraph_format.space_before = Pt(2)
-            p.paragraph_format.space_after = Pt(2)
-            p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-            run = p.add_run(str(_val))
-            _set_run_font(run, 13, bold=False)
-
-    # ============================================================
-    # GỘP Ô CỘT "Thứ ngày, tháng"
-    # ============================================================
-    _idx_dong = 1
-    for _thu in _thu_order:
-        _cac_dong_cua_thu = [
-            _i for _i, _r in enumerate(_ds_dong, start=1)
-            if _r["thu"] == _thu
-        ]
-        if not _cac_dong_cua_thu:
-            continue
-
-        _dong_dau = _cac_dong_cua_thu[0]
-        _dong_cuoi = _cac_dong_cua_thu[-1]
-
-        # Tính ngày hiển thị
-        _idx_thu_trong_tuan = _thu_order.index(_thu)
-        _ngay_cua_thu = _ngay_bd + timedelta(days=_idx_thu_trong_tuan)
-
-        # Ghi nội dung vào ô đầu
-        c = _t.cell(_dong_dau, 0)
-        c.text = ""
-        p = c.paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(2)
-        p.paragraph_format.space_after = Pt(2)
-        p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-
-        run1 = p.add_run(f"{_thu}\n")
-        _set_run_font(run1, 13, bold=True)
-        run1.add_break()
-        run2 = p.add_run(_ngay_cua_thu.strftime("%d/%m/%Y"))
-        _set_run_font(run2, 13, bold=False)
-
-        # Gộp ô nếu có nhiều hơn 1 dòng
-        if _dong_cuoi > _dong_dau:
-            _cell_goc = _t.cell(_dong_dau, 0)
-            _cell_cuoi = _t.cell(_dong_cuoi, 0)
-            _cell_goc.merge(_cell_cuoi)
-
-    # ============================================================
-    # XUẤT FILE
-    # ============================================================
-    _b = io.BytesIO()
-    d.save(_b)
-    return _b.getvalue()
-
-
-# ============================================================
 # MỤC D: HIỂN THỊ KẾT QUẢ + TẢI XUỐNG
 # ============================================================
 if st.session_state.get("weekly_results"):
@@ -5139,45 +5149,23 @@ if st.session_state.get("weekly_results"):
     _col_dl1, _col_dl2, _col_dl3 = st.columns(3)
 
     # ---------------------------------------------------------
-    # Word gộp cả tuần (có phiếu Lịch BG ở đầu)
+    # Word gộp cả tuần — PHIẾU BG Ở ĐẦU, GIÁO ÁN TIẾP THEO
     # ---------------------------------------------------------
     with _col_dl1:
         if _ok_count > 0:
-            _d_tuan = Document()
+            _bytes_pbg = _tao_phieu_bao_giang_word(
+                st.session_state["lich_bao_giang"],
+                _tuan_so, _nam_hoc, _ngay_bd, _buoi_chon,
+                st.session_state.get("memory", {})
+            )
+
+            _d_tuan = Document(io.BytesIO(_bytes_pbg))
             _s_tuan = _d_tuan.sections[0]
             _s_tuan.top_margin = Inches(0.7)
             _s_tuan.bottom_margin = Inches(0.7)
             _s_tuan.left_margin = Inches(0.8)
             _s_tuan.right_margin = Inches(0.8)
 
-            _style_tuan = _d_tuan.styles["Normal"]
-            _style_tuan.font.name = "Times New Roman"
-            _style_tuan.font.size = Pt(14)
-            _rpr_t = _style_tuan.element.get_or_add_rPr()
-            _rf_t = _rpr_t.find(qn("w:rFonts"))
-            if _rf_t is None:
-                _rf_t = _rpr_t.makeelement(qn("w:rFonts"), {})
-                _rpr_t.append(_rf_t)
-            for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
-                _rf_t.set(qn(_at), "Times New Roman")
-            _pf_t = _style_tuan.paragraph_format
-            _pf_t.line_spacing_rule = WD_LINE_SPACING.SINGLE
-            _pf_t.space_before = Pt(2)
-            _pf_t.space_after = Pt(2)
-
-            # PHẦN A: Phiếu lịch BG
-            _bytes_pbg = _tao_phieu_bao_giang_word(
-                st.session_state["lich_bao_giang"],
-                _tuan_so, _nam_hoc, _ngay_bd, _buoi_chon,
-                st.session_state.get("memory", {})
-            )
-            _doc_pbg = Document(io.BytesIO(_bytes_pbg))
-
-            # Copy nội dung từ _doc_pbg sang _d_tuan
-            for _el in _doc_pbg.element.body:
-                _d_tuan.element.body.append(_el)
-
-            # PHẦN B: Giáo án từng bài
             for _r in _weekly:
                 if _r["ok"]:
                     _bai_gop = _r.get("bai_gop",
@@ -5189,6 +5177,7 @@ if st.session_state.get("weekly_results"):
                                 _r["row"].get("lop", ""))
 
                     _d_tuan.add_page_break()
+
                     _tieude_ga = _d_tuan.add_paragraph()
                     _tieude_ga.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     _tieude_ga.paragraph_format.space_before = Pt(6)
@@ -5357,8 +5346,8 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         3. **Chọn Buổi** (Sáng/Chiều) + Năm học
         4. **Bấm "Soạn cả tuần"** → AI soạn từng bài
         5. **Tải Word** → File gồm:
-           - Trang 1: Phiếu báo giảng (7 cột, gộp ô)
-           - Trang 2+: Giáo án từng bài (chuẩn 5512)
+           - Phiếu báo giảng (trang 1 → hết)
+           - Các giáo án (mỗi bài 1 trang mới)
         """
     )
 
