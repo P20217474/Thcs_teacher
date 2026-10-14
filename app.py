@@ -81,11 +81,13 @@ for _k, _v in PROVIDER_KEYS.items():
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
-# Model ưu tiên cho từng provider (cập nhật theo thời điểm hiện tại)
+# Model ưu tiên cho từng provider — đã sửa theo thời điểm hiện tại
+# Mistral: đổi thứ tự lớn trước nhỏ sau
+# Gemini: dùng model latest
 PREFERRED_MODELS = {
     "GEMINI_API_KEY": [
-        "gemini-2.5-flash",
         "gemini-flash-latest",
+        "gemini-2.5-flash",
     ],
     "GROQ_API_KEY": [
         "llama-3.3-70b-versatile",
@@ -97,9 +99,9 @@ PREFERRED_MODELS = {
         "qwen/qwen-2.5-72b-instruct:free",
     ],
     "MISTRAL_API_KEY": [
+        "mistral-large-latest",
         "mistral-small-latest",
         "open-mistral-nemo",
-        "mistral-large-latest",
     ],
     "TBOX_API_KEY": [
         "Ling-1T",
@@ -130,8 +132,10 @@ CACHE_DIR = "cache"
 SGK_BAI_DIR = os.path.join(CACHE_DIR, "sgk_bai")
 SGK_PAGES_DIR = os.path.join(CACHE_DIR, "sgk_pages")
 OCR_CACHE_DIR = os.path.join(CACHE_DIR, "ocr")
+SGK_ANH_DIR = os.path.join(CACHE_DIR, "sgk_anh")   # MỚI — cache ảnh
 
-for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR]:
+for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR,
+           SGK_ANH_DIR]:
     os.makedirs(_d, exist_ok=True)
 
 
@@ -290,15 +294,15 @@ defaults = {
     "dacta_hientai": None,
     "de_kiem_tra_hientai": None,
     "ai_prompt_cache": {},
+    "anh_sgk_cache": {},          # MỚI — cache ảnh SGK trong session
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ============ KẾT THÚC PHẦN 1/6 ============
-
 # ============================================================
-# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF
+# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF + CHỤP ẢNH
 # ============================================================
 # Chức năng:
 #   - Đọc file: PDF, Word, Excel, CSV, TXT, ảnh
@@ -308,6 +312,7 @@ for k, v in defaults.items():
 #   - Đọc file Lịch báo giảng (docx/xlsx/csv/txt)
 #   - Gộp bài trùng tên (1 bài dạy nhiều lớp)
 #   - Tìm bài theo TÊN (fuzzy match)
+#   - CHỤP ẢNH từ PDF SGK (MỚI)
 # ============================================================
 
 import hashlib
@@ -585,6 +590,269 @@ def ocr_bai_pdf(sgk_name, bai_file):
             if text and not text.startswith("["):
                 parts.append(text)
     return "\n\n---\n\n".join(parts)
+
+
+# ---------- D2: CHỤP ẢNH TỪ PDF SGK (MỚI) ----------
+def _crop_white_border_pil(img_bytes, padding=5):
+    """Cắt viền trắng xung quanh ảnh bằng PIL.
+
+    Args:
+        img_bytes: bytes ảnh PNG
+        padding: số pixel giữ lại quanh vùng ảnh (tránh cắt sát)
+
+    Returns:
+        bytes ảnh PNG đã cắt
+    """
+    if not HAS_PIL:
+        return img_bytes
+    try:
+        img = Image.open(io.BytesIO(img_bytes))
+        # Chuyển sang RGBA để xử lý
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+
+        # Lấy kênh alpha hoặc dùng grayscale để tìm viền
+        # Cách 1: dùng getbbox() trên ảnh đảo màu
+        # Chuyển sang RGB nền trắng
+        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+        bg.paste(img, (0, 0), img)
+        rgb_img = bg.convert("RGB")
+
+        # Đảo màu để vùng trắng thành đen
+        from PIL import ImageOps
+        inv = ImageOps.invert(rgb_img)
+        # Chuyển sang grayscale
+        gray = inv.convert("L")
+        # Ngưỡng: pixel > 10 là "có nội dung"
+        bw = gray.point(lambda x: 255 if x > 10 else 0, mode="1")
+
+        bbox = bw.getbbox()
+        if bbox:
+            # Mở rộng vùng để giữ padding
+            x0, y0, x1, y1 = bbox
+            w, h = img.size
+            x0 = max(0, x0 - padding)
+            y0 = max(0, y0 - padding)
+            x1 = min(w, x1 + padding)
+            y1 = min(h, y1 + padding)
+            # Cắt
+            cropped = img.crop((x0, y0, x1, y1))
+            buf = io.BytesIO()
+            cropped.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        pass
+    return img_bytes
+
+
+def _la_anh_full_trang(rect, page_rect, nguong=0.80):
+    """Kiểm tra ảnh có chiếm ≥ 80% diện tích trang không."""
+    try:
+        if page_rect.width <= 0 or page_rect.height <= 0:
+            return False
+        dien_tich_trang = page_rect.width * page_rect.height
+        dien_tich_anh = rect.width * rect.height
+        if dien_tich_trang <= 0:
+            return False
+        return (dien_tich_anh / dien_tich_trang) >= nguong
+    except Exception:
+        return False
+
+
+def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
+    """Chụp vùng ảnh từ PDF SGK.
+
+    - Duyệt từng trang, phát hiện ảnh/hình vẽ vector
+    - Lọc: bỏ ảnh full trang (≥ 80% diện tích)
+    - Lọc: bỏ ảnh quá nhỏ (< 50×50 px)
+    - Cắt viền trắng
+    - Cache lại vào SGK_ANH_DIR + session state
+
+    Args:
+        sgk_name: tên SGK (VD: SGK_Toan_6)
+        bai_file: tên file PDF bài (VD: bai_01_...pdf)
+        max_anh: số ảnh tối đa (mặc định 6)
+
+    Returns:
+        list các bytes ảnh PNG đã lọc
+    """
+    if not HAS_PYMUPDF:
+        return []
+
+    fpath = os.path.join(SGK_BAI_DIR, sgk_name, bai_file)
+    if not os.path.exists(fpath):
+        return []
+
+    # ===== CHECK CACHE SESSION =====
+    cache_key = hashlib.md5(
+        (sgk_name + "||" + bai_file).encode("utf-8")).hexdigest()
+    session_cache = st.session_state.setdefault("anh_sgk_cache", {})
+    if cache_key in session_cache:
+        return session_cache[cache_key]
+
+    # ===== CHECK CACHE LOCAL =====
+    cache_dir_local = os.path.join(SGK_ANH_DIR, sgk_name)
+    cache_meta_file = os.path.join(cache_dir_local,
+                                    cache_key + "_meta.txt")
+    if os.path.exists(cache_meta_file):
+        try:
+            with open(cache_meta_file, "r", encoding="utf-8") as f:
+                so_anh = int(f.read().strip())
+            ds_anh = []
+            for i in range(so_anh):
+                p = os.path.join(cache_dir_local,
+                                 f"{cache_key}_{i}.png")
+                if os.path.exists(p):
+                    with open(p, "rb") as f:
+                        ds_anh.append(f.read())
+            if ds_anh:
+                session_cache[cache_key] = ds_anh
+                return ds_anh
+        except Exception:
+            pass
+
+    # ===== BẮT ĐẦU CHỤP ẢNH =====
+    ds_anh = []
+    try:
+        doc = fitz.open(stream=open(fpath, "rb").read(),
+                        filetype="pdf")
+    except Exception:
+        return []
+
+    try:
+        for page_num in range(len(doc)):
+            if len(ds_anh) >= max_anh:
+                break
+
+            page = doc[page_num]
+            page_rect = page.rect
+
+            # --- 1. Lấy ảnh nhúng ---
+            try:
+                img_list = page.get_images(full=True)
+            except Exception:
+                img_list = []
+
+            # Lấy vùng (rect) của ảnh
+            ds_rect = []
+            for img_info in img_list:
+                try:
+                    xref = img_info[0]
+                    rects = page.get_image_rects(xref)
+                    for r in rects:
+                        if (r.width >= 50 and r.height >= 50):
+                            ds_rect.append(r)
+                except Exception:
+                    continue
+
+            # --- 2. Lấy hình vẽ vector ---
+            try:
+                drawings = page.get_drawings()
+            except Exception:
+                drawings = []
+
+            # Gom drawing gần nhau thành 1 vùng
+            for d in drawings:
+                try:
+                    r = d.get("rect")
+                    if r and r.width >= 80 and r.height >= 80:
+                        ds_rect.append(r)
+                except Exception:
+                    continue
+
+            # --- 3. Chụp từng vùng ---
+            for r in ds_rect:
+                if len(ds_anh) >= max_anh:
+                    break
+
+                # Lọc ảnh full trang
+                if _la_anh_full_trang(r, page_rect, nguong=0.80):
+                    continue
+
+                # Mở rộng vùng (padding)
+                try:
+                    r2 = fitz.Rect(
+                        max(0, r.x0 - 5),
+                        max(0, r.y0 - 5),
+                        min(page_rect.width, r.x1 + 5),
+                        min(page_rect.height, r.y1 + 5),
+                    )
+                except Exception:
+                    r2 = r
+
+                # Render vùng
+                try:
+                    pix = page.get_pixmap(
+                        clip=r2, dpi=150, alpha=False)
+                    img_bytes = pix.tobytes("png")
+                except Exception:
+                    continue
+
+                if not img_bytes or len(img_bytes) < 500:
+                    continue
+
+                # Cắt viền trắng
+                img_bytes = _crop_white_border_pil(
+                    img_bytes, padding=5)
+
+                if not img_bytes or len(img_bytes) < 500:
+                    continue
+
+                ds_anh.append(img_bytes)
+
+        doc.close()
+
+    except Exception:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    # ===== LƯU CACHE LOCAL =====
+    if ds_anh:
+        try:
+            os.makedirs(cache_dir_local, exist_ok=True)
+            for i, b in enumerate(ds_anh):
+                p = os.path.join(cache_dir_local,
+                                 f"{cache_key}_{i}.png")
+                with open(p, "wb") as f:
+                    f.write(b)
+            with open(cache_meta_file, "w",
+                      encoding="utf-8") as f:
+                f.write(str(len(ds_anh)))
+        except Exception:
+            pass
+
+    session_cache[cache_key] = ds_anh
+    return ds_anh
+
+
+def phan_loai_anh_theo_hoat_dong(ds_anh, max_moi_hd=2):
+    """Phân loại ảnh theo HĐ1/HĐ2/HĐ3.
+
+    - Ảnh #1-2 → HĐ1
+    - Ảnh #3-4 → HĐ2
+    - Ảnh #5-6 → HĐ3
+    - Ảnh #7+ → bỏ
+
+    Returns:
+        dict: {"hd1": [bytes, ...], "hd2": [...], "hd3": [...]}
+    """
+    ket_qua = {"hd1": [], "hd2": [], "hd3": []}
+    if not ds_anh:
+        return ket_qua
+
+    # Cắt tối đa 3*max_moi_hd ảnh
+    ds_anh = ds_anh[:3 * max_moi_hd]
+
+    for i, b in enumerate(ds_anh):
+        if i < max_moi_hd:
+            ket_qua["hd1"].append(b)
+        elif i < 2 * max_moi_hd:
+            ket_qua["hd2"].append(b)
+        elif i < 3 * max_moi_hd:
+            ket_qua["hd3"].append(b)
+    return ket_qua
 
 
 # ---------- E: Quản lý metadata SGK ----------
@@ -1297,7 +1565,6 @@ def doc_lich_bao_giang(file_obj):
 
 
 # ============ KẾT THÚC PHẦN 2/6 ============
-
 # ============================================================
 # PHẦN 3/6: RULES 12 MÔN + MẪU 5512 + PROMPT
 # ============================================================
@@ -1349,6 +1616,9 @@ c) Tổ chức thực hiện và sản phẩm:
 }
 
 
+# ============================================================
+# KÝ HIỆU UNICODE CHO 12 MÔN THCS
+# ============================================================
 KY_HIEU_MON = {
     "Toán": (
         "Phân số: a/b (VD: 3/4). "
@@ -1439,9 +1709,254 @@ KY_HIEU_MON = {
 }
 
 
+# ============================================================
+# RULES 12 MÔN THCS
+# ============================================================
 SUBJECT_RULES = {
-    # ... (giữ nguyên toàn bộ 12 môn như bản trước)
-    # Xem file gốc Phần 3/6
+    "Toán": {
+        "ten_goi_khac": ["toan", "math", "toán học"],
+        "ky_hieu": "📐 π ∑ √",
+        "nang_luc_rieng": [
+            "Năng lực tư duy và lập luận toán học",
+            "Năng lực giải quyết vấn đề toán học",
+            "Năng lực giao tiếp toán học",
+            "Năng lực mô hình hóa toán học",
+            "Năng lực sử dụng công cụ, phương tiện học toán",
+        ],
+        "phuong_phap": ["Khám phá quy luật", "Giải quyết vấn đề",
+                        "Luyện tập phân hóa"],
+        "san_pham": ["Lời giải", "Phép tính, biểu thức", "Hình vẽ",
+                     "Lập luận/chứng minh", "Mô hình toán học"],
+        "danh_gia": ["Tính chính xác", "Lập luận logic",
+                     "Phương pháp giải", "Vận dụng"],
+        "khong_nen": ("Chỉ trình bày lý thuyết rồi cho bài tập mà "
+                      "không thể hiện quá trình HS hình thành kiến thức."),
+    },
+    "Ngữ văn": {
+        "ten_goi_khac": ["ngu van", "văn", "van", "ngữ văn", "literature"],
+        "ky_hieu": "📖 ✍️ 🎭",
+        "nang_luc_rieng": ["Năng lực ngôn ngữ", "Năng lực văn học",
+                            "Năng lực đọc hiểu", "Năng lực viết",
+                            "Năng lực nói và nghe"],
+        "phuong_phap": ["Đọc hiểu", "Phân tích, thảo luận",
+                        "Thực hành viết", "Đóng vai, trình bày"],
+        "san_pham": ["Phiếu học tập đọc hiểu", "Sơ đồ phân tích",
+                     "Đoạn văn/bài văn", "Bài thuyết trình"],
+        "danh_gia": ["Đọc hiểu", "Phân tích chi tiết, nhân vật",
+                     "Viết đoạn/bài văn", "Trình bày, thảo luận"],
+        "khong_nen": ("Ép mọi bài vào quy trình phân tích tác phẩm hoặc "
+                      "đưa bài văn mẫu để HS học thuộc."),
+    },
+    "Tiếng Anh": {
+        "ten_goi_khac": ["tieng anh", "anh", "english", "ta",
+                          "tiếng anh"],
+        "ky_hieu": "🇬🇧 🔤 🗣️",
+        "nang_luc_rieng": [
+            "Năng lực giao tiếp bằng tiếng Anh",
+            "Năng lực ngôn ngữ (ngữ âm, từ vựng, ngữ pháp)",
+            "Năng lực liên văn hóa",
+            "Năng lực tự chủ và tự học ngoại ngữ",
+        ],
+        "phuong_phap": [
+            "Nghe - Nói - Đọc - Viết tích hợp",
+            "Luyện tập theo cặp/nhóm",
+            "Học qua tình huống giao tiếp",
+            "Trò chơi ngôn ngữ, đóng vai",
+            "Sử dụng học liệu số, nghe nhìn",
+        ],
+        "san_pham": [
+            "Đoạn hội thoại theo chủ đề",
+            "Bài nghe - nói (role-play)",
+            "Đoạn văn viết theo gợi ý",
+            "Phiếu học tập từ vựng - ngữ pháp",
+            "Sản phẩm dự án (poster, video, presentation)",
+        ],
+        "danh_gia": [
+            "Nghe hiểu thông tin chính",
+            "Nói theo chủ đề, phát âm rõ",
+            "Đọc hiểu văn bản ngắn",
+            "Viết đoạn văn đơn giản",
+            "Sử dụng từ vựng, ngữ pháp phù hợp",
+        ],
+        "khong_nen": (
+            "Chỉ dạy ngữ pháp và dịch câu mà bỏ qua 4 kỹ năng Nghe - Nói "
+            "- Đọc - Viết; hoặc bắt HS học thuộc lòng đoạn hội thoại "
+            "mẫu mà không có hoạt động giao tiếp thực tế."
+        ),
+    },
+    "Khoa học tự nhiên": {
+        "ten_goi_khac": ["khtn", "khoa hoc tu nhien", "khoa học tự nhiên",
+                          "science"],
+        "ky_hieu": "🔬 🧪 ⚗️",
+        "nang_luc_rieng": ["Năng lực nhận thức KHTN",
+                            "Năng lực tìm hiểu tự nhiên",
+                            "Năng lực vận dụng kiến thức, kỹ năng"],
+        "phuong_phap": ["Quan sát", "Thí nghiệm, thực hành",
+                        "Điều tra, khảo sát", "Phân tích dữ liệu"],
+        "san_pham": ["Báo cáo thí nghiệm", "Bảng quan sát",
+                     "Biểu đồ, sơ đồ", "Bản giải thích hiện tượng",
+                     "Kết luận dựa trên bằng chứng"],
+        "danh_gia": ["Hiểu khái niệm, quy luật", "Quan sát, đặt câu hỏi",
+                     "Dự đoán, giả thuyết", "Thực hiện thí nghiệm",
+                     "Phân tích dữ liệu, kết luận"],
+        "khong_nen": ("Tạo thí nghiệm không có trong điều kiện thiết bị "
+                      "hoặc kết luận không phù hợp dữ liệu."),
+    },
+    "Lịch sử": {
+        "ten_goi_khac": ["lich su", "lịch sử", "history", "ls"],
+        "ky_hieu": "🏛️ 📜 ⏳",
+        "nang_luc_rieng": ["Năng lực tìm hiểu lịch sử",
+                            "Năng lực nhận thức và tư duy lịch sử",
+                            "Năng lực vận dụng kiến thức, kỹ năng"],
+        "phuong_phap": ["Khai thác tư liệu", "Dòng thời gian",
+                        "So sánh sự kiện",
+                        "Phân tích nguyên nhân - diễn biến - kết quả"],
+        "san_pham": ["Dòng thời gian", "Sơ đồ diễn biến", "Bảng so sánh",
+                     "Phiếu khai thác tư liệu", "Bài thuyết trình"],
+        "danh_gia": ["Xác định thời gian, không gian",
+                     "Nhận biết sự kiện, nhân vật",
+                     "Phân tích nguyên nhân, diễn biến, kết quả",
+                     "So sánh sự kiện, giai đoạn"],
+        "khong_nen": ("Bắt HS học thuộc toàn bộ diễn biến mà không phân "
+                      "tích tư liệu, giải thích hoặc so sánh."),
+    },
+    "Địa lí": {
+        "ten_goi_khac": ["dia li", "địa lí", "địa lý", "geography", "dl"],
+        "ky_hieu": "🗺️ 🌍 🧭",
+        "nang_luc_rieng": ["Năng lực nhận thức khoa học địa lí",
+                            "Năng lực tìm hiểu địa lí",
+                            "Năng lực vận dụng kiến thức, kỹ năng"],
+        "phuong_phap": ["Đọc bản đồ, lược đồ",
+                        "Phân tích biểu đồ, số liệu",
+                        "So sánh vùng, quốc gia"],
+        "san_pham": ["Bản đồ được chú giải", "Biểu đồ", "Bảng thống kê",
+                     "Bài nhận xét số liệu", "Sơ đồ phân bố"],
+        "danh_gia": ["Xác định vị trí địa lí",
+                     "Nhận biết đặc điểm tự nhiên, dân cư, KT-XH",
+                     "Đọc và sử dụng bản đồ",
+                     "Phân tích biểu đồ, bảng số liệu",
+                     "Giải thích sự phân bố"],
+        "khong_nen": ("Chỉ yêu cầu đọc lại số liệu hoặc mô tả biểu đồ "
+                      "mà không giải thích xu hướng, mối quan hệ địa lí."),
+    },
+    "Giáo dục công dân": {
+        "ten_goi_khac": ["gdcd", "giao duc cong dan", "giáo dục công dân",
+                          "civic"],
+        "ky_hieu": "⚖️ 🤝 📋",
+        "nang_luc_rieng": ["Năng lực điều chỉnh hành vi",
+                            "Năng lực phát triển bản thân",
+                            "Năng lực tìm hiểu, tham gia hoạt động KT-XH"],
+        "phuong_phap": ["Phân tích tình huống", "Xử lý tình huống",
+                        "Đóng vai", "Thảo luận nhóm"],
+        "san_pham": ["Phiếu xử lý tình huống", "Bảng phân tích hành vi",
+                     "Bài trình bày quan điểm", "Kịch bản đóng vai",
+                     "Kế hoạch rèn luyện cá nhân"],
+        "danh_gia": ["Hiểu khái niệm, chuẩn mực",
+                     "Nhận biết quyền, nghĩa vụ, trách nhiệm",
+                     "Phân tích hành vi đúng/sai",
+                     "Lựa chọn cách ứng xử phù hợp"],
+        "khong_nen": ("Chỉ đưa định nghĩa và yêu cầu học thuộc; "
+                      "đánh giá phẩm chất HS chỉ dựa 1 câu trả lời."),
+    },
+    "Mỹ thuật": {
+        "ten_goi_khac": ["my thuat", "mỹ thuật", "art"],
+        "ky_hieu": "🎨 🖌️ 🖼️",
+        "nang_luc_rieng": ["Năng lực quan sát, nhận thức thẩm mỹ",
+                            "Năng lực sáng tạo, ứng dụng thẩm mỹ",
+                            "Năng lực phân tích, đánh giá thẩm mỹ"],
+        "phuong_phap": ["Quan sát", "Thực hành tạo hình", "Thiết kế",
+                        "Trưng bày, nhận xét sản phẩm"],
+        "san_pham": ["Tranh vẽ", "Sản phẩm tạo hình", "Bản phác thảo",
+                     "Sản phẩm trang trí/thiết kế",
+                     "Bài giới thiệu, nhận xét tác phẩm"],
+        "danh_gia": ["Nhận biết yếu tố tạo hình",
+                     "Quan sát, cảm nhận tác phẩm",
+                     "Lựa chọn chất liệu, công cụ",
+                     "Tạo sản phẩm theo yêu cầu",
+                     "Trình bày ý tưởng, nhận xét"],
+        "khong_nen": ("Đánh giá chỉ dựa trên đẹp/xấu hoặc yêu cầu mọi HS "
+                      "tạo sản phẩm giống hệt nhau."),
+    },
+    "Âm nhạc": {
+        "ten_goi_khac": ["am nhac", "âm nhạc", "music"],
+        "ky_hieu": "🎵 🎼 🎤",
+        "nang_luc_rieng": ["Năng lực thể hiện âm nhạc",
+                            "Năng lực cảm thụ, hiểu biết âm nhạc",
+                            "Năng lực ứng dụng, sáng tạo âm nhạc"],
+        "phuong_phap": ["Nghe mẫu", "Luyện hát, đọc nhạc",
+                        "Thực hành nhạc cụ", "Trò chơi tiết tấu",
+                        "Biểu diễn"],
+        "san_pham": ["Phần trình diễn bài hát", "Bài đọc nhạc",
+                     "Phần biểu diễn nhạc cụ",
+                     "Tiết tấu/đoạn nhạc sáng tạo",
+                     "Bài cảm nhận âm nhạc"],
+        "danh_gia": ["Nhận biết đặc điểm tác phẩm",
+                     "Hát đúng giai điệu, lời ca, nhịp điệu",
+                     "Nghe và cảm nhận",
+                     "Đọc nhạc hoặc sử dụng nhạc cụ",
+                     "Hợp tác trong biểu diễn"],
+        "khong_nen": ("Chỉ trình bày kiến thức tác phẩm mà bỏ qua hoạt "
+                      "động nghe, thực hành, thể hiện âm nhạc."),
+    },
+    "Giáo dục thể chất": {
+        "ten_goi_khac": ["gdtc", "giao duc the chat",
+                          "giáo dục thể chất", "pe", "thể dục"],
+        "ky_hieu": "⚽ 🏃 🏀",
+        "nang_luc_rieng": ["Năng lực vận động cơ bản",
+                            "Năng lực thể thao",
+                            "Năng lực thể chất và sức khỏe"],
+        "phuong_phap": ["Làm mẫu", "Luyện tập", "Sửa lỗi kỹ thuật",
+                        "Trò chơi vận động"],
+        "san_pham": ["Động tác được thực hiện", "Chuỗi vận động",
+                     "Kết quả thực hành", "Bảng theo dõi tiến bộ",
+                     "Kết quả trò chơi vận động"],
+        "danh_gia": ["Hiểu yêu cầu, tác dụng động tác",
+                     "Thực hiện đúng kỹ thuật",
+                     "Phát triển tố chất thể lực",
+                     "Tự tập luyện, điều chỉnh vận động",
+                     "Ý thức an toàn, kỷ luật"],
+        "khong_nen": ("Soạn giáo án chỉ có lời giảng, câu hỏi và bài "
+                      "tập viết cho nội dung cần thực hành vận động."),
+    },
+    "Hoạt động trải nghiệm, hướng nghiệp": {
+        "ten_goi_khac": ["hdtn", "hoat dong trai nghiem", "hướng nghiệp",
+                          "trai nghiem", "experiential"],
+        "ky_hieu": "🧭 🌱 🎯",
+        "nang_luc_rieng": ["Năng lực thích ứng với cuộc sống",
+                            "Năng lực thiết kế, tổ chức hoạt động",
+                            "Năng lực định hướng nghề nghiệp"],
+        "phuong_phap": ["Trải nghiệm thực tế", "Dự án", "Khảo sát",
+                        "Thảo luận nhóm", "Phản hồi, tự đánh giá"],
+        "san_pham": ["Nhật ký trải nghiệm", "Kế hoạch cá nhân",
+                     "Báo cáo khảo sát", "Poster/video",
+                     "Sản phẩm dự án", "Bài trình bày kết quả"],
+        "danh_gia": ["Nhận thức bản thân", "Giao tiếp và hợp tác",
+                     "Giải quyết vấn đề đời sống",
+                     "Trách nhiệm với gia đình, nhà trường, cộng đồng",
+                     "Tìm hiểu nghề nghiệp"],
+        "khong_nen": ("Biến mọi tiết trải nghiệm thành tiết GV thuyết "
+                      "trình về kỹ năng sống."),
+    },
+    "Tin học": {
+        "ten_goi_khac": ["tin hoc", "tin học", "informatics", "it",
+                          "cntt"],
+        "ky_hieu": "💻 🖥️ ⌨️",
+        "nang_luc_rieng": ["Năng lực sử dụng, quản lý phương tiện CNTT",
+                            "Năng lực ứng dụng CNTT trong học và tự học",
+                            "Năng lực giải quyết vấn đề với CNTT",
+                            "Năng lực an toàn, an ninh thông tin"],
+        "phuong_phap": ["Thực hành", "Giải quyết vấn đề",
+                        "Thử nghiệm", "Kiểm thử, sửa lỗi"],
+        "san_pham": ["Tệp văn bản/bảng tính", "Bài trình chiếu",
+                     "Sơ đồ thuật toán", "Chương trình máy tính",
+                     "Kết quả chạy thử", "Sản phẩm số"],
+        "danh_gia": ["Hiểu khái niệm tin học", "Sử dụng công cụ số",
+                     "Thực hiện thao tác máy tính",
+                     "Phân tích vấn đề, xây dựng thuật toán",
+                     "Viết, kiểm thử, sửa chương trình"],
+        "khong_nen": ("Chỉ cho HS chép mã chương trình mà không giải "
+                      "thích bài toán, thuật toán và cách kiểm tra."),
+    },
 }
 
 
@@ -1542,7 +2057,7 @@ def get_mau_dang_dung():
 
 
 # ============================================================
-# BUILD PROMPT — CẬP NHẬT THEO MẪU CHUẨN MỚI
+# BUILD PROMPT — CẬP NHẬT CẢNH BÁO SGK RỖNG
 # ============================================================
 def build_exec_prompt(plan):
     """Xây prompt 5512 theo mẫu chuẩn mới."""
@@ -1648,9 +2163,28 @@ def build_exec_prompt(plan):
     p.append("")
 
     # Nguồn SGK
-    if sgk_text:
+    if sgk_text and len(sgk_text.strip()) > 50:
         p.append("=== NGUỒN SGK (BẮT BUỘC DÙNG) ===")
         p.append(sgk_text)
+        p.append("")
+        p.append("⚠️ CHỈ ĐƯỢC VIẾT NỘI DUNG CÓ TRONG SGK Ở TRÊN.")
+        p.append("⚠️ KHÔNG suy diễn từ tên chương, tên bài.")
+        p.append("⚠️ KHÔNG thêm ký hiệu toán nếu SGK không có.")
+        p.append("⚠️ Nếu SGK không cung cấp → ghi '[SGK không cung cấp]'.")
+        p.append("")
+    else:
+        p.append("=== ⚠️ CẢNH BÁO: KHÔNG CÓ NỘI DUNG SGK ===")
+        p.append("Hiện tại KHÔNG tìm thấy nội dung SGK cho bài này.")
+        p.append("")
+        p.append("QUY TẮC BẮT BUỘC KHI KHÔNG CÓ SGK:")
+        p.append("1. CHỈ viết những gì CHẮC CHẮN thuộc chương trình "
+                 "lớp " + str(plan.get("grade", "6")) + ".")
+        p.append("2. KHÔNG bịa số liệu, công thức, bài tập cụ thể.")
+        p.append("3. KHÔNG thêm ký hiệu toán (ℤ, ℕ, ℚ...) nếu không "
+                 "chắc chắn bài đó có.")
+        p.append("4. Với nội dung không chắc → ghi "
+                 "'[SGK không cung cấp]'.")
+        p.append("5. Mục tiêu viết CHUNG CHUNG, không cụ thể số liệu.")
         p.append("")
 
     # Mẫu 5512
@@ -1680,7 +2214,8 @@ def build_exec_prompt(plan):
     p.append("   1. Kiến thức trọng tâm: ...")
     p.append("   2. Năng lực: ...")
     p.append("   3. Phẩm chất: ...")
-    p.append("   4. Tích hợp (Năng lực số hoặc Trí tuệ nhân tạo AI, nếu có): ...")
+    p.append("   4. Tích hợp (Năng lực số hoặc Trí tuệ nhân tạo AI, "
+             "nếu có): ...")
 
     if tich_hop_chon and tich_hop_noi_dung:
         p.append("   → Mục 4. Tích hợp: SỬ DỤNG ĐÚNG NỘI DUNG SAU:")
@@ -1726,7 +2261,6 @@ def build_exec_prompt(plan):
 
 
 # ============ KẾT THÚC PHẦN 3/6 ============
-
 # ============================================================
 # PHẦN 4/6: SIDEBAR + 9 TAB + CALL AI
 # ============================================================
@@ -1739,12 +2273,12 @@ with st.sidebar:
     _ollama_now = USE_OLLAMA and _check_ollama()
     _so_cloud = len(available_providers)
 
-    if _ollama_now:
-        st.success(f"🏠 Ollama local: {OLLAMA_MODEL}")
-        if _so_cloud > 0:
-            st.caption(f"☁️ Dự phòng: {_so_cloud} cloud provider")
-    elif _so_cloud > 0:
+    if _so_cloud > 0:
         st.info(f"☁️ AI cloud: {_so_cloud} provider")
+        if _ollama_now:
+            st.caption(f"🏠 Dự phòng: Ollama {OLLAMA_MODEL}")
+    elif _ollama_now:
+        st.success(f"🏠 Ollama local: {OLLAMA_MODEL}")
     else:
         st.error("❌ Chưa có AI nào.")
         st.caption("Cần Ollama local HOẶC ít nhất 1 API key cloud.")
@@ -1810,10 +2344,32 @@ with st.sidebar:
         if st.button("🧼 Xóa phiên làm việc tạm",
                      use_container_width=True, key="clean_session"):
             for k in ["draft", "last_topic", "weekly_results",
-                      "lich_bao_giang", "ocr_session_cache"]:
+                      "lich_bao_giang", "ocr_session_cache",
+                      "anh_sgk_cache"]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.success("✅ Đã xóa phiên")
+            st.rerun()
+
+        if st.button("🗑️ Xóa cache AI (prompt)",
+                     use_container_width=True, key="clean_ai_cache"):
+            st.session_state["ai_prompt_cache"] = {}
+            st.success("✅ Đã xóa cache AI — sẽ gọi AI mới")
+            st.rerun()
+
+        if st.button("🖼️ Xóa cache ảnh SGK",
+                     use_container_width=True, key="clean_anh_sgk"):
+            deleted = 0
+            if os.path.exists(SGK_ANH_DIR):
+                import shutil
+                try:
+                    shutil.rmtree(SGK_ANH_DIR)
+                    os.makedirs(SGK_ANH_DIR, exist_ok=True)
+                    deleted = 1
+                except Exception:
+                    pass
+            st.session_state["anh_sgk_cache"] = {}
+            st.success(f"✅ Đã xóa cache ảnh SGK ({deleted})")
             st.rerun()
 
         if st.button("♻️ Xóa cache Streamlit",
@@ -2119,14 +2675,41 @@ _CALL_DISPATCH = {
     "TBOX_API_KEY": _goi_tbox,
 }
 
+# ============================================================
+# BẢNG XẾP HẠNG CHẤT LƯỢNG PROVIDER
+# ============================================================
+# Gemini (mạnh nhất) → Mistral (1 tỷ token, mạnh nhì) →
+# Groq (nhanh, 70B) → T-Box → OpenRouter (free tier yếu)
+_UU_TIEN_PROVIDER = [
+    "GEMINI_API_KEY",
+    "MISTRAL_API_KEY",
+    "GROQ_API_KEY",
+    "TBOX_API_KEY",
+    "OPENROUTER_API_KEY",
+]
+
 
 def call_ai(prompt, system="", silent=False):
-    """Gọi AI — ưu tiên API cloud miễn phí, fallback Ollama local."""
+    """Gọi AI — ưu tiên provider mạnh nhất, fallback theo chất lượng.
+
+    Thứ tự:
+    1. Cloud providers theo bảng xếp hạng chất lượng:
+       Gemini → Mistral → Groq → T-Box → OpenRouter
+    2. Nếu TẤT CẢ cloud lỗi:
+       - Nếu KHÔNG có cloud nào → fallback Ollama
+       - Nếu CÓ cloud nhưng lỗi hết → báo lỗi, KHÔNG dùng Ollama 3B
+
+    Returns:
+        text (str) nếu thành công
+        None nếu tất cả fail
+    """
     ds_loi = []
     ds_loi_chi_tiet = []
 
-    # ===== ƯU TIÊN 1: Cloud providers =====
-    for pk in available_providers:
+    # ===== ƯU TIÊN 1: Cloud providers theo chất lượng =====
+    for pk in _UU_TIEN_PROVIDER:
+        if pk not in available_providers:
+            continue
         ham_goi = _CALL_DISPATCH.get(pk)
         if not ham_goi:
             ds_loi_chi_tiet.append(f"⚠️ {pk}: không có hàm dispatch")
@@ -2141,24 +2724,35 @@ def call_ai(prompt, system="", silent=False):
                     f"❌ {pk} | model={mn} | lỗi: {str(result)[:300]}"
                 )
 
-    # ===== ƯU TIÊN 2: Ollama Local (dự phòng) =====
-    ollama_ok = USE_OLLAMA and _check_ollama()
-    if ollama_ok:
-        ok, result = _goi_ollama(prompt, system, OLLAMA_MODEL)
-        if ok and result and len(result.strip()) > 30:
-            return result
+    # ===== ƯU TIÊN 2: Ollama local =====
+    # CHỈ dùng Ollama khi KHÔNG CÓ cloud provider nào
+    # (vì Ollama 3B yếu, dễ bịa nội dung)
+    co_cloud = len(available_providers) > 0
+
+    if not co_cloud:
+        ollama_ok = USE_OLLAMA and _check_ollama()
+        if ollama_ok:
+            ok, result = _goi_ollama(prompt, system, OLLAMA_MODEL)
+            if ok and result and len(result.strip()) > 30:
+                return result
+            else:
+                ds_loi.append(
+                    f"OLLAMA/{OLLAMA_MODEL}: {str(result)[:200]}")
+                ds_loi_chi_tiet.append(
+                    f"❌ OLLAMA | model={OLLAMA_MODEL} | "
+                    f"lỗi: {str(result)[:300]}"
+                )
         else:
-            ds_loi.append(f"OLLAMA/{OLLAMA_MODEL}: {str(result)[:200]}")
             ds_loi_chi_tiet.append(
-                f"❌ OLLAMA | model={OLLAMA_MODEL} | "
-                f"lỗi: {str(result)[:300]}"
+                "⚠️ OLLAMA: không chạy (dùng `ollama serve`)"
             )
     else:
         ds_loi_chi_tiet.append(
-            "⚠️ OLLAMA: không chạy (dùng `ollama serve`)"
+            "⚠️ BỎ QUA Ollama: đã có cloud provider. "
+            "Ollama 3B không đủ mạnh để soạn giáo án."
         )
 
-    # ===== Hiển thị lỗi đầy đủ =====
+    # ===== Hiển thị lỗi =====
     if not silent:
         st.error(
             f"❌ Tất cả {len(ds_loi)} lần thử đều lỗi. "
@@ -2171,9 +2765,9 @@ def call_ai(prompt, system="", silent=False):
             for _l in ds_loi:
                 st.text(_l)
 
-        st.info(
-            "💡 Gợi ý: Kiểm tra key trong Settings → Secrets. "
-            "Có thể do: key sai, hết quota, hoặc model không còn tồn tại."
+        st.warning(
+            "⚠️ **Lưu ý**: Không fallback sang Ollama 3B để tránh "
+            "AI bịa nội dung. Vui lòng kiểm tra lại API key cloud."
         )
     return None
 
@@ -2580,22 +3174,6 @@ with tab_manual:
                                 key="dl_zip_tach_gop",
                             )
 
-                        _mp_dl = os.path.join(
-                            SGK_BAI_DIR, _sgk_name_input,
-                            "metadata.json")
-                        if os.path.exists(_mp_dl):
-                            with open(_mp_dl, "rb") as _f:
-                                _mb_dl = _f.read()
-                            st.download_button(
-                                "⬇️ Tải metadata.json",
-                                _mb_dl,
-                                file_name=(f"{_sgk_name_input}"
-                                            "_metadata.json"),
-                                mime="application/json",
-                                use_container_width=True,
-                                key="dl_meta_tach_gop",
-                            )
-
                         st.balloons()
 
     # ---------- TAB CON 2: NẠP PDF RỜI ----------
@@ -2720,20 +3298,6 @@ with tab_manual:
                             type="primary",
                             use_container_width=True,
                             key="dl_zip_roi",
-                        )
-
-                    _mp_roi = os.path.join(
-                        SGK_BAI_DIR, _sgk_name_input, "metadata.json")
-                    if os.path.exists(_mp_roi):
-                        with open(_mp_roi, "rb") as _f:
-                            _mb_roi = _f.read()
-                        st.download_button(
-                            "⬇️ Tải metadata.json",
-                            _mb_roi,
-                            file_name=f"{_sgk_name_input}_metadata.json",
-                            mime="application/json",
-                            use_container_width=True,
-                            key="dl_meta_roi",
                         )
 
                     st.balloons()
@@ -3319,16 +3883,16 @@ with tab_match:
                         st.balloons()
 
 # ============ KẾT THÚC PHẦN 4/6 ============
-
 # ============================================================
-# PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI
+# PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI + CHÈN ẢNH
 # ============================================================
 # Chức năng:
 #   - fix_math: chuyển LaTeX → Unicode tiếng Việt
 #   - _set_run_font, _set_table_borders
 #   - add_para, add_table, _add_heading
-#   - write_content_to_doc, make_doc
-#   - Nút "Soạn 1 bài" + tùy chọn Tích hợp
+#   - write_content_to_doc (có chèn ảnh SGK)
+#   - make_doc
+#   - Nút "Soạn 1 bài" + tùy chọn Tích hợp + chèn ảnh
 # ============================================================
 
 
@@ -3493,12 +4057,10 @@ def _set_table_borders(table, sz=6, color="000000"):
     tbl = table._tbl
     tblPr = tbl.tblPr
 
-    # Xóa tblBorders cũ nếu có
     old_borders = tblPr.find(qn("w:tblBorders"))
     if old_borders is not None:
         tblPr.remove(old_borders)
 
-    # Tạo tblBorders mới — viền đơn bao toàn bộ + đường giữa
     borders = OxmlElement("w:tblBorders")
     for side in ["top", "left", "bottom", "right",
                  "insideH", "insideV"]:
@@ -3509,6 +4071,49 @@ def _set_table_borders(table, sz=6, color="000000"):
         bd.set(qn("w:color"), color)
         borders.append(bd)
     tblPr.append(borders)
+
+
+def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
+    """Chèn danh sách ảnh vào 1 cell Word.
+
+    - Tự động tính kích thước theo max_width_cm
+    - Giữ tỷ lệ gốc
+    - Căn giữa
+    """
+    if not ds_anh:
+        return
+
+    from docx.shared import Cm
+
+    for idx, img_bytes in enumerate(ds_anh):
+        try:
+            # Tạo paragraph mới cho ảnh
+            p = cell.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.first_line_indent = Inches(0)
+            p.paragraph_format.left_indent = Inches(0)
+            p.paragraph_format.right_indent = Inches(0)
+
+            # Xác định kích thước ảnh
+            width_cm = max_width_cm
+            if HAS_PIL:
+                try:
+                    img = Image.open(io.BytesIO(img_bytes))
+                    w_px, h_px = img.size
+                    # Giới hạn chiều rộng tối đa
+                    # Nếu ảnh dọc (h > w) → thu nhỏ hơn
+                    if h_px > w_px * 1.5:
+                        width_cm = max_width_cm * 0.7
+                except Exception:
+                    width_cm = max_width_cm
+
+            run = p.add_run()
+            run.add_picture(io.BytesIO(img_bytes),
+                            width=Cm(width_cm))
+        except Exception:
+            continue
 
 
 def add_para(doc, text, align="justify", size=14,
@@ -3590,15 +4195,16 @@ def _tach_dong_trong_o(val):
 
 
 def add_table(doc, rows, style="grid", col_aligns=None,
-              header_aligns=None):
-    """Thêm bảng với viền bao toàn bộ.
+              header_aligns=None, anh_cot_2=None):
+    """Thêm bảng 2 cột có viền — có thể chèn ảnh vào cột 2.
 
     Args:
         doc: Document
         rows: list các dòng (mỗi dòng là list các ô)
-        style: "grid" — luôn có viền (giữ tham số để tương thích)
+        style: "grid" — luôn có viền
         col_aligns: list canh lề cho từng cột nội dung
         header_aligns: list canh lề cho header
+        anh_cot_2: list bytes ảnh chèn vào cột 2 (Sản phẩm)
     """
     if not rows:
         return
@@ -3628,7 +4234,6 @@ def add_table(doc, rows, style="grid", col_aligns=None,
     t = doc.add_table(rows=len(rows), cols=n)
     t.style = "Table Grid"
 
-    # ===== SET VIỀN BAO TOÀN BỘ BẢNG =====
     _set_table_borders(t, sz=6, color="000000")
 
     if col_aligns is None:
@@ -3642,6 +4247,9 @@ def add_table(doc, rows, style="grid", col_aligns=None,
         "right": WD_ALIGN_PARAGRAPH.RIGHT,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
+
+    # Xác định dòng cuối để chèn ảnh (tránh header)
+    dong_cuoi = len(rows) - 1
 
     for i, row in enumerate(rows):
         for j in range(n):
@@ -3707,6 +4315,11 @@ def add_table(doc, rows, style="grid", col_aligns=None,
                             run = target_p.add_run(
                                 part.replace("**", ""))
                             _set_run_font(run, 13, bold=False)
+
+            # ===== CHÈN ẢNH VÀO CỘT 2 (Sản phẩm) =====
+            # Chỉ chèn vào cột 2, dòng cuối (nếu có ảnh)
+            if (j == 1 and i == dong_cuoi and anh_cot_2):
+                _chen_anh_vao_cell(c, anh_cot_2)
 
 
 def _add_heading(doc, text, size=14):
@@ -3824,8 +4437,17 @@ def _add_heading(doc, text, size=14):
     return p
 
 
-def write_content_to_doc(d, content):
-    """Ghi nội dung giáo án vào docx."""
+def write_content_to_doc(d, content, ds_anh_phan_loai=None):
+    """Ghi nội dung giáo án vào docx.
+
+    Args:
+        d: Document
+        content: nội dung giáo án (text)
+        ds_anh_phan_loai: dict {"hd1": [bytes, ...], "hd2": [...], "hd3": [...]}
+    """
+    if ds_anh_phan_loai is None:
+        ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
+
     content = fix_math(content)
     content = re.sub(r"^\s*BẢNG\s*2\s*CỘT\s*:?\s*$", "",
                      content, flags=re.MULTILINE)
@@ -3867,6 +4489,9 @@ def write_content_to_doc(d, content):
 
     lines = content.splitlines()
     i = 0
+    # Đếm số bảng đã ghi — để biết đang ở HĐ nào
+    so_bang = 0
+
     while i < len(lines):
         line = lines[i].rstrip()
         stripped = line.strip()
@@ -3896,10 +4521,21 @@ def write_content_to_doc(d, content):
                     if 2 <= len(cells) <= 4:
                         rows.append(cells)
                 if rows:
-                    # Bảng 2 cột giáo án: có viền toàn bộ, cả 2 cột Justify
+                    so_bang += 1
+                    # Xác định ảnh cho bảng này
+                    if so_bang == 1:
+                        anh_bang = ds_anh_phan_loai.get("hd1", [])
+                    elif so_bang == 2:
+                        anh_bang = ds_anh_phan_loai.get("hd2", [])
+                    elif so_bang == 3:
+                        anh_bang = ds_anh_phan_loai.get("hd3", [])
+                    else:
+                        anh_bang = []
+
                     add_table(d, rows, style="grid",
                               col_aligns=["justify", "justify"],
-                              header_aligns=["center", "center"])
+                              header_aligns=["center", "center"],
+                              anh_cot_2=anh_bang)
             i = j
             continue
 
@@ -3954,8 +4590,8 @@ def write_content_to_doc(d, content):
         i += 1
 
 
-def make_doc(title, body, subject_name=""):
-    """Tạo file Word giáo án với format chuẩn."""
+def make_doc(title, body, subject_name="", ds_anh_phan_loai=None):
+    """Tạo file Word giáo án với format chuẩn + chèn ảnh SGK."""
     d = Document()
     s = d.sections[0]
     s.top_margin = Inches(0.7)
@@ -3978,7 +4614,7 @@ def make_doc(title, body, subject_name=""):
     pf.space_before = Pt(2)
     pf.space_after = Pt(2)
 
-    write_content_to_doc(d, body)
+    write_content_to_doc(d, body, ds_anh_phan_loai=ds_anh_phan_loai)
 
     b = io.BytesIO()
     d.save(b)
@@ -3986,7 +4622,7 @@ def make_doc(title, body, subject_name=""):
 
 
 # ============================================================
-# SOẠN 1 BÀI — CÓ TÙY CHỌN TÍCH HỢP
+# SOẠN 1 BÀI — CÓ TÙY CHỌN TÍCH HỢP + CHÈN ẢNH SGK
 # ============================================================
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
@@ -4106,6 +4742,7 @@ if _run_btn and cmd.strip():
     if not any(e.startswith("❌") for e in _errors):
         sgk_excerpt = ""
         bai_tim_duoc = None
+        ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
 
         with st.spinner("📖 Đang tìm bài trong SGK..."):
             if _meta_sgk:
@@ -4124,6 +4761,30 @@ if _run_btn and cmd.strip():
                     )
                 else:
                     st.warning("⚠️ Không đọc được nội dung bài.")
+
+            # ===== CHỤP ẢNH TỪ SGK =====
+            with st.spinner("🖼️ Đang lấy ảnh từ SGK..."):
+                try:
+                    _ds_anh = chup_anh_tu_pdf(
+                        _sgk_name_can, bai_tim_duoc["file"],
+                        max_anh=6)
+                    if _ds_anh:
+                        ds_anh_phan_loai = phan_loai_anh_theo_hoat_dong(
+                            _ds_anh, max_moi_hd=2)
+                        _so_anh = (len(ds_anh_phan_loai["hd1"]) +
+                                    len(ds_anh_phan_loai["hd2"]) +
+                                    len(ds_anh_phan_loai["hd3"]))
+                        st.success(
+                            f"🖼️ Đã lấy **{_so_anh}** ảnh từ SGK "
+                            f"(HĐ1: {len(ds_anh_phan_loai['hd1'])}, "
+                            f"HĐ2: {len(ds_anh_phan_loai['hd2'])}, "
+                            f"HĐ3: {len(ds_anh_phan_loai['hd3'])})"
+                        )
+                    else:
+                        st.caption("ℹ️ Bài này không có ảnh trong SGK.")
+                except Exception as _e_anh:
+                    st.caption(f"⚠️ Không lấy được ảnh: {_e_anh}")
+
         elif _meta_sgk:
             st.warning(
                 f"⚠️ Không tìm thấy bài **{cmd}** trong SGK "
@@ -4149,6 +4810,7 @@ if _run_btn and cmd.strip():
                     st.session_state["last_topic"] = (
                         _mon_chon + " - " + cmd
                     )
+                    st.session_state["draft_anh"] = ds_anh_phan_loai
                     save_history("Soạn bài " + _mon_chon, cmd, _result)
                     st.success("✅ Đã soạn xong!")
             except Exception as e:
@@ -4159,6 +4821,9 @@ if st.session_state.get("draft"):
     st.subheader("📄 Kết quả")
 
     content = st.session_state["draft"]
+    ds_anh_draft = st.session_state.get("draft_anh",
+                                         {"hd1": [], "hd2": [], "hd3": []})
+
     safe_name = re.sub(
         r"[^A-Za-z0-9_\-]", "_",
         st.session_state.get("last_topic", "tai_lieu")
@@ -4169,7 +4834,8 @@ if st.session_state.get("draft"):
         st.download_button(
             "⬇️ Tải Word",
             make_doc("Tài liệu", content,
-                     subject_name=_mon_chon),
+                     subject_name=_mon_chon,
+                     ds_anh_phan_loai=ds_anh_draft),
             file_name=safe_name + ".docx",
             mime=("application/vnd.openxmlformats-officedocument."
                   "wordprocessingml.document"),
@@ -4192,7 +4858,6 @@ if st.session_state.get("draft"):
 
 
 # ============ KẾT THÚC PHẦN 5/6 ============
-
 # ============================================================
 # PHẦN 6/6: LỊCH BÁO GIẢNG + SOẠN TUẦN + XUẤT WORD
 # ============================================================
@@ -4202,10 +4867,14 @@ st.subheader("📅 Soạn cả tuần + Lịch báo giảng")
 
 
 # ============================================================
-# HÀM GỘP BÀI TRÙNG
+# HÀM GỘP BÀI TRÙNG — lưu ds_dong_goc
 # ============================================================
 def _gop_lich_bao_giang(ds_rows):
-    """Gộp các dòng trùng tên bài thành 1."""
+    """Gộp các dòng trùng tên bài thành 1.
+
+    LƯU Ý: Lưu ds_dong_goc để giữ liên kết giữa
+    lớp ↔ thứ ↔ tiết ↔ PPCT (không bị lặp khi xuất phiếu BG).
+    """
     gop = {}
     thu_tu = []
 
@@ -4228,10 +4897,12 @@ def _gop_lich_bao_giang(ds_rows):
                 "ds_ghi_chu": [],
                 "so_dong_goc": 1,
                 "row_goc": dict(r),
+                "ds_dong_goc": [dict(r)],   # ⬅️ LƯU TẤT CẢ DÒNG GỐC
             }
             thu_tu.append(key)
         else:
             gop[key]["so_dong_goc"] += 1
+            gop[key]["ds_dong_goc"].append(dict(r))
 
         g = gop[key]
         lop = (r.get("lop", "") or "").strip()
@@ -4257,11 +4928,17 @@ def _gop_lich_bao_giang(ds_rows):
 
 
 # ============================================================
-# HÀM TẠO PHIẾU BÁO GIẢNG WORD
+# HÀM TẠO PHIẾU BÁO GIẢNG WORD — DÙNG ds_dong_goc
 # ============================================================
 def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
                                ngay_bd, buoi, mem):
-    """Tạo phiếu báo giảng Word theo mẫu chuẩn."""
+    """Tạo phiếu báo giảng Word theo mẫu chuẩn.
+
+    - Header 2 cột: UBND + CHXHCNVN
+    - Tiêu đề: PHIẾU BÁO GIẢNG BUỔI ...
+    - Bảng 7 cột có viền, gộp ô cột "Thứ ngày, tháng"
+    - DÙNG ds_dong_goc để không bị lặp bài
+    """
     from docx.oxml import OxmlElement
     from docx.shared import Cm
 
@@ -4272,7 +4949,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     s.left_margin = Inches(0.6)
     s.right_margin = Inches(0.6)
 
-    # Style chung
     style = d.styles["Normal"]
     style.font.name = "Times New Roman"
     style.font.size = Pt(14)
@@ -4289,7 +4965,7 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     pf.space_after = Pt(2)
 
     # ============================================================
-    # HEADER 2 CỘT (bảng 3 dòng, không viền)
+    # HEADER 2 CỘT
     # ============================================================
     hdr_table = d.add_table(rows=3, cols=2)
     hdr_table.autofit = True
@@ -4392,7 +5068,7 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     d.add_paragraph("")
 
     # ============================================================
-    # BẢNG 7 CỘT LỊCH BÁO GIẢNG (có viền, gộp ô)
+    # BẢNG 7 CỘT — DÙNG ds_dong_goc
     # ============================================================
     _HEADERS = ["Thứ\nngày,\ntháng", "Tiết\nTKB", "Lớp", "Môn",
                 "Tiết\nPP\nCT", "Tên bài", "Ghi\nchú"]
@@ -4400,33 +5076,30 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     _thu_order = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6",
                   "Thứ 7", "Chủ nhật"]
 
-    # Tạo danh sách dòng theo từng thứ
+    # ===== TẠO DÒNG TỪ ds_dong_goc =====
     _ds_dong = []
-    for _thu in _thu_order:
-        _dong_cua_thu = []
-        for _b in lich_bao_giang:
-            # Kiểm tra bài này có dạy vào _thu không
-            if _thu not in _b.get("ds_thu", []):
-                continue
-            _ds_lop = _b.get("ds_lop", [])
-            _ds_tkb = _b.get("ds_tiet_tkb", [])
-            _ds_ppct = _b.get("ds_tiet_ppct", [])
-            _so_dong = max(len(_ds_lop), len(_ds_tkb),
-                            len(_ds_ppct), 1)
-            for _k in range(_so_dong):
-                _lop_k = _ds_lop[_k] if _k < len(_ds_lop) else ""
-                _tkb_k = _ds_tkb[_k] if _k < len(_ds_tkb) else ""
-                _ppct_k = _ds_ppct[_k] if _k < len(_ds_ppct) else ""
-                _dong_cua_thu.append({
-                    "thu": _thu,
-                    "lop": _lop_k,
-                    "mon": _b.get("mon", ""),
-                    "tiet_tkb": _tkb_k,
-                    "tiet_ppct": _ppct_k,
-                    "ten_bai": _b.get("ten_bai", ""),
-                    "ghi_chu": ", ".join(_b.get("ds_ghi_chu", [])),
-                })
-        _ds_dong.extend(_dong_cua_thu)
+    for _b in lich_bao_giang:
+        _ds_goc = _b.get("ds_dong_goc",
+                          [_b.get("row_goc", _b)])
+        for _row in _ds_goc:
+            _ds_dong.append({
+                "thu": _row.get("thu", ""),
+                "lop": _row.get("lop", ""),
+                "mon": _row.get("mon", ""),
+                "tiet_tkb": _row.get("tiet_tkb", ""),
+                "tiet_ppct": _row.get("tiet_ppct", ""),
+                "ten_bai": _row.get("ten_bai", ""),
+                "ghi_chu": _row.get("ghi_chu", ""),
+            })
+
+    # Sort theo thứ tự Thứ 2 → Chủ nhật
+    def _thu_idx(row):
+        t = row.get("thu", "")
+        if t in _thu_order:
+            return _thu_order.index(t)
+        return 999
+
+    _ds_dong.sort(key=_thu_idx)
 
     if not _ds_dong:
         _ds_dong = [{
@@ -4438,19 +5111,8 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     _t = d.add_table(rows=_n_dong, cols=7)
     _t.style = "Table Grid"
 
-    # ============================================================
-    # CỐ ĐỊNH ĐỘ RỘNG CỘT (KHÔNG ĐỀU NHAU)
-    # ============================================================
-    _col_widths_cm = [
-        2.5,   # Cột 1: Thứ ngày, tháng
-        1.2,   # Cột 2: Tiết TKB
-        1.6,   # Cột 3: Lớp
-        2.0,   # Cột 4: Môn
-        1.4,   # Cột 5: Tiết PPCT
-        7.5,   # Cột 6: Tên bài — rộng nhất
-        1.8,   # Cột 7: Ghi chú
-    ]
-
+    # Độ rộng cột
+    _col_widths_cm = [2.5, 1.2, 1.6, 2.0, 1.4, 7.5, 1.8]
     _t.autofit = False
 
     for _row in _t.rows:
@@ -4476,7 +5138,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
         _tblW.set(qn("w:w"), str(int(_total_cm * 567)))
         _tblW.set(qn("w:type"), "dxa")
 
-    # Set viền bao toàn bộ
     _set_table_borders(_t, sz=6, color="000000")
 
     # Header
@@ -4531,7 +5192,7 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
             _set_run_font(run, 13, bold=False)
 
     # ============================================================
-    # GỘP Ô CỘT "Thứ ngày, tháng" (sửa lỗi định dạng)
+    # GỘP Ô CỘT "Thứ ngày, tháng"
     # ============================================================
     for _thu in _thu_order:
         _cac_dong = [
@@ -4558,18 +5219,12 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
         p.paragraph_format.left_indent = Inches(0)
         p.paragraph_format.right_indent = Inches(0)
 
-        # Dòng 1: "Thứ X" — đậm
         run1 = p.add_run(f"{_thu}")
         _set_run_font(run1, 13, bold=True)
-
-        # Xuống dòng bằng break trên run1
         run1.add_break()
-
-        # Dòng 2: "dd/mm/yyyy" — thường
         run2 = p.add_run(_ngay_cua_thu.strftime("%d/%m/%Y"))
         _set_run_font(run2, 13, bold=False)
 
-        # Gộp ô
         if _dong_cuoi > _dong_dau:
             _cell_goc = _t.cell(_dong_dau, 0)
             _cell_cuoi = _t.cell(_dong_cuoi, 0)
@@ -4653,11 +5308,9 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
     def _find_col(headers, candidates_csv):
         cands = [_norm_header(c) for c in candidates_csv.split(",")
                  if c.strip()]
-        # Ưu tiên khớp chính xác
         for i, h in enumerate(headers):
             if _norm_header(h) in cands:
                 return i
-        # Sau đó khớp mờ
         for i, h in enumerate(headers):
             hn = _norm_header(h)
             for c in cands:
@@ -4665,84 +5318,62 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                     return i
         return None
 
-    # ============ BẢNG CHUẨN HÓA "THỨ" (mở rộng) ============
     _THU_MAP = {
-        # Thứ 2
         "2": "Thứ 2", "thu 2": "Thứ 2", "thứ 2": "Thứ 2",
         "t2": "Thứ 2", "thu hai": "Thứ 2", "thứ hai": "Thứ 2",
         "hai": "Thứ 2", "monday": "Thứ 2", "mon": "Thứ 2",
-        "thu2": "Thứ 2", "thứ hai ": "Thứ 2",
-        # Thứ 3
+        "thu2": "Thứ 2",
         "3": "Thứ 3", "thu 3": "Thứ 3", "thứ 3": "Thứ 3",
         "t3": "Thứ 3", "thu ba": "Thứ 3", "thứ ba": "Thứ 3",
         "ba": "Thứ 3", "tuesday": "Thứ 3", "tue": "Thứ 3",
         "thu3": "Thứ 3",
-        # Thứ 4
         "4": "Thứ 4", "thu 4": "Thứ 4", "thứ 4": "Thứ 4",
         "t4": "Thứ 4", "thu tu": "Thứ 4", "thứ tư": "Thứ 4",
         "tư": "Thứ 4", "tu": "Thứ 4",
         "wednesday": "Thứ 4", "wed": "Thứ 4", "thu4": "Thứ 4",
-        # Thứ 5
         "5": "Thứ 5", "thu 5": "Thứ 5", "thứ 5": "Thứ 5",
         "t5": "Thứ 5", "thu nam": "Thứ 5", "thứ năm": "Thứ 5",
         "năm": "Thứ 5", "nam": "Thứ 5",
         "thursday": "Thứ 5", "thu": "Thứ 5", "thu5": "Thứ 5",
-        # Thứ 6
         "6": "Thứ 6", "thu 6": "Thứ 6", "thứ 6": "Thứ 6",
         "t6": "Thứ 6", "thu sau": "Thứ 6", "thứ sáu": "Thứ 6",
         "sáu": "Thứ 6", "sau": "Thứ 6",
         "friday": "Thứ 6", "fri": "Thứ 6", "thu6": "Thứ 6",
-        # Thứ 7
         "7": "Thứ 7", "thu 7": "Thứ 7", "thứ 7": "Thứ 7",
         "t7": "Thứ 7", "thu bay": "Thứ 7", "thứ bảy": "Thứ 7",
         "bảy": "Thứ 7", "bay": "Thứ 7",
         "saturday": "Thứ 7", "sat": "Thứ 7", "thu7": "Thứ 7",
-        # Chủ nhật
         "cn": "Chủ nhật", "chunhat": "Chủ nhật",
         "chủ nhật": "Chủ nhật", "chu nhat": "Chủ nhật",
         "sunday": "Chủ nhật", "sun": "Chủ nhật",
     }
 
     def _chuan_hoa_thu(s):
-        """Chuẩn hóa 'Thứ' về dạng 'Thứ X'."""
         if not s:
             return "Thứ 2"
         raw = str(s).strip()
         key = _norm_header(raw)
         if not key:
             return "Thứ 2"
-
-        # Thử khớp trực tiếp
         if key in _THU_MAP:
             return _THU_MAP[key]
-
-        # Bỏ tiền tố "thu "
         if key.startswith("thu "):
             key2 = key[4:]
             if key2 in _THU_MAP:
                 return _THU_MAP[key2]
-
-        # Bỏ tiền tố "thứ "
         if key.startswith("thứ "):
             key2 = key[4:]
             if key2 in _THU_MAP:
                 return _THU_MAP[key2]
-
-        # Tìm số trong chuỗi
         m = re.search(r"[2-7]", raw)
         if m and m.group() in _THU_MAP:
             return _THU_MAP[m.group()]
-
-        # Tìm từ khóa trong chuỗi
         for _k, _v in _THU_MAP.items():
             if len(_k) >= 3 and _k in key:
                 return _v
-
-        # Fallback
         return "Thứ 2"
 
     def _parse_lbg_rows(headers, rows):
-        """Parse các dòng từ file Lịch BG."""
         idx_buoi = _find_col(headers, _col_buoi)
         idx_thu = _find_col(headers, _col_thu)
         idx_tiet_tkb = _find_col(headers, _col_tiet_tkb)
@@ -4754,6 +5385,8 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
         idx_ghichu = _find_col(headers, _col_ghichu)
 
         out = []
+        # Fill cột Thứ nếu bị merge (rỗng)
+        _thu_truoc = ""
         for r in rows:
             def _get(idx, default=""):
                 if idx is None or idx >= len(r):
@@ -4764,11 +5397,15 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
             if not ten_bai:
                 continue
 
-            # Xử lý trường hợp tên bài có xuống dòng (merge cell)
             ten_bai = re.sub(r"\s+", " ", ten_bai).strip()
 
-            # Xử lý "Thứ"
-            _thu_raw = _get(idx_thu, "Thứ 2")
+            # Xử lý "Thứ" bị merge
+            _thu_raw = _get(idx_thu, "")
+            if not _thu_raw and _thu_truoc:
+                _thu_raw = _thu_truoc
+            else:
+                _thu_truoc = _thu_raw
+
             _thu_chuan = _chuan_hoa_thu(_thu_raw)
 
             out.append({
@@ -4820,7 +5457,6 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
         d = Document(io.BytesIO(data))
         if d.tables:
             t = d.tables[0]
-            # Đọc tất cả các ô, xử lý merge cell
             all_rows_raw = []
             for row in t.rows:
                 row_cells = []
@@ -4828,14 +5464,12 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                     row_cells.append(cell.text.strip())
                 all_rows_raw.append(row_cells)
 
-            # Loại bỏ dòng trống
             all_rows_raw = [r for r in all_rows_raw
                             if any(c for c in r)]
             if len(all_rows_raw) >= 2:
                 return _parse_lbg_rows(all_rows_raw[0],
                                         all_rows_raw[1:])
 
-        # Fallback: đọc từ paragraph
         out = []
         for p in d.paragraphs:
             line = p.text.strip()
@@ -4923,7 +5557,6 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                 st.error("❌ Định dạng file không được hỗ trợ.")
 
             if _parsed:
-                # DEBUG: Đếm số giá trị Thứ
                 _ds_thu_debug = {}
                 for _r in _parsed:
                     _t = _r.get("thu", "")
@@ -4936,8 +5569,7 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
 
                 with st.expander("🔍 DEBUG — Kiểm tra dữ liệu",
                                  expanded=False):
-                    st.write("**Số dòng đọc được:** "
-                             f"{len(_parsed)}")
+                    st.write(f"**Số dòng đọc được:** {len(_parsed)}")
                     st.write("**Các giá trị 'Thứ' đọc được:**")
                     st.json(_ds_thu_debug)
 
@@ -5136,6 +5768,7 @@ if st.session_state["lich_bao_giang"]:
                 )
                 _sgk_excerpt_row = ""
                 _ten_bai_row = _b.get("ten_bai", "").strip()
+                _anh_row = {"hd1": [], "hd2": [], "hd3": []}
 
                 _bai_row = None
                 if _ten_bai_row:
@@ -5150,6 +5783,17 @@ if st.session_state["lich_bao_giang"]:
                             f"\n=== {_bai_row.get('ten_bai', '')} ===\n"
                             f"{_text_row}"
                         )
+
+                    # ===== CHỤP ẢNH =====
+                    try:
+                        _ds_anh_row = chup_anh_tu_pdf(
+                            _sgk_name_row, _bai_row["file"],
+                            max_anh=6)
+                        if _ds_anh_row:
+                            _anh_row = phan_loai_anh_theo_hoat_dong(
+                                _ds_anh_row, max_moi_hd=2)
+                    except Exception:
+                        pass
 
                 _plan_row = {
                     "task": "Soạn kế hoạch bài dạy",
@@ -5171,6 +5815,7 @@ if st.session_state["lich_bao_giang"]:
                             "bai_gop": _b,
                             "content": _result_row,
                             "ok": True,
+                            "anh": _anh_row,
                         })
                         save_history(
                             f"Soạn bài {_b.get('mon', '')}",
@@ -5183,6 +5828,7 @@ if st.session_state["lich_bao_giang"]:
                             "bai_gop": _b,
                             "content": "",
                             "ok": False,
+                            "anh": _anh_row,
                             "error": "AI không trả về nội dung",
                         })
                 except Exception as _e:
@@ -5191,6 +5837,7 @@ if st.session_state["lich_bao_giang"]:
                         "bai_gop": _b,
                         "content": "",
                         "ok": False,
+                        "anh": _anh_row,
                         "error": str(_e),
                     })
 
@@ -5228,7 +5875,7 @@ if st.session_state.get("weekly_results"):
     _col_dl1, _col_dl2, _col_dl3 = st.columns(3)
 
     # ---------------------------------------------------------
-    # Word gộp cả tuần — PHIẾU BG Ở ĐẦU, GIÁO ÁN TIẾP THEO
+    # Word gộp cả tuần — PHIẾU BG + GIÁO ÁN
     # ---------------------------------------------------------
     with _col_dl1:
         if _ok_count > 0:
@@ -5274,7 +5921,11 @@ if st.session_state.get("weekly_results"):
                         f"Lớp: {_lop_str}")
                     _set_run_font(_run_lop, 13, bold=False)
 
-                    write_content_to_doc(_d_tuan, _r["content"])
+                    # Chèn ảnh SGK
+                    _anh_row_w = _r.get("anh",
+                                        {"hd1": [], "hd2": [], "hd3": []})
+                    write_content_to_doc(_d_tuan, _r["content"],
+                                          ds_anh_phan_loai=_anh_row_w)
 
             _b_tuan = io.BytesIO()
             _d_tuan.save(_b_tuan)
@@ -5379,7 +6030,10 @@ if st.session_state.get("weekly_results"):
                     st.download_button(
                         "⬇️ Tải Word bài này",
                         make_doc("Tài liệu", _edited,
-                                 subject_name=_bg.get("mon", "")),
+                                 subject_name=_bg.get("mon", ""),
+                                 ds_anh_phan_loai=_r.get(
+                                     "anh",
+                                     {"hd1": [], "hd2": [], "hd3": []})),
                         file_name=f"{_safe_name_row}.docx",
                         mime=("application/vnd.openxmlformats-"
                               "officedocument.wordprocessingml."
@@ -5413,8 +6067,8 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         **🧠 Trợ lý Giáo viên THCS — Phiên bản 3.0**
 
         - **Mẫu:** CV 5512 chuẩn Bộ GD&ĐT
-        - **AI local:** Ollama (miễn phí)
-        - **AI cloud:** Gemini / Groq / OpenRouter / Mistral / T-Box
+        - **AI cloud:** Gemini / Mistral / Groq / T-Box / OpenRouter
+        - **AI local:** Ollama (chỉ dùng khi không có cloud)
         - **Lưu trữ:** GitHub
         - **Môn hỗ trợ:** 12 môn THCS
 
@@ -5427,6 +6081,7 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         5. **Tải Word** → File gồm:
            - Phiếu báo giảng (trang 1 → hết)
            - Các giáo án (mỗi bài 1 trang mới)
+           - **Ảnh từ SGK** (nếu có)
         """
     )
 
