@@ -6,6 +6,7 @@ import os
 import json
 import base64
 import hashlib
+import unicodedata
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
@@ -81,9 +82,6 @@ for _k, _v in PROVIDER_KEYS.items():
 available_providers = [_k for _k, _v in PROVIDER_KEYS.items() if _v]
 GEMINI_KEY = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
 
-# Model ưu tiên cho từng provider — đã sửa theo thời điểm hiện tại
-# Mistral: đổi thứ tự lớn trước nhỏ sau
-# Gemini: dùng model latest
 PREFERRED_MODELS = {
     "GEMINI_API_KEY": [
         "gemini-flash-latest",
@@ -132,7 +130,7 @@ CACHE_DIR = "cache"
 SGK_BAI_DIR = os.path.join(CACHE_DIR, "sgk_bai")
 SGK_PAGES_DIR = os.path.join(CACHE_DIR, "sgk_pages")
 OCR_CACHE_DIR = os.path.join(CACHE_DIR, "ocr")
-SGK_ANH_DIR = os.path.join(CACHE_DIR, "sgk_anh")   # MỚI — cache ảnh
+SGK_ANH_DIR = os.path.join(CACHE_DIR, "sgk_anh")
 
 for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR,
            SGK_ANH_DIR]:
@@ -294,7 +292,7 @@ defaults = {
     "dacta_hientai": None,
     "de_kiem_tra_hientai": None,
     "ai_prompt_cache": {},
-    "anh_sgk_cache": {},          # MỚI — cache ảnh SGK trong session
+    "anh_sgk_cache": {},
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -312,11 +310,8 @@ for k, v in defaults.items():
 #   - Đọc file Lịch báo giảng (docx/xlsx/csv/txt)
 #   - Gộp bài trùng tên (1 bài dạy nhiều lớp)
 #   - Tìm bài theo TÊN (fuzzy match)
-#   - CHỤP ẢNH từ PDF SGK (MỚI)
+#   - CHỤP ẢNH từ PDF SGK
 # ============================================================
-
-import hashlib
-import unicodedata
 
 
 # ---------- A: OCR ----------
@@ -592,50 +587,33 @@ def ocr_bai_pdf(sgk_name, bai_file):
     return "\n\n---\n\n".join(parts)
 
 
-# ---------- D2: CHỤP ẢNH TỪ PDF SGK (MỚI) ----------
+# ---------- D2: CHỤP ẢNH TỪ PDF SGK ----------
 def _crop_white_border_pil(img_bytes, padding=5):
-    """Cắt viền trắng xung quanh ảnh bằng PIL.
-
-    Args:
-        img_bytes: bytes ảnh PNG
-        padding: số pixel giữ lại quanh vùng ảnh (tránh cắt sát)
-
-    Returns:
-        bytes ảnh PNG đã cắt
-    """
+    """Cắt viền trắng xung quanh ảnh bằng PIL."""
     if not HAS_PIL:
         return img_bytes
     try:
         img = Image.open(io.BytesIO(img_bytes))
-        # Chuyển sang RGBA để xử lý
         if img.mode != "RGBA":
             img = img.convert("RGBA")
 
-        # Lấy kênh alpha hoặc dùng grayscale để tìm viền
-        # Cách 1: dùng getbbox() trên ảnh đảo màu
-        # Chuyển sang RGB nền trắng
         bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
         bg.paste(img, (0, 0), img)
         rgb_img = bg.convert("RGB")
 
-        # Đảo màu để vùng trắng thành đen
         from PIL import ImageOps
         inv = ImageOps.invert(rgb_img)
-        # Chuyển sang grayscale
         gray = inv.convert("L")
-        # Ngưỡng: pixel > 10 là "có nội dung"
         bw = gray.point(lambda x: 255 if x > 10 else 0, mode="1")
 
         bbox = bw.getbbox()
         if bbox:
-            # Mở rộng vùng để giữ padding
             x0, y0, x1, y1 = bbox
             w, h = img.size
             x0 = max(0, x0 - padding)
             y0 = max(0, y0 - padding)
             x1 = min(w, x1 + padding)
             y1 = min(h, y1 + padding)
-            # Cắt
             cropped = img.crop((x0, y0, x1, y1))
             buf = io.BytesIO()
             cropped.save(buf, format="PNG")
@@ -660,22 +638,7 @@ def _la_anh_full_trang(rect, page_rect, nguong=0.80):
 
 
 def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
-    """Chụp vùng ảnh từ PDF SGK.
-
-    - Duyệt từng trang, phát hiện ảnh/hình vẽ vector
-    - Lọc: bỏ ảnh full trang (≥ 80% diện tích)
-    - Lọc: bỏ ảnh quá nhỏ (< 50×50 px)
-    - Cắt viền trắng
-    - Cache lại vào SGK_ANH_DIR + session state
-
-    Args:
-        sgk_name: tên SGK (VD: SGK_Toan_6)
-        bai_file: tên file PDF bài (VD: bai_01_...pdf)
-        max_anh: số ảnh tối đa (mặc định 6)
-
-    Returns:
-        list các bytes ảnh PNG đã lọc
-    """
+    """Chụp vùng ảnh từ PDF SGK."""
     if not HAS_PYMUPDF:
         return []
 
@@ -714,8 +677,9 @@ def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
     # ===== BẮT ĐẦU CHỤP ẢNH =====
     ds_anh = []
     try:
-        doc = fitz.open(stream=open(fpath, "rb").read(),
-                        filetype="pdf")
+        with open(fpath, "rb") as f:
+            pdf_bytes = f.read()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         return []
 
@@ -727,13 +691,11 @@ def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
             page = doc[page_num]
             page_rect = page.rect
 
-            # --- 1. Lấy ảnh nhúng ---
             try:
                 img_list = page.get_images(full=True)
             except Exception:
                 img_list = []
 
-            # Lấy vùng (rect) của ảnh
             ds_rect = []
             for img_info in img_list:
                 try:
@@ -745,13 +707,11 @@ def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
                 except Exception:
                     continue
 
-            # --- 2. Lấy hình vẽ vector ---
             try:
                 drawings = page.get_drawings()
             except Exception:
                 drawings = []
 
-            # Gom drawing gần nhau thành 1 vùng
             for d in drawings:
                 try:
                     r = d.get("rect")
@@ -760,16 +720,13 @@ def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
                 except Exception:
                     continue
 
-            # --- 3. Chụp từng vùng ---
             for r in ds_rect:
                 if len(ds_anh) >= max_anh:
                     break
 
-                # Lọc ảnh full trang
                 if _la_anh_full_trang(r, page_rect, nguong=0.80):
                     continue
 
-                # Mở rộng vùng (padding)
                 try:
                     r2 = fitz.Rect(
                         max(0, r.x0 - 5),
@@ -780,7 +737,6 @@ def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
                 except Exception:
                     r2 = r
 
-                # Render vùng
                 try:
                     pix = page.get_pixmap(
                         clip=r2, dpi=150, alpha=False)
@@ -791,7 +747,6 @@ def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
                 if not img_bytes or len(img_bytes) < 500:
                     continue
 
-                # Cắt viền trắng
                 img_bytes = _crop_white_border_pil(
                     img_bytes, padding=5)
 
@@ -834,15 +789,11 @@ def phan_loai_anh_theo_hoat_dong(ds_anh, max_moi_hd=2):
     - Ảnh #3-4 → HĐ2
     - Ảnh #5-6 → HĐ3
     - Ảnh #7+ → bỏ
-
-    Returns:
-        dict: {"hd1": [bytes, ...], "hd2": [...], "hd3": [...]}
     """
     ket_qua = {"hd1": [], "hd2": [], "hd3": []}
     if not ds_anh:
         return ket_qua
 
-    # Cắt tối đa 3*max_moi_hd ảnh
     ds_anh = ds_anh[:3 * max_moi_hd]
 
     for i, b in enumerate(ds_anh):
@@ -2196,7 +2147,7 @@ def get_mau_dang_dung():
 
 
 # ============================================================
-# BUILD PROMPT — CẬP NHẬT ĐẶC TRƯNG 4 BƯỚC + ẢNH THEO MÔN
+# BUILD PROMPT — CHUẨN MỚI: ÉP AI SINH ĐÚNG FORMAT - GV: / - HS:
 # ============================================================
 def build_exec_prompt(plan):
     """Xây prompt 5512 theo mẫu chuẩn mới."""
@@ -2220,24 +2171,17 @@ def build_exec_prompt(plan):
             "khong_nen": "",
         }
 
-    # Lấy ký hiệu đặc trưng của môn
     ky_hieu_mon = KY_HIEU_MON.get(ten_mon_chuan, "")
-
-    # Lấy đặc trưng 4 bước của môn
     dac_trung = DAC_TRUNG_4_BUOC_MON.get(ten_mon_chuan, {})
 
-    # Lấy tùy chọn tích hợp
     tich_hop_chon = plan.get("tich_hop_chon", False)
     tich_hop_noi_dung = plan.get("tich_hop_noi_dung", "")
 
-    # 2. Lấy mẫu 5512
     mau = get_mau_dang_dung()
     mau_text = mau.get("cau_truc", "")[:2000]
 
-    # 3. Lấy đoạn SGK
     sgk_text = plan.get("sgk_excerpt", "")[:8000]
 
-    # 4. Xác định HĐ2
     topic = plan.get("topic", "")
     if detect_end_of_chapter(topic):
         hd2_title = "Hệ thống kiến thức"
@@ -2246,7 +2190,6 @@ def build_exec_prompt(plan):
     else:
         hd2_title = "Giải quyết vấn đề từ Hoạt động 1"
 
-    # 5. Xây prompt
     p = []
     p.append("Bạn là trợ lý soạn KẾ HOẠCH BÀI DẠY THCS chuẩn CV 5512.")
     p.append("")
@@ -2272,9 +2215,7 @@ def build_exec_prompt(plan):
         p.append("KHÔNG NÊN: " + rules["khong_nen"])
     p.append("")
 
-    # ============================================================
-    # ĐẶC TRƯNG 4 BƯỚC CỦA MÔN (MỚI)
-    # ============================================================
+    # Đặc trưng 4 bước
     if dac_trung:
         p.append("=== ĐẶC TRƯNG 4 BƯỚC MÔN " +
                  ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
@@ -2292,9 +2233,7 @@ def build_exec_prompt(plan):
         p.append("   Ví dụ: " + dac_trung.get("vi_du_4", ""))
         p.append("")
 
-    # ============================================================
-    # QUY TẮC CHÈN ẢNH THEO MÔN (MỚI)
-    # ============================================================
+    # Quy tắc chèn ảnh
     if dac_trung:
         p.append("=== QUY TẮC CHÈN ẢNH MINH HỌA MÔN " +
                  ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
@@ -2315,14 +2254,14 @@ def build_exec_prompt(plan):
         p.append("- KHÔNG đánh dấu ở bước Kết luận")
         p.append("")
 
-    # KÝ HIỆU ĐẶC TRƯNG
+    # Ký hiệu môn
     if ky_hieu_mon:
-        p.append("=== KÝ HIỆU UNICODE CHO MÔN "
-                 + ten_mon_chuan.upper() + " ===")
+        p.append("=== KÝ HIỆU UNICODE CHO MÔN " +
+                 ten_mon_chuan.upper() + " ===")
         p.append(ky_hieu_mon)
         p.append("")
 
-    # QUY TẮC TRÌNH BÀY
+    # Quy tắc trình bày ký hiệu
     p.append("=== QUY TẮC TRÌNH BÀY KÝ HIỆU (BẮT BUỘC) ===")
     p.append("🚫 TUYỆT ĐỐI KHÔNG dùng LaTeX:")
     p.append("   - KHÔNG viết \\frac{3}{4} → viết 3/4")
@@ -2372,7 +2311,7 @@ def build_exec_prompt(plan):
         p.append("5. Mục tiêu viết CHUNG CHUNG, không cụ thể số liệu.")
         p.append("")
 
-    # Mẫu 5512
+    # Cấu trúc 5512
     p.append("=== CẤU TRÚC 5512 (BẮT BUỘC) ===")
     p.append(mau_text)
     p.append("")
@@ -2388,12 +2327,12 @@ def build_exec_prompt(plan):
              str(plan.get("period", "1")) + " tiết)**")
     p.append("")
 
-    # HĐ2 title
+    # Tên HĐ2
     p.append("=== HOẠT ĐỘNG 2 PHẢI ĐẶT TÊN: ===")
     p.append("**2. Hoạt động 2: " + hd2_title + "**")
     p.append("")
 
-    # Quy tắc chi tiết
+    # Quy tắc chung
     p.append("=== QUY TẮC BẮT BUỘC ===")
     p.append("1. Mục I (Mục tiêu) có 4 phần:")
     p.append("   1. Kiến thức trọng tâm: ...")
@@ -2407,44 +2346,49 @@ def build_exec_prompt(plan):
         p.append("     \"" + tich_hop_noi_dung[:1000] + "\"")
     else:
         p.append("   → Mục 4. Tích hợp: ghi đúng chữ 'Không'")
-
     p.append("")
+
     p.append("2. Mục II (Thiết bị):")
     p.append("   1. Đối với giáo viên: SGK, KHBD, ...")
     p.append("      ⚠️ KHÔNG ghi 'máy chiếu', 'màn chiếu'")
     p.append("   2. Đối với học sinh: SGK, đồ dùng học tập")
     p.append("")
+
     p.append("3. Mục III (Tiến trình) có 4 hoạt động:")
     p.append("   1. Hoạt động 1: Mở đầu")
     p.append("   2. Hoạt động 2: " + hd2_title)
     p.append("   3. Hoạt động 3: Luyện tập")
     p.append("   4. Hoạt động 4: Vận dụng")
     p.append("")
+
     p.append("4. Mỗi hoạt động có: a) Mục tiêu; b) Nội dung; "
              "c) Tổ chức thực hiện và sản phẩm")
     p.append("")
+
     p.append("5. Mục c) là BẢNG 2 CỘT: "
              "| Hoạt động của GV và HS | Sản phẩm |")
     p.append("   - Cột Sản phẩm phải CHI TIẾT, bám sát SGK")
     p.append("")
+
     p.append("6. TUYỆT ĐỐI KHÔNG BỊA kiến thức không có trong SGK.")
     p.append("   Nếu SGK không có → ghi '[SGK không cung cấp]'.")
     p.append("")
+
     p.append("7. Trong ô bảng dùng <br> để xuống dòng.")
     p.append("")
+
     p.append("8. KHÔNG viết 'Người soạn', 'Ký tên', 'Sông Đốc' cuối bài.")
     p.append("")
+
     p.append("9. KHÔNG có phần 'Hướng dẫn về nhà' cuối bài.")
     p.append("")
+
     p.append("10. VỀ CÔNG THỨC TOÁN VÀ KÝ HIỆU:")
     p.append("   - Viết phân số dạng a/b, KHÔNG dùng dấu gạch ngang")
     p.append("   - Viết số mũ dạng Unicode x², KHÔNG dùng x^2")
     p.append("   - Đơn vị viết liền sau số: 60 km/h, 5 kg, 100 °C")
     p.append("")
 
-    # ============================================================
-    # QUY TẮC CẤM "KẾT THÚC TIẾT HỌC" (MỚI)
-    # ============================================================
     p.append("11. KHÔNG viết các cụm từ sau ở cuối bài:")
     p.append("    - 'Kết thúc tiết học'")
     p.append("    - 'Kết thúc bài học'")
@@ -2453,31 +2397,39 @@ def build_exec_prompt(plan):
     p.append("    - 'Chúc các em học tốt'")
     p.append("")
 
-    # ============================================================
-    # QUY TẮC VIẾT BẢNG 4 BƯỚC (MỚI)
-    # ============================================================
+    # 4 bước
     p.append("12. MỖI BẢNG 2 CỘT PHẢI CÓ ĐÚNG 4 DÒNG (4 BƯỚC):")
     p.append("")
     p.append("| Hoạt động của GV và HS | Sản phẩm |")
     p.append("|---|---|")
-    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>GV: ...<br>HS: ... "
-             "| ... |")
-    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>GV: ...<br>HS: ... "
-             "| ... |")
-    p.append("| **Bước 3: Báo cáo, thảo luận**<br>GV: ...<br>HS: ... "
-             "| ... |")
-    p.append("| **Bước 4: Kết luận, nhận định**<br>GV: ...<br>HS: ... "
-             "| ... |")
+    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>... | ... |")
+    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>... | ... |")
+    p.append("| **Bước 3: Báo cáo, thảo luận**<br>... | ... |")
+    p.append("| **Bước 4: Kết luận, nhận định**<br>... | ... |")
     p.append("")
 
     # ============================================================
-    # QUY TẮC VIẾT CỤ THỂ GV/HS (MỚI)
+    # QUY TẮC VIẾT CỘT "HOẠT ĐỘNG CỦA GV VÀ HS" (BẮT BUỘC)
     # ============================================================
-    p.append("13. TRONG CỘT 'Hoạt động của GV và HS':")
-    p.append("    - PHẢI ghi rõ 'GV: ...' và 'HS: ...'")
-    p.append("    - Mỗi bước ghi rõ:")
-    p.append("      + GV làm gì CỤ THỂ (yêu cầu gì, gọi ai, ghi gì)")
-    p.append("      + HS làm gì CỤ THỂ (đọc gì, làm gì, trả lời gì)")
+    p.append("13. QUY TẮC VIẾT CỘT 'Hoạt động của GV và HS' "
+             "(BẮT BUỘC):")
+    p.append("")
+    p.append("    Trong mỗi bước, mỗi hành động GV/HS phải:")
+    p.append("    1. Bắt đầu bằng dấu gạch đầu dòng '- '")
+    p.append("    2. Theo sau là 'GV:' hoặc 'HS:'")
+    p.append("    3. Mỗi hành động 1 dòng riêng, dùng <br> để xuống dòng")
+    p.append("")
+    p.append("    Ví dụ ĐÚNG:")
+    p.append("    - GV: Yêu cầu HS nhắc lại quy tắc.<br>")
+    p.append("    - GV: Ghi ví dụ 3/4 + 2/5 lên bảng.<br>")
+    p.append("    - HS: Nhắc lại quy tắc.<br>")
+    p.append("    - HS: Ghi ví dụ vào vở.")
+    p.append("")
+    p.append("    Ví dụ SAI:")
+    p.append("    ❌ GV: Yêu cầu HS nhắc lại quy tắc. "
+             "HS: Nhắc lại quy tắc.")
+    p.append("    ❌ GV yêu cầu HS nhắc lại quy tắc "
+             "(thiếu dấu - và thiếu GV:)")
     p.append("")
     p.append("    🚫 CẤM viết chung chung:")
     p.append("      ❌ 'GV tổng kết tiết học'")
@@ -2488,48 +2440,48 @@ def build_exec_prompt(plan):
     p.append("      ❌ 'HS thảo luận nhóm'")
     p.append("")
     p.append("    ✅ PHẢI viết cụ thể:")
-    p.append("      ✅ 'GV: Yêu cầu HS nhắc lại quy tắc ...'")
-    p.append("      ✅ 'GV: Ghi ví dụ 3/4 + 2/5 lên bảng'")
-    p.append("      ✅ 'GV: Gọi 2 HS lên bảng trình bày'")
-    p.append("      ✅ 'HS: Đọc SGK tr.25, ghi công thức vào vở'")
-    p.append("      ✅ 'HS: Làm bài tập 1, so sánh với bạn'")
-    p.append("      ✅ 'HS: Trả lời câu hỏi của GV'")
+    p.append("      ✅ '- GV: Yêu cầu HS nhắc lại quy tắc ...'")
+    p.append("      ✅ '- GV: Ghi ví dụ 3/4 + 2/5 lên bảng'")
+    p.append("      ✅ '- GV: Gọi 2 HS lên bảng trình bày'")
+    p.append("      ✅ '- HS: Đọc SGK tr.25, ghi công thức vào vở'")
+    p.append("      ✅ '- HS: Làm bài tập 1, so sánh với bạn'")
+    p.append("      ✅ '- HS: Trả lời câu hỏi của GV'")
     p.append("")
     p.append("    Mỗi bước PHẢI có CẢ GV và HS (không chỉ 1 bên).")
     p.append("")
 
     # ============================================================
-    # VÍ DỤ MẪU BẢNG 4 BƯỚC (MỚI)
+    # VÍ DỤ MẪU BẢNG 4 BƯỚC (BẮT BUỘC COPY FORMAT)
     # ============================================================
     p.append("14. VÍ DỤ MẪU BẢNG ĐÚNG CHUẨN (BẮT BUỘC COPY FORMAT):")
     p.append("")
     p.append("| Hoạt động của GV và HS | Sản phẩm |")
     p.append("|---|---|")
     p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>"
-             "GV: Yêu cầu HS nhắc lại quy tắc cộng hai phân số "
+             "- GV: Yêu cầu HS nhắc lại quy tắc cộng hai phân số "
              "khác mẫu.<br>"
-             "GV: Ghi ví dụ 3/4 + 2/5 lên bảng.<br>"
-             "HS: Nhắc lại quy tắc, ghi vào vở. | "
+             "- GV: Ghi ví dụ 3/4 + 2/5 lên bảng.<br>"
+             "- HS: Nhắc lại quy tắc, ghi vào vở. | "
              "- Quy tắc cộng hai phân số khác mẫu.<br>"
              "- Ví dụ: 3/4 + 2/5 |")
     p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>"
-             "GV: Yêu cầu HS làm bài tập 1 SGK tr.25.<br>"
-             "GV: Quan sát, hỗ trợ HS gặp khó khăn.<br>"
-             "HS: Làm bài vào vở, so sánh kết quả với bạn. | "
+             "- GV: Yêu cầu HS làm bài tập 1 SGK tr.25.<br>"
+             "- GV: Quan sát, hỗ trợ HS gặp khó khăn.<br>"
+             "- HS: Làm bài vào vở, so sánh kết quả với bạn. | "
              "- Lời giải bài tập 1:<br>"
              "a) 3/4 + 2/5 = 23/20<br>"
              "b) 5/6 - 1/3 = 1/2 |")
     p.append("| **Bước 3: Báo cáo, thảo luận**<br>"
-             "GV: Gọi 2 HS lên bảng trình bày.<br>"
-             "GV: Yêu cầu HS khác nhận xét.<br>"
-             "HS: 2 HS lên bảng làm bài.<br>"
-             "HS: Nhận xét, bổ sung. | "
+             "- GV: Gọi 2 HS lên bảng trình bày.<br>"
+             "- GV: Yêu cầu HS khác nhận xét.<br>"
+             "- HS: 2 HS lên bảng làm bài.<br>"
+             "- HS: Nhận xét, bổ sung. | "
              "- Lời giải đúng.<br>"
              "- Nhận xét của HS khác. |")
     p.append("| **Bước 4: Kết luận, nhận định**<br>"
-             "GV: Chốt lại quy tắc cộng hai phân số khác mẫu.<br>"
-             "GV: Lưu ý HS quy đồng mẫu số trước khi cộng.<br>"
-             "HS: Ghi nhớ, ghi vào vở. | "
+             "- GV: Chốt lại quy tắc cộng hai phân số khác mẫu.<br>"
+             "- GV: Lưu ý HS quy đồng mẫu số trước khi cộng.<br>"
+             "- HS: Ghi nhớ, ghi vào vở. | "
              "- Kiến thức trọng tâm: Quy tắc cộng hai phân số "
              "khác mẫu.<br>"
              "- Lưu ý: quy đồng mẫu số trước khi cộng. |")
@@ -2944,7 +2896,6 @@ def _goi_tbox(prompt, system, model):
         return (False, f"Parse lỗi: {e}")
 
 
-# Bảng dispatch: provider key → hàm gọi
 _CALL_DISPATCH = {
     "GEMINI_API_KEY": _goi_gemini,
     "GROQ_API_KEY": _goi_groq,
@@ -2953,11 +2904,6 @@ _CALL_DISPATCH = {
     "TBOX_API_KEY": _goi_tbox,
 }
 
-# ============================================================
-# BẢNG XẾP HẠNG CHẤT LƯỢNG PROVIDER
-# ============================================================
-# Gemini (mạnh nhất) → Mistral (1 tỷ token, mạnh nhì) →
-# Groq (nhanh, 70B) → T-Box → OpenRouter (free tier yếu)
 _UU_TIEN_PROVIDER = [
     "GEMINI_API_KEY",
     "MISTRAL_API_KEY",
@@ -2968,23 +2914,10 @@ _UU_TIEN_PROVIDER = [
 
 
 def call_ai(prompt, system="", silent=False):
-    """Gọi AI — ưu tiên provider mạnh nhất, fallback theo chất lượng.
-
-    Thứ tự:
-    1. Cloud providers theo bảng xếp hạng chất lượng:
-       Gemini → Mistral → Groq → T-Box → OpenRouter
-    2. Nếu TẤT CẢ cloud lỗi:
-       - Nếu KHÔNG có cloud nào → fallback Ollama
-       - Nếu CÓ cloud nhưng lỗi hết → báo lỗi, KHÔNG dùng Ollama 3B
-
-    Returns:
-        text (str) nếu thành công
-        None nếu tất cả fail
-    """
+    """Gọi AI — ưu tiên provider mạnh nhất, fallback theo chất lượng."""
     ds_loi = []
     ds_loi_chi_tiet = []
 
-    # ===== ƯU TIÊN 1: Cloud providers theo chất lượng =====
     for pk in _UU_TIEN_PROVIDER:
         if pk not in available_providers:
             continue
@@ -3002,9 +2935,6 @@ def call_ai(prompt, system="", silent=False):
                     f"❌ {pk} | model={mn} | lỗi: {str(result)[:300]}"
                 )
 
-    # ===== ƯU TIÊN 2: Ollama local =====
-    # CHỈ dùng Ollama khi KHÔNG CÓ cloud provider nào
-    # (vì Ollama 3B yếu, dễ bịa nội dung)
     co_cloud = len(available_providers) > 0
 
     if not co_cloud:
@@ -3030,7 +2960,6 @@ def call_ai(prompt, system="", silent=False):
             "Ollama 3B không đủ mạnh để soạn giáo án."
         )
 
-    # ===== Hiển thị lỗi =====
     if not silent:
         st.error(
             f"❌ Tất cả {len(ds_loi)} lần thử đều lỗi. "
@@ -3526,7 +3455,6 @@ with tab_manual:
                     for _t in _loi:
                         st.write(f"  • {_t}")
 
-                # ===== NÚT TẢI SAU KHI NẠP =====
                 if _ok > 0:
                     st.markdown("---")
                     st.markdown("#### ⬇️ Tải từng bài về máy")
@@ -3657,7 +3585,6 @@ with tab_manual:
 
                         st.balloons()
 
-    # Trạng thái SGK
     st.markdown("---")
     _meta_sau = load_sgk_metadata(_sgk_name_input)
     if _meta_sau and _meta_sau.get("ds_bai"):
@@ -4167,8 +4094,9 @@ with tab_match:
 # Chức năng:
 #   - fix_math: chuyển LaTeX → Unicode tiếng Việt
 #   - _set_run_font, _set_table_borders
-#   - _chen_anh_vao_cell: chèn ảnh vào ô
-#   - _thay_the_anh_trong_bang: quét [ẢNH] và chèn ảnh vào đúng vị trí
+#   - _ghi_text_va_anh_vao_cell: GHI TEXT + ẢNH, GIỮ dấu "- "
+#     cho dòng "- GV:" / "- HS:"
+#   - _tach_dong_trong_o: TÁCH dòng, GIỮ dấu "- " cho GV/HS
 #   - add_para, add_table, _add_heading
 #   - write_content_to_doc (chèn ảnh theo [ẢNH])
 #   - make_doc
@@ -4331,7 +4259,7 @@ def _set_run_font(run, size=14, bold=False, italic=False):
 
 
 def _set_table_borders(table, sz=6, color="000000"):
-    """Set viền đơn cho toàn bộ bảng (tất cả các ô + đường giữa)."""
+    """Set viền đơn cho toàn bộ bảng."""
     from docx.oxml import OxmlElement
 
     tbl = table._tbl
@@ -4354,16 +4282,9 @@ def _set_table_borders(table, sz=6, color="000000"):
 
 
 def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
-    """Chèn danh sách ảnh vào 1 cell Word.
-
-    - Tự động tính kích thước theo max_width_cm
-    - Giữ tỷ lệ gốc
-    - Căn giữa
-    """
+    """Chèn danh sách ảnh vào 1 cell Word."""
     if not ds_anh:
         return
-
-    from docx.shared import Cm
 
     for idx, img_bytes in enumerate(ds_anh):
         try:
@@ -4392,22 +4313,56 @@ def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
             continue
 
 
+def _la_dong_gv_hs(ln):
+    """Kiểm tra dòng có phải dòng 'GV:' hoặc 'HS:' không.
+
+    Trả về True nếu dòng bắt đầu bằng:
+    - GV: / GV : / GV. / GV -
+    - HS: / HS : / HS. / HS -
+    (sau khi đã strip dấu "- " hoặc "* " ở đầu)
+    """
+    if not ln:
+        return False
+    s = ln.strip()
+    # Bỏ dấu "- " hoặc "* " hoặc "+ " ở đầu
+    s2 = re.sub(r"^[\-\+\*]\s*", "", s)
+    # Kiểm tra bắt đầu bằng GV: / HS: / GV. / HS.
+    return bool(re.match(r"^(GV|HS)\s*[:\-\.]\s*", s2, re.IGNORECASE))
+
+
+def _chuan_hoa_dong_bang(ln):
+    """Chuẩn hóa 1 dòng trong ô bảng.
+
+    - Nếu dòng là "- GV: ..." hoặc "- HS: ..." → GIỮ NGUYÊN dấu "- "
+    - Nếu dòng là "**Bước N: ...**" → GIỮ NGUYÊN
+    - Các dòng khác: bỏ dấu "- " / "* " / "•" ở đầu
+    """
+    if not ln:
+        return ""
+    s = ln.strip()
+    if not s:
+        return ""
+
+    # ===== Dòng GV/HS → chuẩn hóa về "- GV:" / "- HS:" =====
+    if _la_dong_gv_hs(s):
+        # Bỏ mọi dấu "- " / "* " cũ
+        s2 = re.sub(r"^[\-\+\*]\s*", "", s)
+        # Đảm bảo bắt đầu bằng "- "
+        return "- " + s2
+
+    # ===== Dòng Bước → giữ nguyên =====
+    if re.match(r"^\*\*\s*Bước\s*\d+\s*:", s, re.IGNORECASE):
+        return s
+
+    # ===== Các dòng khác: bỏ dấu đầu dòng =====
+    s = re.sub(r"^[\-\+\*\•\#]+\s*", "", s)
+    s = re.sub(r"^\d+[\.\)]\s+", "", s)
+    return s
+
+
 def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                                ds_anh_o_nay):
-    """Ghi text + ảnh vào cell theo thứ tự.
-
-    - Nếu val có [ẢNH]: chèn ảnh vào vị trí đó
-    - Nếu không: chỉ ghi text
-
-    Args:
-        cell: ô Word
-        val: nội dung text (có thể có [ẢNH])
-        cur_align: canh lề
-        is_header: có phải header không
-        ds_anh_o_nay: list ảnh cần chèn vào ô này
-    """
-    from docx.shared import Cm
-
+    """Ghi text + ảnh vào cell. GIỮ dấu "- " cho dòng "- GV:" / "- HS:"."""
     align_map = {
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -4415,7 +4370,7 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
-    # Nếu header → ghi text bold
+    # ===== HEADER =====
     if is_header:
         p = cell.paragraphs[0]
         val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
@@ -4425,7 +4380,7 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         _set_run_font(run, 13, bold=True)
         return
 
-    # Kiểm tra có [ẢNH] không
+    # ===== CÓ [ẢNH] =====
     co_anh = "[ẢNH]" in val
 
     if not co_anh:
@@ -4433,11 +4388,10 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         val = _tach_dong_trong_o(val)
         lines_clean = []
         for ln in val.split("\n"):
-            ln = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
-            ln = re.sub(r"^\d+[\.\)]\s+", "", ln)
-            ln = re.sub(r"\s{2,}", " ", ln).strip()
-            if ln:
-                lines_clean.append(ln)
+            ln2 = _chuan_hoa_dong_bang(ln)
+            ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
+            if ln2:
+                lines_clean.append(ln2)
 
         first = True
         for line_content in lines_clean:
@@ -4457,24 +4411,34 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
             target_p.alignment = align_map.get(
                 cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-            for part in re.split(r"(\*\*[^\*]+\*\*)", line_content):
-                if part.startswith("**") and part.endswith("**") \
-                        and len(part) > 4:
-                    run = target_p.add_run(part[2:-2])
-                    _set_run_font(run, 13, bold=True)
-                else:
-                    run = target_p.add_run(part.replace("**", ""))
-                    _set_run_font(run, 13, bold=False)
+            # ===== Tách phần "**Bước N:**" ra để in đậm =====
+            m_buoc = re.match(
+                r"^(\*\*Bước\s*\d+\s*:[^\*]*\*\*)(.*)$",
+                line_content, re.IGNORECASE | re.DOTALL)
+            if m_buoc:
+                run1 = target_p.add_run(m_buoc.group(1).replace("**", ""))
+                _set_run_font(run1, 13, bold=True)
+                rest = m_buoc.group(2)
+                if rest:
+                    run2 = target_p.add_run(rest)
+                    _set_run_font(run2, 13, bold=False)
+            else:
+                for part in re.split(r"(\*\*[^\*]+\*\*)", line_content):
+                    if part.startswith("**") and part.endswith("**") \
+                            and len(part) > 4:
+                        run = target_p.add_run(part[2:-2])
+                        _set_run_font(run, 13, bold=True)
+                    else:
+                        run = target_p.add_run(part.replace("**", ""))
+                        _set_run_font(run, 13, bold=False)
         return
 
     # ===== CÓ [ẢNH]: chèn ảnh vào vị trí [ẢNH] =====
-    # Tách val thành các phần: trước [ẢNH], [ẢNH], sau [ẢNH]
     _parts = re.split(r"(\[ẢNH\])", val)
 
     first_para = True
     for part in _parts:
         if part == "[ẢNH]":
-            # Chèn ảnh vào đây (nếu còn ảnh)
             if ds_anh_o_nay:
                 img_bytes = ds_anh_o_nay.pop(0)
                 try:
@@ -4486,7 +4450,6 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                     p_anh.paragraph_format.left_indent = Inches(0)
                     p_anh.paragraph_format.right_indent = Inches(0)
 
-                    # Tính kích thước ảnh
                     width_cm = 6.5
                     if HAS_PIL:
                         try:
@@ -4503,15 +4466,13 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                 except Exception:
                     pass
         else:
-            # Ghi text bình thường
             val_clean = _tach_dong_trong_o(part)
             lines_clean = []
             for ln in val_clean.split("\n"):
-                ln = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
-                ln = re.sub(r"^\d+[\.\)]\s+", "", ln)
-                ln = re.sub(r"\s{2,}", " ", ln).strip()
-                if ln:
-                    lines_clean.append(ln)
+                ln2 = _chuan_hoa_dong_bang(ln)
+                ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
+                if ln2:
+                    lines_clean.append(ln2)
 
             for line_content in lines_clean:
                 if first_para:
@@ -4530,14 +4491,26 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                 target_p.alignment = align_map.get(
                     cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-                for p2 in re.split(r"(\*\*[^\*]+\*\*)", line_content):
-                    if p2.startswith("**") and p2.endswith("**") \
-                            and len(p2) > 4:
-                        run = target_p.add_run(p2[2:-2])
-                        _set_run_font(run, 13, bold=True)
-                    else:
-                        run = target_p.add_run(p2.replace("**", ""))
-                        _set_run_font(run, 13, bold=False)
+                m_buoc = re.match(
+                    r"^(\*\*Bước\s*\d+\s*:[^\*]*\*\*)(.*)$",
+                    line_content, re.IGNORECASE | re.DOTALL)
+                if m_buoc:
+                    run1 = target_p.add_run(
+                        m_buoc.group(1).replace("**", ""))
+                    _set_run_font(run1, 13, bold=True)
+                    rest = m_buoc.group(2)
+                    if rest:
+                        run2 = target_p.add_run(rest)
+                        _set_run_font(run2, 13, bold=False)
+                else:
+                    for p2 in re.split(r"(\*\*[^\*]+\*\*)", line_content):
+                        if p2.startswith("**") and p2.endswith("**") \
+                                and len(p2) > 4:
+                            run = target_p.add_run(p2[2:-2])
+                            _set_run_font(run, 13, bold=True)
+                        else:
+                            run = target_p.add_run(p2.replace("**", ""))
+                            _set_run_font(run, 13, bold=False)
 
 
 def add_para(doc, text, align="justify", size=14,
@@ -4565,12 +4538,16 @@ def add_para(doc, text, align="justify", size=14,
         if not line:
             continue
 
-        line = re.sub(r"^[\-\+\*\•\#]+\s*", "", line)
-        line = re.sub(r"^\d+[\.\)]\s+", "", line)
-        line = re.sub(r"^[a-z]\)\s+", "", line)
-        line = line.replace("**", "").replace("__", "")
-        line = re.sub(r"(?<!\*)\*(?!\*)", "", line)
-        line = line.strip()
+        # GIỮ dấu "- " nếu là dòng GV/HS
+        if _la_dong_gv_hs(line):
+            line = _chuan_hoa_dong_bang(line)
+        else:
+            line = re.sub(r"^[\-\+\*\•\#]+\s*", "", line)
+            line = re.sub(r"^\d+[\.\)]\s+", "", line)
+            line = re.sub(r"^[a-z]\)\s+", "", line)
+            line = line.replace("**", "").replace("__", "")
+            line = re.sub(r"(?<!\*)\*(?!\*)", "", line)
+            line = line.strip()
 
         if not line:
             continue
@@ -4589,30 +4566,44 @@ def add_para(doc, text, align="justify", size=14,
 
 
 def _tach_dong_trong_o(val):
-    """Tách nội dung 1 ô bảng thành nhiều dòng hợp lý."""
+    """Tách nội dung 1 ô bảng thành nhiều dòng hợp lý.
+
+    GIỮ NGUYÊN dấu "- " cho dòng "- GV:" / "- HS:"
+    """
     val = fix_math(val)
     val = val.replace("<br>", "\n").replace("<br/>", "\n")
     val = val.replace("<br />", "\n")
-    val = val.replace("[ẢNH]", "")   # Xóa [ẢNH] nếu còn sót
-    val = re.sub(r"(?<!^)(?<!\n)(?=Bước\s*\d+\s*:)", "\n", val)
+    val = val.replace("[ẢNH]", "")
+
+    # Tách trước "Bước N:"
+    val = re.sub(r"(?<!^)(?<!\n)(?=\*\*\s*Bước\s*\d+\s*:)", "\n", val)
+
+    # Tách trước "- GV:" / "- HS:" nếu bị dính
+    val = re.sub(r"(?<!^)(?<!\n)(?=\s*-\s*(?:GV|HS)\s*[:\-\.])",
+                 "\n", val)
 
     chu_hoa = (r"[A-ZĐÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆ"
                r"ÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰ"
                r"ỲÝỶỸỴ]")
     val = re.sub(r"([\.\!\?\:])\s+(?=" + chu_hoa + r")", r"\1\n", val)
 
-    keywords = ["Em hãy", "Vậy ", "Do đó", "Tuy nhiên", "Vì vậy",
-                "GV yêu cầu", "GV gọi", "GV đánh giá", "GV chính xác",
-                "GV hướng dẫn", "GV đặt", "GV chiếu",
-                "HS suy nghĩ", "HS thảo luận", "HS thực hiện",
-                "HS báo cáo", "HS nhận xét", "HS trả lời"]
+    keywords = ["Em hãy", "Vậy ", "Do đó", "Tuy nhiên", "Vì vậy"]
     for kw in keywords:
         val = re.sub(r"(?<=[\.\!\?])\s+" + re.escape(kw), "\n" + kw, val)
 
     raw_lines = [ln.strip() for ln in val.split("\n") if ln.strip()]
     merged = []
     for ln in raw_lines:
-        if merged and len(ln) < 12 and not ln.startswith("Bước"):
+        if not ln:
+            continue
+        # Dòng GV/HS hoặc Bước → không gộp
+        if _la_dong_gv_hs(ln) or re.match(r"^\*\*\s*Bước", ln):
+            merged.append(ln)
+            continue
+        # Dòng ngắn mà dòng trước không phải GV/HS/Bước → gộp
+        if merged and len(ln) < 12 \
+                and not _la_dong_gv_hs(merged[-1]) \
+                and not re.match(r"^\*\*\s*Bước", merged[-1]):
             merged[-1] = merged[-1] + " " + ln
         else:
             merged.append(ln)
@@ -4621,16 +4612,7 @@ def _tach_dong_trong_o(val):
 
 def add_table(doc, rows, style="grid", col_aligns=None,
               header_aligns=None, anh_cot_2=None):
-    """Thêm bảng 2 cột có viền — chèn ảnh vào đúng vị trí [ẢNH].
-
-    Args:
-        doc: Document
-        rows: list các dòng
-        style: "grid"
-        col_aligns: canh lề từng cột
-        header_aligns: canh lề header
-        anh_cot_2: list bytes ảnh chèn vào cột 2 (Sản phẩm)
-    """
+    """Thêm bảng 2 cột có viền — chèn ảnh vào đúng vị trí [ẢNH]."""
     if not rows:
         return
 
@@ -4673,8 +4655,6 @@ def add_table(doc, rows, style="grid", col_aligns=None,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
-    # ===== PHÂN BỔ ẢNH VÀO TỪNG Ô CÓ [ẢNH] =====
-    # Tạo bản sao ảnh để dùng pop() không làm mất
     _ds_anh_con_lai = list(anh_cot_2) if anh_cot_2 else []
 
     for i, row in enumerate(rows):
@@ -4697,11 +4677,8 @@ def add_table(doc, rows, style="grid", col_aligns=None,
 
             val = row[j] if j < len(row) else ""
 
-            # ===== Ô CÓ [ẢNH] → chèn ảnh theo thứ tự =====
             if (not is_header and j == 1 and "[ẢNH]" in val):
-                # Đếm số [ẢNH] trong ô
                 _so_anh_can = val.count("[ẢNH]")
-                # Lấy số ảnh tương ứng từ danh sách còn lại
                 _anh_o_nay = []
                 for _k in range(_so_anh_can):
                     if _ds_anh_con_lai:
@@ -4737,7 +4714,6 @@ def _add_heading(doc, text, size=14):
     p.paragraph_format.space_before = Pt(2)
     p.paragraph_format.space_after = Pt(2)
 
-    # 3 dòng tiêu đề 5512 — Center, đậm
     is_ten_bai = bool(re.match(r"^TÊN\s*BÀI\s*DẠY\s*:", text, re.I))
     is_mon_hoc = bool(re.match(r"^Môn\s*học\s*:", text, re.I))
     is_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện\s*:",
@@ -4819,7 +4795,6 @@ def _add_heading(doc, text, size=14):
         _set_run_font(run, size, bold=True)
         return p
 
-    # Heading thường
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
@@ -4830,13 +4805,7 @@ def _add_heading(doc, text, size=14):
 
 
 def write_content_to_doc(d, content, ds_anh_phan_loai=None):
-    """Ghi nội dung giáo án vào docx.
-
-    Args:
-        d: Document
-        content: nội dung giáo án (text)
-        ds_anh_phan_loai: dict {"hd1": [bytes, ...], "hd2": [...], "hd3": [...]}
-    """
+    """Ghi nội dung giáo án vào docx."""
     if ds_anh_phan_loai is None:
         ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
 
@@ -4913,7 +4882,6 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
                         rows.append(cells)
                 if rows:
                     so_bang += 1
-                    # Xác định ảnh cho bảng này
                     if so_bang == 1:
                         anh_bang = ds_anh_phan_loai.get("hd1", [])
                     elif so_bang == 2:
@@ -4930,7 +4898,6 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
             i = j
             continue
 
-        # 3 dòng tiêu đề
         if re.match(r"^\*\*\s*TÊN\s*BÀI\s*DẠY", stripped, re.I):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
@@ -4944,26 +4911,22 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
             i += 1
             continue
 
-        # Mục I, II, III
         if re.match(r"^\*\*\s*(I|II|III|IV|V)\.\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Mục 1. 2. 3. 4.
         if re.match(r"^\*\*\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and \
            len(stripped) < 120:
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Mục a) b) c)
         if re.match(r"^\*\*\s*[a-z]\)\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Heading markdown
         if stripped.startswith("#### "):
             _add_heading(d, re.sub(r"[\*#\\]", "", stripped[5:].strip()))
         elif stripped.startswith("### "):
@@ -5153,7 +5116,6 @@ if _run_btn and cmd.strip():
                 else:
                     st.warning("⚠️ Không đọc được nội dung bài.")
 
-            # ===== CHỤP ẢNH TỪ SGK =====
             with st.spinner("🖼️ Đang lấy ảnh từ SGK..."):
                 try:
                     _ds_anh = chup_anh_tu_pdf(
@@ -6262,9 +6224,6 @@ if st.session_state.get("weekly_results"):
             _s_tuan.left_margin = Inches(0.8)
             _s_tuan.right_margin = Inches(0.8)
 
-            # =====================================================
-            # CHỈ PAGE BREAK CHO BÀI ĐẦU TIÊN
-            # =====================================================
             _so_bai_da_ghi = 0
 
             for _r in _weekly:
@@ -6277,11 +6236,9 @@ if st.session_state.get("weekly_results"):
                                 if _ds_lop_w else
                                 _r["row"].get("lop", ""))
 
-                    # CHỈ page break cho bài ĐẦU TIÊN
                     if _so_bai_da_ghi == 0:
                         _d_tuan.add_page_break()
                     else:
-                        # Các bài sau: cách nhau 2 dòng trống
                         _d_tuan.add_paragraph("")
                         _d_tuan.add_paragraph("")
 
@@ -6455,6 +6412,7 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         - **Môn hỗ trợ:** 12 môn THCS
         - **Đặc trưng 4 bước:** riêng cho từng môn
         - **Ảnh minh họa:** từ SGK, chèn theo [ẢNH]
+        - **Cột GV/HS:** mỗi hành động `- GV:` / `- HS:` 1 dòng
 
         **📚 Quy trình soạn tuần:**
 
