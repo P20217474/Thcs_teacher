@@ -2152,8 +2152,10 @@ def get_mau_dang_dung():
 # BUILD PROMPT — CHUẨN MỚI
 #   - GV/HS viết liền 1 dòng (không xuống dòng sau dấu hai chấm)
 #   - Sản phẩm: lời giải chi tiết / biểu diễn kiến thức / [SGK tr...]
-#   - Phân số dùng LaTeX \frac{}{} → Word render thành phân số dọc
+#   - Phân số dùng LaTeX \frac{}{} → Word render phân số dọc
 #   - Mục tiêu 1,2,3,4 đậm nghiêng có số
+#   - Đánh dấu [HÌNH: mô tả] để app tự vẽ
+#   - CẤM dùng $...$ bọc công thức
 # ============================================================
 def build_exec_prompt(plan):
     """Xây prompt 5512 theo mẫu chuẩn mới."""
@@ -2236,25 +2238,80 @@ def build_exec_prompt(plan):
         p.append("   Ví dụ: " + dac_trung.get("vi_du_4", ""))
         p.append("")
 
-    if dac_trung:
-        p.append("=== QUY TẮC CHÈN ẢNH MINH HỌA MÔN " +
-                 ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
-        p.append("")
-        p.append("Loại ảnh cần chèn: " + dac_trung.get("loai_anh", ""))
-        p.append("")
-        p.append("Khi nào đánh dấu [ẢNH]:")
-        p.append("- Bước nào có 'quan sát hình', 'vẽ hình', "
-                 "'nhận xét hình'")
-        p.append("- Bước nào cần minh họa công thức, định nghĩa bằng hình")
-        p.append("- Bước nào liên quan đến hình học, đồ thị, biểu đồ")
-        p.append("")
-        p.append("Cách đánh dấu:")
-        p.append("- Đặt ký hiệu [ẢNH] ở ĐẦU cột 'Sản phẩm' của bước đó")
-        p.append("- VD: [ẢNH]<br>- Tam giác đều ABC<br>- 3 cạnh bằng nhau")
-        p.append("- Mỗi bảng tối đa 2 ảnh")
-        p.append("- Chỉ đánh dấu [ẢNH] ở bước THỰC SỰ cần hình")
-        p.append("- KHÔNG đánh dấu ở bước Kết luận")
-        p.append("")
+    # ============================================================
+    # QUY TẮC ĐÁNH DẤU HÌNH VẼ — APP SẼ TỰ VẼ
+    # ============================================================
+    p.append("=== QUY TẮC ĐÁNH DẤU HÌNH VẼ (BẮT BUỘC) ===")
+    p.append("")
+    p.append("Khi cần minh họa hình vẽ trong cột 'Sản phẩm', "
+             "PHẢI đánh dấu:")
+    p.append("")
+    p.append("    [HÌNH: <mô tả chi tiết>]")
+    p.append("")
+    p.append("App sẽ TỰ VẼ hình dựa trên mô tả. "
+             "KHÔNG được để trống hình.")
+    p.append("")
+    p.append("Ví dụ ĐÚNG theo môn:")
+    p.append("")
+    p.append("  MÔN TOÁN:")
+    p.append("    [HÌNH: tam giác đều ABC cạnh 3cm]")
+    p.append("    [HÌNH: hình vuông ABCD cạnh 4cm]")
+    p.append("    [HÌNH: hình tròn tâm O bán kính 2cm]")
+    p.append("    [HÌNH: lục giác đều cạnh 2cm]")
+    p.append("    [HÌNH: đoạn thẳng AB dài 5cm]")
+    p.append("    [HÌNH: góc vuông 90° tại A]")
+    p.append("    [HÌNH: đồ thị hàm số y = 2x + 1]")
+    p.append("    [HÌNH: parabol y = x²]")
+    p.append("    [HÌNH: hình chữ nhật ABCD có AB=5cm, BC=3cm]")
+    p.append("")
+    p.append("  MÔN KHOA HỌC TỰ NHIÊN:")
+    p.append("    [HÌNH: sơ đồ thí nghiệm đun nước]")
+    p.append("    [HÌNH: mô hình phân tử H₂O]")
+    p.append("    [HÌNH: mạch điện đơn giản có pin, bóng đèn]")
+    p.append("    [HÌNH: biểu đồ nhiệt độ theo thời gian]")
+    p.append("")
+    p.append("  MÔN LỊCH SỬ:")
+    p.append("    [HÌNH: dòng thời gian các sự kiện 1945-1975]")
+    p.append("    [HÌNH: sơ đồ diễn biến chiến dịch Điện Biên Phủ]")
+    p.append("")
+    p.append("  MÔN ĐỊA LÍ:")
+    p.append("    [HÌNH: biểu đồ tròn cơ cấu dân số]")
+    p.append("    [HÌNH: biểu đồ cột diện tích các vùng]")
+    p.append("    [HÌNH: lược đồ Việt Nam]")
+    p.append("")
+    p.append("  MÔN NGỮ VĂN:")
+    p.append("    [HÌNH: sơ đồ tư duy về nhân vật]")
+    p.append("    [HÌNH: bảng phân tích nhân vật]")
+    p.append("")
+    p.append("  MÔN TIẾNG ANH:")
+    p.append("    [HÌNH: sơ đồ ngữ pháp thì hiện tại đơn]")
+    p.append("    [HÌNH: sơ đồ từ vựng chủ đề Family]")
+    p.append("")
+    p.append("  MÔN TIN HỌC:")
+    p.append("    [HÌNH: lưu đồ thuật toán tính tổng 1 đến n]")
+    p.append("    [HÌNH: sơ đồ cấu trúc máy tính]")
+    p.append("")
+    p.append("  MÔN ÂM NHẠC:")
+    p.append("    [HÌNH: khuông nhạc 5 dòng có nốt Đồ-Rê-Mi]")
+    p.append("")
+    p.append("  MÔN GDCD:")
+    p.append("    [HÌNH: sơ đồ hành vi đúng/sai]")
+    p.append("")
+    p.append("  MÔN MỸ THUẬT:")
+    p.append("    [HÌNH: hình khối lập phương]")
+    p.append("")
+    p.append("  MÔN GDTC:")
+    p.append("    [HÌNH: sơ đồ sân bóng đá]")
+    p.append("")
+    p.append("  MÔN HOẠT ĐỘNG TRẢI NGHIỆM:")
+    p.append("    [HÌNH: sơ đồ các bước dự án]")
+    p.append("")
+    p.append("⚠️ CHÚ Ý:")
+    p.append("  - Phải đánh dấu [HÌNH: ...] khi cần minh họa")
+    p.append("  - Mô tả phải CỤ THỂ: tên hình, kích thước, "
+             "nhãn đỉnh, số đo...")
+    p.append("  - Có thể kết hợp [HÌNH: ...] và [ẢNH] trong cùng ô")
+    p.append("")
 
     if ky_hieu_mon:
         p.append("=== KÝ HIỆU UNICODE CHO MÔN " +
@@ -2263,24 +2320,27 @@ def build_exec_prompt(plan):
         p.append("")
 
     # ============================================================
-    # QUY TẮC TRÌNH BÀY KÝ HIỆU — PHÂN SỐ DÙNG LaTeX \frac{}{}
+    # QUY TẮC TRÌNH BÀY KÝ HIỆU
     # ============================================================
     p.append("=== QUY TẮC TRÌNH BÀY KÝ HIỆU (BẮT BUỘC) ===")
     p.append("")
     p.append("🚫 TUYỆT ĐỐI KHÔNG dùng dấu gạch chéo cho phân số:")
     p.append("   - KHÔNG viết 3/4")
     p.append("   - KHÔNG viết 23/20")
-    p.append("   - KHÔNG viết (a+b)/(c-d)")
     p.append("")
     p.append("✅ PHÂN SỐ BẮT BUỘC dùng LaTeX \\frac{}{}:")
     p.append("   - Viết: \\frac{3}{4}")
     p.append("   - Viết: \\frac{23}{20}")
     p.append("   - Viết: \\frac{x^2+1}{2y-3}")
-    p.append("   - Viết: \\frac{a+b}{c-d}")
-    p.append("   - Viết: \\frac{1}{2} + \\frac{2}{3}")
     p.append("")
-    p.append("   (Word sẽ tự render thành phân số tử trên / "
-             "gạch ngang / mẫu dưới)")
+    p.append("🚫 TUYỆT ĐỐI KHÔNG bọc công thức trong $...$ hoặc $$...$:")
+    p.append("   - KHÔNG viết: $\\frac{3}{4}$")
+    p.append("   - KHÔNG viết: $4 \\times 4 = 16$")
+    p.append("   - KHÔNG viết: $$x^2 + 1$$")
+    p.append("   - Nếu vi phạm, ký tự $ SẼ HIỆN trong file Word.")
+    p.append("")
+    p.append("   ✅ ĐÚNG: viết thẳng \\frac{3}{4}")
+    p.append("   ✅ ĐÚNG: viết thẳng 4 × 4 = 16")
     p.append("")
     p.append("🚫 Các LaTeX khác KHÔNG dùng:")
     p.append("   - KHÔNG viết \\text{km} → viết km")
@@ -2289,7 +2349,6 @@ def build_exec_prompt(plan):
     p.append("   - KHÔNG viết x^{2} → viết x²")
     p.append("   - KHÔNG viết x_{1} → viết x₁")
     p.append("   - KHÔNG viết \\sqrt{x} → viết √x")
-    p.append("   - KHÔNG viết $...$ hoặc $$...$$")
     p.append("")
     p.append("   ⚠️ NGOẠI LỆ: \\frac{}{} là LaTeX DUY NHẤT được dùng")
     p.append("   cho phân số.")
@@ -2351,7 +2410,7 @@ def build_exec_prompt(plan):
     p.append("")
 
     # ============================================================
-    # QUY TẮC MỤC TIÊU 1,2,3,4 ĐẬM NGHIÊNG CÓ SỐ
+    # QUY TẮC MỤC TIÊU
     # ============================================================
     p.append("=== QUY TẮC MỤC I. MỤC TIÊU (BẮT BUỘC) ===")
     p.append("")
@@ -2418,6 +2477,7 @@ def build_exec_prompt(plan):
     p.append("10. VỀ PHÂN SỐ VÀ KÝ HIỆU:")
     p.append("   - Phân số BẮT BUỘC dùng LaTeX: \\frac{3}{4}")
     p.append("   - KHÔNG dùng gạch chéo 3/4")
+    p.append("   - KHÔNG bọc trong $...$")
     p.append("   - Số mũ dạng Unicode x², KHÔNG dùng x^2")
     p.append("   - Đơn vị viết liền sau số: 60 km/h, 5 kg, 100 °C")
     p.append("")
@@ -2495,7 +2555,7 @@ def build_exec_prompt(plan):
     # ============================================================
     p.append("14. QUY TẮC VIẾT CỘT 'Sản phẩm' (BẮT BUỘC):")
     p.append("")
-    p.append("    Cột Sản phẩm phải ghi 1 trong 3 dạng sau:")
+    p.append("    Cột Sản phẩm phải ghi 1 trong 4 dạng sau:")
     p.append("")
     p.append("    (A) LỜI GIẢI CHI TIẾT — trình bày đầy đủ các bước")
     p.append("        Ví dụ:")
@@ -2506,16 +2566,19 @@ def build_exec_prompt(plan):
              "\\frac{5}{6} - \\frac{2}{6} = \\frac{3}{6} = "
              "\\frac{1}{2}")
     p.append("")
-    p.append("    (B) BIỂU DIỄN KIẾN THỨC CHI TIẾT — theo đặc trưng "
-             "từng bài, từng môn, từng kiểu bài")
+    p.append("    (B) BIỂU DIỄN KIẾN THỨC CHI TIẾT")
     p.append("        Ví dụ:")
     p.append("        - Cách quy đồng mẫu số:")
     p.append("        + Tìm bội chung nhỏ nhất của hai mẫu số.")
     p.append("        + Chia BCNN cho từng mẫu để tìm thừa số phụ.")
     p.append("        + Nhân cả tử và mẫu với thừa số phụ tương ứng.")
     p.append("")
-    p.append("    (C) [SGK trang...] — nếu kiến thức có sẵn trong SGK "
-             "và không cần viết lại")
+    p.append("    (C) HÌNH VẼ — đánh dấu [HÌNH: mô tả chi tiết]")
+    p.append("        Ví dụ:")
+    p.append("        [HÌNH: tam giác đều ABC cạnh 3cm]")
+    p.append("        [HÌNH: hình vuông ABCD cạnh 4cm]")
+    p.append("")
+    p.append("    (D) [SGK trang...] — nếu kiến thức có sẵn trong SGK")
     p.append("        Ví dụ: [SGK tr.25]")
     p.append("")
     p.append("    🚫 CẤM ghi chung chung:")
@@ -2526,7 +2589,7 @@ def build_exec_prompt(plan):
     p.append("")
 
     # ============================================================
-    # VÍ DỤ MẪU BẢNG 4 BƯỚC ĐÚNG CHUẨN
+    # VÍ DỤ MẪU
     # ============================================================
     p.append("15. VÍ DỤ MẪU BẢNG ĐÚNG CHUẨN (COPY FORMAT):")
     p.append("")
@@ -2539,7 +2602,8 @@ def build_exec_prompt(plan):
         "- HS: Nhắc lại định nghĩa phân số.<br>"
         "- HS: Đọc ví dụ về phép tính với phân số. | "
         "Cách quy đồng mẫu số:<br>"
-        "Tìm bội chung nhỏ nhất của hai mẫu số. |"
+        "Tìm bội chung nhỏ nhất của hai mẫu số.<br>"
+        "[HÌNH: hình tròn chia 4 phần bằng nhau] |"
     )
     p.append(
         "| **Bước 2: Thực hiện nhiệm vụ**<br>"
@@ -4178,29 +4242,363 @@ with tab_match:
 
 # ============ KẾT THÚC PHẦN 4/6 ============
 # ============================================================
-# PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI + CHÈN ẢNH THEO [ẢNH]
+# PHẦN 5/6: WORD HELPERS + VẼ HÌNH + SOẠN 1 BÀI
 # ============================================================
 # Cập nhật:
 #   - Phân số LaTeX \frac{}{} → Field EQ của Word
-#   - GV/HS viết liền 1 dòng (không tách sau dấu hai chấm)
+#   - GV/HS viết liền 1 dòng
 #   - Mục tiêu 1,2,3,4 đậm nghiêng có số
+#   - [HÌNH: mô tả] → app tự vẽ bằng matplotlib
+#   - Xóa $ và $$ triệt để
 # ============================================================
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn as _qn
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import (
+        Polygon, Circle, Rectangle, Arc, FancyArrowPatch, Wedge,
+    )
+    import numpy as np
+    HAS_MPL = True
+except Exception:
+    HAS_MPL = False
+
 
 # ============================================================
-# CHUYỂN LaTeX \frac{}{} → FIELD EQ CỦA WORD
+# MODULE VẼ HÌNH — MATPLOTLIB
+# ============================================================
+def _ve_hinh_co_ban(mo_ta, size_inch=4):
+    """Vẽ hình đơn giản từ mô tả tiếng Việt.
+
+    Trả về bytes PNG hoặc None nếu không vẽ được.
+    """
+    if not HAS_MPL:
+        return None
+
+    try:
+        mo_ta_lower = mo_ta.lower().strip()
+        fig, ax = plt.subplots(figsize=(size_inch, size_inch))
+        ax.set_aspect("equal")
+        ax.axis("off")
+
+        # ===== TAM GIÁC =====
+        if "tam giác" in mo_ta_lower:
+            if "đều" in mo_ta_lower:
+                canh = _trich_so(mo_ta, "cạnh", default=3)
+                h = canh * (3 ** 0.5) / 2
+                diem = [(0, 0), (canh, 0), (canh / 2, h)]
+                ax.add_patch(Polygon(diem, closed=True, fill=False,
+                                      edgecolor="black", linewidth=1.5))
+                _ghi_nhan_dinh(ax, diem, ["A", "B", "C"])
+            elif "vuông" in mo_ta_lower:
+                a = _trich_so(mo_ta, "ab", default=3)
+                b = _trich_so(mo_ta, "bc", default=4)
+                diem = [(0, 0), (a, 0), (0, b)]
+                ax.add_patch(Polygon(diem, closed=True, fill=False,
+                                      edgecolor="black", linewidth=1.5))
+                _ghi_nhan_dinh(ax, diem, ["A", "B", "C"])
+            else:
+                canh = _trich_so(mo_ta, "cạnh", default=3)
+                h = canh * 0.85
+                diem = [(0, 0), (canh, 0), (canh * 0.4, h)]
+                ax.add_patch(Polygon(diem, closed=True, fill=False,
+                                      edgecolor="black", linewidth=1.5))
+                _ghi_nhan_dinh(ax, diem, ["A", "B", "C"])
+
+        # ===== HÌNH VUÔNG =====
+        elif "hình vuông" in mo_ta_lower:
+            canh = _trich_so(mo_ta, "cạnh", default=4)
+            diem = [(0, 0), (canh, 0), (canh, canh), (0, canh)]
+            ax.add_patch(Polygon(diem, closed=True, fill=False,
+                                  edgecolor="black", linewidth=1.5))
+            _ghi_nhan_dinh(ax, diem, ["A", "B", "C", "D"])
+
+        # ===== HÌNH CHỮ NHẬT =====
+        elif "chữ nhật" in mo_ta_lower:
+            dai = _trich_so(mo_ta, "dài", default=5)
+            rong = _trich_so(mo_ta, "rộng", default=3)
+            diem = [(0, 0), (dai, 0), (dai, rong), (0, rong)]
+            ax.add_patch(Polygon(diem, closed=True, fill=False,
+                                  edgecolor="black", linewidth=1.5))
+            _ghi_nhan_dinh(ax, diem, ["A", "B", "C", "D"])
+
+        # ===== HÌNH TRÒN =====
+        elif "hình tròn" in mo_ta_lower or "đường tròn" in mo_ta_lower:
+            r = _trich_so(mo_ta, "kính", default=2)
+            ax.add_patch(Circle((0, 0), r, fill=False,
+                                 edgecolor="black", linewidth=1.5))
+            ax.plot(0, 0, "ko", markersize=4)
+            ax.annotate("O", (0, 0), textcoords="offset points",
+                        xytext=(5, 5), fontsize=11)
+            ax.plot([0, r], [0, 0], "k--", linewidth=0.8)
+            ax.annotate(f"r={r}cm", (r / 2, 0.15),
+                        fontsize=10, ha="center")
+            ax.set_xlim(-r - 1, r + 1)
+            ax.set_ylim(-r - 1, r + 1)
+
+        # ===== LỤC GIÁC =====
+        elif "lục giác" in mo_ta_lower:
+            canh = _trich_so(mo_ta, "cạnh", default=2)
+            diem = []
+            for i in range(6):
+                goc = np.pi / 3 * i + np.pi / 6
+                diem.append((canh * np.cos(goc), canh * np.sin(goc)))
+            ax.add_patch(Polygon(diem, closed=True, fill=False,
+                                  edgecolor="black", linewidth=1.5))
+            _ghi_nhan_dinh(ax, diem,
+                            ["A", "B", "C", "D", "E", "F"])
+
+        # ===== ĐOẠN THẲNG =====
+        elif "đoạn thẳng" in mo_ta_lower:
+            dai = _trich_so(mo_ta, "dài", default=5)
+            ax.plot([0, dai], [0, 0], "k-", linewidth=1.5)
+            ax.plot(0, 0, "ko", markersize=5)
+            ax.plot(dai, 0, "ko", markersize=5)
+            ax.annotate("A", (0, 0), textcoords="offset points",
+                        xytext=(-15, -5), fontsize=11)
+            ax.annotate("B", (dai, 0), textcoords="offset points",
+                        xytext=(5, -5), fontsize=11)
+            ax.annotate(f"{dai}cm", (dai / 2, 0.15),
+                        fontsize=10, ha="center")
+            ax.set_xlim(-1, dai + 1)
+            ax.set_ylim(-1, 1)
+
+        # ===== GÓC =====
+        elif "góc" in mo_ta_lower:
+            do = _trich_so(mo_ta, "°", default=90)
+            if do == 0:
+                do = 90
+            ax.plot([0, 2], [0, 0], "k-", linewidth=1.5)
+            rad = np.radians(do)
+            ax.plot([0, 2 * np.cos(rad)], [0, 2 * np.sin(rad)],
+                    "k-", linewidth=1.5)
+            ax.add_patch(Arc((0, 0), 0.8, 0.8, angle=0,
+                              theta1=0, theta2=do,
+                              edgecolor="red", linewidth=1.2))
+            ax.annotate(f"{do}°", (0.5, 0.2), fontsize=10,
+                        color="red")
+            ax.set_xlim(-0.5, 2.5)
+            ax.set_ylim(-0.5, 2.5)
+
+        # ===== ĐỒ THỊ HÀM SỐ y = ax + b =====
+        elif "đồ thị" in mo_ta_lower and "y =" in mo_ta_lower:
+            ham_so = _trich_ham_so(mo_ta)
+            if ham_so:
+                x = np.linspace(-5, 5, 200)
+                try:
+                    y = eval(ham_so, {"x": x, "np": np})
+                    ax.plot(x, y, "b-", linewidth=1.8)
+                    ax.axhline(0, color="black", linewidth=0.6)
+                    ax.axvline(0, color="black", linewidth=0.6)
+                    ax.grid(True, alpha=0.3)
+                    ax.annotate(f"y = {ham_so}", (-4.5, 4),
+                                fontsize=11, color="blue")
+                except Exception:
+                    return None
+            else:
+                return None
+
+        # ===== PARABOL =====
+        elif "parabol" in mo_ta_lower or "y = x²" in mo_ta_lower:
+            x = np.linspace(-4, 4, 200)
+            y = x ** 2
+            ax.plot(x, y, "b-", linewidth=1.8)
+            ax.axhline(0, color="black", linewidth=0.6)
+            ax.axvline(0, color="black", linewidth=0.6)
+            ax.grid(True, alpha=0.3)
+            ax.annotate("y = x²", (-3.5, 12), fontsize=11,
+                        color="blue")
+
+        # ===== BIỂU ĐỒ TRÒN =====
+        elif "biểu đồ tròn" in mo_ta_lower:
+            labels = ["A", "B", "C", "D"]
+            sizes = [30, 25, 25, 20]
+            ax.pie(sizes, labels=labels, autopct="%1.0f%%",
+                    startangle=90)
+            ax.axis("equal")
+
+        # ===== BIỂU ĐỒ CỘT =====
+        elif "biểu đồ cột" in mo_ta_lower:
+            labels = ["A", "B", "C", "D"]
+            values = [20, 35, 25, 30]
+            ax.bar(labels, values, color="steelblue",
+                    edgecolor="black")
+            ax.set_ylabel("Giá trị")
+            ax.grid(True, axis="y", alpha=0.3)
+
+        # ===== DÒNG THỜI GIAN =====
+        elif "dòng thời gian" in mo_ta_lower:
+            _ve_dong_thoi_gian(ax, mo_ta)
+
+        # ===== SƠ ĐỒ (mũi tên + hộp) =====
+        elif "sơ đồ" in mo_ta_lower or "lưu đồ" in mo_ta_lower:
+            _ve_so_do_don_gian(ax, mo_ta)
+
+        # ===== KHUÔNG NHẠC =====
+        elif "khuông nhạc" in mo_ta_lower:
+            _ve_khuong_nhac(ax)
+
+        # ===== SÂN BÓNG ĐÁ =====
+        elif "sân bóng" in mo_ta_lower or "sân bãi" in mo_ta_lower:
+            _ve_san_bong(ax)
+
+        # ===== FALLBACK: HÌNH CHỮ NHẬT + GHI MÔ TẢ =====
+        else:
+            _ve_fallback(ax, mo_ta)
+
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=120,
+                    bbox_inches="tight", facecolor="white")
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
+
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return None
+
+
+def _trich_so(text, key, default=0):
+    """Trích số theo từ khóa (cm, cạnh, dài, rộng...)."""
+    try:
+        key = key.lower()
+        text_lower = text.lower()
+        idx = text_lower.find(key)
+        if idx < 0:
+            return default
+        # Tìm số gần nhất trong vòng 20 ký tự
+        window = text_lower[max(0, idx - 20):idx + 20]
+        nums = re.findall(r"(\d+(?:\.\d+)?)", window)
+        if nums:
+            return float(nums[-1]) if "." in nums[-1] else int(nums[-1])
+    except Exception:
+        pass
+    return default
+
+
+def _trich_ham_so(mo_ta):
+    """Trích hàm số từ mô tả, ví dụ 'y = 2x + 1'."""
+    m = re.search(r"y\s*=\s*([^\]\}]+?)(?:[\]\}]|$)", mo_ta)
+    if m:
+        hs = m.group(1).strip()
+        # Chuẩn hóa: 2x → 2*x, x^2 → x**2
+        hs = re.sub(r"(\d)\s*x", r"\1*x", hs)
+        hs = hs.replace("^", "**")
+        hs = re.sub(r"(?<![a-zA-Z0-9_])x", "x", hs)
+        return hs
+    return None
+
+
+def _ghi_nhan_dinh(ax, diem, nhan):
+    """Ghi nhãn A, B, C... lên các đỉnh."""
+    for (x, y), ten in zip(diem, nhan):
+        ax.annotate(ten, (x, y), textcoords="offset points",
+                    xytext=(5, 5), fontsize=12)
+
+
+def _ve_dong_thoi_gian(ax, mo_ta):
+    """Vẽ dòng thời gian đơn giản."""
+    ax.plot([0, 10], [0, 0], "k-", linewidth=2)
+    for i, (x, label) in enumerate([
+        (1, "Sự kiện 1"), (3.5, "Sự kiện 2"),
+        (6, "Sự kiện 3"), (8.5, "Sự kiện 4")]):
+        ax.plot(x, 0, "ko", markersize=8)
+        ax.annotate(label, (x, 0), textcoords="offset points",
+                    xytext=(0, 15 if i % 2 == 0 else -25),
+                    ha="center", fontsize=9)
+        ax.plot([x, x], [0, 0.5 if i % 2 == 0 else -0.5],
+                "k-", linewidth=0.6)
+    ax.set_xlim(-1, 11)
+    ax.set_ylim(-1.5, 1.5)
+
+
+def _ve_so_do_don_gian(ax, mo_ta):
+    """Vẽ sơ đồ mũi tên + hộp đơn giản."""
+    ax.text(0.5, 0.9, mo_ta[:60], ha="center", va="top",
+            fontsize=10, wrap=True,
+            bbox=dict(boxstyle="round", facecolor="#e0f2fe",
+                       edgecolor="black"))
+    y_pos = 0.6
+    for i, label in enumerate(["Bước 1", "Bước 2", "Bước 3"]):
+        ax.text(0.5, y_pos, label, ha="center", va="center",
+                fontsize=10,
+                bbox=dict(boxstyle="round", facecolor="#fef3c7",
+                           edgecolor="black"))
+        if i < 2:
+            ax.annotate("", xy=(0.5, y_pos - 0.06),
+                        xytext=(0.5, y_pos - 0.14),
+                        arrowprops=dict(arrowstyle="->",
+                                          color="black"))
+        y_pos -= 0.2
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+
+def _ve_khuong_nhac(ax):
+    """Vẽ khuông nhạc 5 dòng + vài nốt."""
+    for i in range(5):
+        ax.plot([0, 8], [i * 0.3, i * 0.3], "k-", linewidth=0.8)
+    notes = [(1, 0.6), (2, 0.9), (3, 0.3), (4, 0.6), (5, 0.9)]
+    for x, y in notes:
+        ax.plot(x, y, "ko", markersize=8)
+        ax.plot([x + 0.15, x + 0.15], [y, y + 0.6], "k-",
+                linewidth=1.2)
+    ax.set_xlim(-0.5, 8.5)
+    ax.set_ylim(-0.3, 2)
+
+
+def _ve_san_bong(ax):
+    """Vẽ sân bóng đá đơn giản."""
+    ax.add_patch(Rectangle((0, 0), 10, 6, fill=False,
+                            edgecolor="black", linewidth=1.5))
+    ax.plot([5, 5], [0, 6], "k-", linewidth=1)
+    ax.add_patch(Circle((5, 3), 0.8, fill=False,
+                         edgecolor="black", linewidth=1))
+    ax.add_patch(Rectangle((0, 2), 1.2, 2, fill=False,
+                            edgecolor="black", linewidth=1))
+    ax.add_patch(Rectangle((8.8, 2), 1.2, 2, fill=False,
+                            edgecolor="black", linewidth=1))
+    ax.set_xlim(-0.5, 10.5)
+    ax.set_ylim(-0.5, 6.5)
+
+
+def _ve_fallback(ax, mo_ta):
+    """Vẽ hình chữ nhật + ghi mô tả khi không nhận diện được."""
+    ax.add_patch(Rectangle((0.1, 0.1), 0.8, 0.8, fill=False,
+                            edgecolor="gray", linewidth=1.5,
+                            linestyle="--"))
+    ax.text(0.5, 0.5, mo_ta[:80], ha="center", va="center",
+            fontsize=10, wrap=True)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+
+def _ve_hinh(mo_ta):
+    """Wrapper — trả về bytes PNG hoặc None."""
+    return _ve_hinh_co_ban(mo_ta)
+
+
+# ============================================================
+# LaTeX \frac{}{} → FIELD EQ
 # ============================================================
 def _latex_frac_sang_eq(latex_str):
-    """Chuyển chuỗi LaTeX \\frac{a}{b} thành list các phần.
+    """Chuyển LaTeX \\frac{a}{b} thành list các phần.
 
-    Trả về: [("text", "..."), ("eq", "\\F(a,b)"), ("text", "..."), ...]
-    Hỗ trợ \\frac lồng nhau.
+    XÓA $ và $$ trước khi xử lý.
     """
     if not latex_str:
         return []
+
+    # XÓA $ và $$ TRIỆT ĐỂ
+    latex_str = latex_str.replace("$$", "").replace("$", "")
 
     result = []
     i = 0
@@ -4208,7 +4606,6 @@ def _latex_frac_sang_eq(latex_str):
     buf = []
 
     def _doc_arg(s, start):
-        """Đọc đối số trong {...} từ vị trí start (đã ở sau '{')."""
         depth = 1
         j = start
         while j < len(s) and depth > 0:
@@ -4262,13 +4659,23 @@ def _text_sang_eq_arg(text):
 
     s = "".join(out)
     s = s.replace("{", "").replace("}", "")
+    s = s.replace("$", "")
     return s.strip()
 
 
 def _chen_text_co_phan_so(paragraph, text, size=13,
                            bold=False, italic=False):
-    """Chèn text có chứa \\frac{}{} vào paragraph."""
+    """Chèn text có chứa \\frac{}{} và [HÌNH: ...] vào paragraph."""
     if not text:
+        return
+
+    # XÓA $ và $$ triệt để TRƯỚC KHI xử lý
+    text = text.replace("$$", "").replace("$", "")
+
+    # Xử lý [HÌNH: ...] — chèn ảnh vẽ
+    if "[HÌNH:" in text or "[hình:" in text.lower():
+        _chen_text_va_hinh(paragraph, text,
+                            size=size, bold=bold, italic=italic)
         return
 
     parts = _latex_frac_sang_eq(text)
@@ -4302,18 +4709,57 @@ def _chen_text_co_phan_so(paragraph, text, size=13,
             r.append(fld_end)
 
 
+def _chen_text_va_hinh(paragraph, text, size=13,
+                        bold=False, italic=False):
+    """Xử lý text có [HÌNH: mô tả] — chèn ảnh vẽ vào paragraph."""
+    pattern = re.compile(r"\[HÌNH:\s*([^\]]+)\]", re.IGNORECASE)
+    last_end = 0
+
+    for m in pattern.finditer(text):
+        # Text trước [HÌNH: ...]
+        before = text[last_end:m.start()]
+        if before:
+            _chen_text_co_phan_so(paragraph, before,
+                                   size=size, bold=bold, italic=italic)
+
+        # Vẽ hình
+        mo_ta = m.group(1).strip()
+        img_bytes = _ve_hinh(mo_ta)
+        if img_bytes:
+            try:
+                run = paragraph.add_run()
+                run.add_picture(io.BytesIO(img_bytes),
+                                 width=Cm(7))
+                # Xuống dòng
+                paragraph.add_run().add_break()
+            except Exception:
+                run = paragraph.add_run(f"[Hình: {mo_ta}]")
+                _set_run_font(run, size, bold=bold, italic=italic)
+        else:
+            run = paragraph.add_run(f"[Hình: {mo_ta}]")
+            _set_run_font(run, size, bold=bold, italic=italic)
+
+        last_end = m.end()
+
+    # Text còn lại
+    after = text[last_end:]
+    if after:
+        _chen_text_co_phan_so(paragraph, after,
+                               size=size, bold=bold, italic=italic)
+
+
 def fix_math(text):
     """Chuyển LaTeX đơn giản thành Unicode.
 
-    LƯU Ý: \\frac{}{} KHÔNG chuyển thành gạch chéo nữa.
-    Giữ nguyên để hàm _chen_text_co_phan_so xử lý.
+    XÓA $ và $$ triệt để.
     """
     if not text:
         return text
 
-    # KHÔNG ĐỤNG VÀO \frac{}{}
+    # XÓA $ và $$ NGAY
+    text = text.replace("$$", "").replace("$", "")
 
-    # ============ CĂN ============
+    # CĂN
     for _ in range(3):
         text_new = re.sub(r"\\sqrt\[([^\]]+)\]\{([^{}]+)\}",
                           r"(\2)^(1/\1)", text)
@@ -4324,7 +4770,7 @@ def fix_math(text):
     text = re.sub(r"\\sqrt\[?([^\]]*)\]?", "", text)
     text = text.replace("\\sqrt", "√")
 
-    # ============ SỐ MŨ ============
+    # SỐ MŨ
     _SUP = {
         "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
         "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
@@ -4340,7 +4786,7 @@ def fix_math(text):
     text = re.sub(r"\^\{([^{}]+)\}", _thay_mu, text)
     text = re.sub(r"\^([0-9n])", _thay_mu, text)
 
-    # ============ CHỈ SỐ DƯỚI ============
+    # CHỈ SỐ DƯỚI
     _SUB = {
         "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
         "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
@@ -4355,7 +4801,7 @@ def fix_math(text):
     text = re.sub(r"_\{([^{}]+)\}", _thay_sub, text)
     text = re.sub(r"_([0-9ai])", _thay_sub, text)
 
-    # ============ KÝ HIỆU TOÁN ============
+    # KÝ HIỆU TOÁN
     _SYMBOLS = {
         "\\times": "×", "\\div": "÷", "\\cdot": "·",
         "\\pm": "±", "\\mp": "∓",
@@ -4387,7 +4833,7 @@ def fix_math(text):
     for latex, uni in _SYMBOLS.items():
         text = text.replace(latex, uni)
 
-    # ============ HY LẠP ============
+    # HY LẠP
     _HYLAP = {
         "\\alpha": "α", "\\beta": "β", "\\gamma": "γ",
         "\\delta": "δ", "\\Delta": "Δ",
@@ -4407,7 +4853,7 @@ def fix_math(text):
     for latex, uni in _HYLAP.items():
         text = text.replace(latex, uni)
 
-    # ============ \text{} \mathrm{} ============
+    # \text{} \mathrm{}
     for _ in range(3):
         text_new = re.sub(r"\\text\{([^{}]+)\}", r"\1", text)
         text_new = re.sub(r"\\mathrm\{([^{}]+)\}", r"\1", text_new)
@@ -4419,25 +4865,27 @@ def fix_math(text):
             break
         text = text_new
 
-    # ============ MATH MODE ============
+    # MATH MODE
     text = re.sub(r"\$\$([^\$]+)\$\$", r"\1", text)
     text = re.sub(r"\$([^\$]+)\$", r"\1", text)
     text = text.replace("\\(", "").replace("\\)", "")
     text = text.replace("\\[", "").replace("\\]", "")
 
-    # ============ DẤU \ CÒN SÓT (trừ \frac) ============
+    # DẤU \ CÒN SÓT (trừ \frac)
     text = re.sub(r"\\(?!frac)([a-zA-Z]+)", r"\1", text)
 
-    # ============ DỌN KHOẢNG TRẮNG ============
+    # DỌN KHOẢNG TRẮNG
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" ?\n ?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
+
+    # XÓA $ CUỐI CÙNG
+    text = text.replace("$", "")
 
     return text.strip()
 
 
 def _set_run_font(run, size=14, bold=False, italic=False):
-    """Set font Times New Roman cho run."""
     run.bold = bold
     run.italic = italic
     run.font.name = "Times New Roman"
@@ -4452,7 +4900,6 @@ def _set_run_font(run, size=14, bold=False, italic=False):
 
 
 def _set_table_borders(table, sz=6, color="000000"):
-    """Set viền đơn cho toàn bộ bảng."""
     tbl = table._tbl
     tblPr = tbl.tblPr
 
@@ -4473,7 +4920,6 @@ def _set_table_borders(table, sz=6, color="000000"):
 
 
 def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
-    """Chèn danh sách ảnh vào 1 cell Word."""
     if not ds_anh:
         return
 
@@ -4505,7 +4951,6 @@ def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
 
 
 def _la_dong_gv_hs(ln):
-    """Kiểm tra dòng có phải '- GV:' / '- HS:' không."""
     if not ln:
         return False
     s = ln.strip()
@@ -4514,18 +4959,14 @@ def _la_dong_gv_hs(ln):
 
 
 def _chuan_hoa_dong_bang(ln):
-    """Chuẩn hóa 1 dòng trong ô bảng.
-
-    - Dòng '- GV: ...' / '- HS: ...' → GIỮ dấu '- ' và nội dung
-      LIỀN sau dấu hai chấm
-    - Dòng '**Bước N: ...**' → giữ nguyên
-    - Các dòng khác: bỏ dấu đầu dòng
-    """
     if not ln:
         return ""
     s = ln.strip()
     if not s:
         return ""
+
+    # Xóa $ nếu có
+    s = s.replace("$", "")
 
     if _la_dong_gv_hs(s):
         s2 = re.sub(r"^[\-\+\*]\s*", "", s)
@@ -4542,12 +4983,7 @@ def _chuan_hoa_dong_bang(ln):
 
 def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                                ds_anh_o_nay):
-    """Ghi text + ảnh vào cell.
-
-    - GIỮ dấu '- ' cho dòng '- GV:' / '- HS:'
-    - NỘI DUNG VIẾT LIỀN sau dấu hai chấm
-    - Chèn field EQ cho phân số \\frac{}{}
-    """
+    """Ghi text + ảnh + hình vẽ vào cell."""
     align_map = {
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -4555,18 +4991,27 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
+    # Xóa $ và $$ triệt để
+    val = val.replace("$$", "").replace("$", "")
+
     if is_header:
         p = cell.paragraphs[0]
         val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
         val = re.sub(r"^\d+[\.\)]\s+", "", val)
-        val = val.replace("**", "").replace("[ẢNH]", "").strip()
+        val = val.replace("**", "").replace("[ẢNH]", "")
+        val = re.sub(r"\[HÌNH:[^\]]+\]", "", val, flags=re.IGNORECASE)
+        val = val.strip()
         run = p.add_run(val)
         _set_run_font(run, 13, bold=True)
         return
 
-    co_anh = "[ẢNH]" in val
+    # Kiểm tra có ảnh chụp hoặc hình vẽ
+    co_anh_chup = "[ẢNH]" in val
+    co_hinh_ve = bool(re.search(r"\[HÌNH:[^\]]+\]", val,
+                                  re.IGNORECASE))
 
-    if not co_anh:
+    if not co_anh_chup and not co_hinh_ve:
+        # Text thuần
         val = _tach_dong_trong_o(val)
         lines_clean = []
         for ln in val.split("\n"):
@@ -4593,41 +5038,59 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
             target_p.alignment = align_map.get(
                 cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-            # Dòng Bước → in đậm phần tiêu đề
-            m_buoc = re.match(
-                r"^(\*\*Bước\s*\d+\s*:[^\*]*\*\*)(.*)$",
-                line_content, re.IGNORECASE | re.DOTALL)
-            if m_buoc:
-                run1 = target_p.add_run(
-                    m_buoc.group(1).replace("**", ""))
-                _set_run_font(run1, 13, bold=True)
-                rest = m_buoc.group(2)
-                if rest:
-                    _chen_text_co_phan_so(
-                        target_p, rest, size=13,
-                        bold=False, italic=False)
-            else:
-                # Dòng GV/HS → in đậm phần "GV:" / "HS:"
-                m_gvhs = re.match(
-                    r"^(\-\s*(?:GV|HS)\s*:\s*)(.*)$",
-                    line_content, re.IGNORECASE)
-                if m_gvhs:
-                    run1 = target_p.add_run(m_gvhs.group(1))
-                    _set_run_font(run1, 13, bold=True)
-                    _chen_text_co_phan_so(
-                        target_p, m_gvhs.group(2),
-                        size=13, bold=False, italic=False)
-                else:
-                    _chen_text_co_phan_so(
-                        target_p, line_content,
-                        size=13, bold=False, italic=False)
+            _ghi_mot_dong_vao_para(target_p, line_content)
         return
 
-    # ===== CÓ [ẢNH] =====
-    _parts = re.split(r"(\[ẢNH\])", val)
+    # Có ảnh chụp hoặc hình vẽ → xử lý
+    _ghi_text_anh_hinh_vao_cell(cell, val, cur_align,
+                                  ds_anh_o_nay, align_map)
+
+
+def _ghi_mot_dong_vao_para(paragraph, line_content):
+    """Ghi 1 dòng (Bước / GV / HS / thường) vào paragraph."""
+    # Dòng Bước
+    m_buoc = re.match(
+        r"^(\*\*Bước\s*\d+\s*:[^\*]*\*\*)(.*)$",
+        line_content, re.IGNORECASE | re.DOTALL)
+    if m_buoc:
+        run1 = paragraph.add_run(
+            m_buoc.group(1).replace("**", ""))
+        _set_run_font(run1, 13, bold=True)
+        rest = m_buoc.group(2)
+        if rest:
+            _chen_text_co_phan_so(paragraph, rest,
+                                   size=13, bold=False, italic=False)
+        return
+
+    # Dòng GV/HS
+    m_gvhs = re.match(
+        r"^(\-\s*(?:GV|HS)\s*:\s*)(.*)$",
+        line_content, re.IGNORECASE)
+    if m_gvhs:
+        run1 = paragraph.add_run(m_gvhs.group(1))
+        _set_run_font(run1, 13, bold=True)
+        _chen_text_co_phan_so(paragraph, m_gvhs.group(2),
+                               size=13, bold=False, italic=False)
+        return
+
+    # Dòng thường
+    _chen_text_co_phan_so(paragraph, line_content,
+                           size=13, bold=False, italic=False)
+
+
+def _ghi_text_anh_hinh_vao_cell(cell, val, cur_align,
+                                  ds_anh_o_nay, align_map):
+    """Xử lý ô có [ẢNH] và/hoặc [HÌNH: ...]."""
+    # Tách val theo [ẢNH] và [HÌNH: ...]
+    pattern = re.compile(
+        r"(\[ẢNH\]|\[HÌNH:[^\]]+\])", re.IGNORECASE)
+    parts = pattern.split(val)
 
     first_para = True
-    for part in _parts:
+    for part in parts:
+        if not part:
+            continue
+
         if part == "[ẢNH]":
             if ds_anh_o_nay:
                 img_bytes = ds_anh_o_nay.pop(0)
@@ -4655,69 +5118,68 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                                      width=Cm(width_cm))
                 except Exception:
                     pass
-        else:
-            val_clean = _tach_dong_trong_o(part)
-            lines_clean = []
-            for ln in val_clean.split("\n"):
-                ln2 = _chuan_hoa_dong_bang(ln)
-                ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
-                if ln2:
-                    lines_clean.append(ln2)
+            continue
 
-            for line_content in lines_clean:
-                if first_para:
-                    target_p = cell.paragraphs[0]
-                    first_para = False
+        m_hinh = re.match(r"\[HÌNH:\s*([^\]]+)\]", part,
+                            re.IGNORECASE)
+        if m_hinh:
+            mo_ta = m_hinh.group(1).strip()
+            img_bytes = _ve_hinh(mo_ta)
+            try:
+                p_h = cell.add_paragraph()
+                p_h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p_h.paragraph_format.space_before = Pt(2)
+                p_h.paragraph_format.space_after = Pt(2)
+                p_h.paragraph_format.first_line_indent = Inches(0)
+                p_h.paragraph_format.left_indent = Inches(0)
+                p_h.paragraph_format.right_indent = Inches(0)
+
+                if img_bytes:
+                    run = p_h.add_run()
+                    run.add_picture(io.BytesIO(img_bytes),
+                                     width=Cm(6.5))
                 else:
-                    target_p = cell.add_paragraph()
-                    target_p.paragraph_format.line_spacing_rule = \
-                        WD_LINE_SPACING.SINGLE
-                    target_p.paragraph_format.space_before = Pt(2)
-                    target_p.paragraph_format.space_after = Pt(2)
-                    target_p.paragraph_format.first_line_indent = Inches(0)
-                    target_p.paragraph_format.left_indent = Inches(0)
-                    target_p.paragraph_format.right_indent = Inches(0)
+                    run = p_h.add_run(f"[Hình: {mo_ta}]")
+                    _set_run_font(run, 11, italic=True)
+            except Exception:
+                pass
+            continue
 
-                target_p.alignment = align_map.get(
-                    cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
+        # Text thường
+        val_clean = _tach_dong_trong_o(part)
+        lines_clean = []
+        for ln in val_clean.split("\n"):
+            ln2 = _chuan_hoa_dong_bang(ln)
+            ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
+            if ln2:
+                lines_clean.append(ln2)
 
-                m_buoc = re.match(
-                    r"^(\*\*Bước\s*\d+\s*:[^\*]*\*\*)(.*)$",
-                    line_content, re.IGNORECASE | re.DOTALL)
-                if m_buoc:
-                    run1 = target_p.add_run(
-                        m_buoc.group(1).replace("**", ""))
-                    _set_run_font(run1, 13, bold=True)
-                    rest = m_buoc.group(2)
-                    if rest:
-                        _chen_text_co_phan_so(
-                            target_p, rest, size=13,
-                            bold=False, italic=False)
-                else:
-                    m_gvhs = re.match(
-                        r"^(\-\s*(?:GV|HS)\s*:\s*)(.*)$",
-                        line_content, re.IGNORECASE)
-                    if m_gvhs:
-                        run1 = target_p.add_run(m_gvhs.group(1))
-                        _set_run_font(run1, 13, bold=True)
-                        _chen_text_co_phan_so(
-                            target_p, m_gvhs.group(2),
-                            size=13, bold=False, italic=False)
-                    else:
-                        _chen_text_co_phan_so(
-                            target_p, line_content,
-                            size=13, bold=False, italic=False)
+        for line_content in lines_clean:
+            if first_para:
+                target_p = cell.paragraphs[0]
+                first_para = False
+            else:
+                target_p = cell.add_paragraph()
+                target_p.paragraph_format.line_spacing_rule = \
+                    WD_LINE_SPACING.SINGLE
+                target_p.paragraph_format.space_before = Pt(2)
+                target_p.paragraph_format.space_after = Pt(2)
+                target_p.paragraph_format.first_line_indent = Inches(0)
+                target_p.paragraph_format.left_indent = Inches(0)
+                target_p.paragraph_format.right_indent = Inches(0)
+
+            target_p.alignment = align_map.get(
+                cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
+
+            _ghi_mot_dong_vao_para(target_p, line_content)
 
 
 def add_para(doc, text, align="justify", size=14,
              bold=False, italic=False, space=2):
-    """Thêm đoạn văn với canh lề + khoảng cách 2pt.
-
-    Hỗ trợ phân số \\frac{}{} → field EQ.
-    """
     if not text:
         return
 
+    text = text.replace("$$", "").replace("$", "")
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
     text = text.replace("<br />", "\n")
 
@@ -4749,7 +5211,6 @@ def add_para(doc, text, align="justify", size=14,
         if not line:
             continue
 
-        # Chuyển LaTeX ký hiệu (không đụng \frac)
         line = fix_math(line)
 
         p = doc.add_paragraph()
@@ -4762,35 +5223,35 @@ def add_para(doc, text, align="justify", size=14,
         p.paragraph_format.space_before = Pt(space)
         p.paragraph_format.space_after = Pt(space)
 
-        # Chèn text + phân số
         _chen_text_co_phan_so(p, line, size=size,
                                bold=bold, italic=italic)
 
 
 def _tach_dong_trong_o(val):
-    """Tách nội dung 1 ô bảng thành nhiều dòng hợp lý.
-
-    GIỮ NGUYÊN dấu '- ' cho dòng '- GV:' / '- HS:'
-    KHÔNG tách nội dung sau dấu hai chấm.
-    """
+    if not val:
+        return ""
+    val = val.replace("$$", "").replace("$", "")
     val = val.replace("<br>", "\n").replace("<br/>", "\n")
     val = val.replace("<br />", "\n")
-    val = val.replace("[ẢNH]", "")
 
     # Tách trước "Bước N:"
     val = re.sub(r"(?<!^)(?<!\n)(?=\*\*\s*Bước\s*\d+\s*:)", "\n", val)
 
-    # Tách trước "- GV:" / "- HS:" nếu bị dính
+    # Tách trước "- GV:" / "- HS:"
     val = re.sub(r"(?<!^)(?<!\n)(?=\s*-\s*(?:GV|HS)\s*[:\-\.])",
                  "\n", val)
+
+    # Tách trước [HÌNH:
+    val = re.sub(r"(?<!^)(?<!\n)(?=\[HÌNH:)", "\n", val,
+                 flags=re.IGNORECASE)
 
     raw_lines = [ln.strip() for ln in val.split("\n") if ln.strip()]
     merged = []
     for ln in raw_lines:
         if not ln:
             continue
-        # Dòng GV/HS hoặc Bước → không gộp
-        if _la_dong_gv_hs(ln) or re.match(r"^\*\*\s*Bước", ln):
+        if _la_dong_gv_hs(ln) or re.match(r"^\*\*\s*Bước", ln) \
+                or re.match(r"^\[HÌNH:", ln, re.IGNORECASE):
             merged.append(ln)
             continue
         if merged and len(ln) < 12 \
@@ -4804,7 +5265,6 @@ def _tach_dong_trong_o(val):
 
 def add_table(doc, rows, style="grid", col_aligns=None,
               header_aligns=None, anh_cot_2=None):
-    """Thêm bảng 2 cột có viền — chèn ảnh vào đúng vị trí [ẢNH]."""
     if not rows:
         return
 
@@ -4884,15 +5344,10 @@ def add_table(doc, rows, style="grid", col_aligns=None,
 
 
 def _add_heading(doc, text, size=14):
-    """Thêm heading với định dạng đúng chuẩn.
-
-    Hỗ trợ:
-    - Mục tiêu 1,2,3,4 → đậm + nghiêng + số
-    - Phân số \\frac{}{} → field EQ
-    """
     if not text:
         return
 
+    text = text.replace("$$", "").replace("$", "")
     text = re.sub(r"^[\*#\-\+\\]+\s*", "", text)
     text = text.rstrip("*").strip()
 
@@ -4915,7 +5370,6 @@ def _add_heading(doc, text, size=14):
     is_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện\s*:",
                                   text, re.I))
 
-    # ===== 3 DÒNG TIÊU ĐỀ 5512 =====
     if is_ten_bai or is_mon_hoc or is_thoi_gian:
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p.paragraph_format.first_line_indent = Inches(0)
@@ -4945,7 +5399,7 @@ def _add_heading(doc, text, size=14):
                                    bold=False, italic=False)
         return p
 
-    # ===== MỤC TIÊU 1,2,3,4 → ĐẬM + NGHIÊNG + SỐ =====
+    # Mục tiêu 1,2,3,4 → đậm + nghiêng + số
     m_muctieu = re.match(
         r"^([1-4])\.\s*(Kiến thức trọng tâm|Năng lực|Phẩm chất|"
         r"Tích hợp)\s*:\s*(.*)$",
@@ -4968,7 +5422,6 @@ def _add_heading(doc, text, size=14):
                                    bold=False, italic=False)
         return p
 
-    # ===== Mục a) b) c) =====
     if re.match(r"^[a-z]\)\s", text):
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p.paragraph_format.first_line_indent = Inches(0.39)
@@ -4995,7 +5448,6 @@ def _add_heading(doc, text, size=14):
             _set_run_font(run, size, bold=True, italic=True)
         return p
 
-    # ===== Mục I, II, III =====
     if re.match(r"^(I|II|III|IV|V)\.\s", text):
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p.paragraph_format.first_line_indent = Inches(0)
@@ -5005,7 +5457,6 @@ def _add_heading(doc, text, size=14):
         _set_run_font(run, size, bold=True)
         return p
 
-    # ===== Mục 1. 2. 3. =====
     if re.match(r"^\d+\.\s+", text):
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p.paragraph_format.first_line_indent = Inches(0.39)
@@ -5015,7 +5466,6 @@ def _add_heading(doc, text, size=14):
         _set_run_font(run, size, bold=True)
         return p
 
-    # ===== Heading thường =====
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
@@ -5026,10 +5476,10 @@ def _add_heading(doc, text, size=14):
 
 
 def write_content_to_doc(d, content, ds_anh_phan_loai=None):
-    """Ghi nội dung giáo án vào docx."""
     if ds_anh_phan_loai is None:
         ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
 
+    content = content.replace("$$", "").replace("$", "")
     content = re.sub(r"^\s*BẢNG\s*2\s*CỘT\s*:?\s*$", "",
                      content, flags=re.MULTILINE)
     content = re.sub(r"^\s*Bảng\s*2\s*cột\s*:?\s*$", "",
@@ -5080,7 +5530,6 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
             i += 1
             continue
 
-        # Bảng markdown
         if stripped.startswith("|") and stripped.endswith("|"):
             tl = []
             j = i
@@ -5131,13 +5580,11 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
             i += 1
             continue
 
-        # Mục I, II, III
         if re.match(r"^\*\*\s*(I|II|III|IV|V)\.\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Mục tiêu 1,2,3,4
         if re.match(
             r"^\*\*\s*[1-4]\.\s*(Kiến thức trọng tâm|Năng lực|"
             r"Phẩm chất|Tích hợp)",
@@ -5146,14 +5593,12 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
             i += 1
             continue
 
-        # Mục 1. 2. 3. 4. (khác mục tiêu)
         if re.match(r"^\*\*\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and \
            len(stripped) < 120:
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
-        # Mục a) b) c)
         if re.match(r"^\*\*\s*[a-z]\)\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
@@ -5177,7 +5622,6 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
 
 
 def make_doc(title, body, subject_name="", ds_anh_phan_loai=None):
-    """Tạo file Word giáo án với format chuẩn + chèn ảnh SGK."""
     d = Document()
     s = d.sections[0]
     s.top_margin = Inches(0.7)
@@ -5263,7 +5707,6 @@ if _rules:
             f"<b>Môn {_mon_chon}</b></div>",
             unsafe_allow_html=True)
 
-# TÙY CHỌN TÍCH HỢP
 st.markdown("#### 🔗 Tùy chọn tích hợp")
 _tich_hop_chon = st.radio(
     "Mục 4. Tích hợp (Năng lực số / AI):",
