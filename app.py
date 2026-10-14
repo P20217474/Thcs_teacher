@@ -130,10 +130,8 @@ CACHE_DIR = "cache"
 SGK_BAI_DIR = os.path.join(CACHE_DIR, "sgk_bai")
 SGK_PAGES_DIR = os.path.join(CACHE_DIR, "sgk_pages")
 OCR_CACHE_DIR = os.path.join(CACHE_DIR, "ocr")
-SGK_ANH_DIR = os.path.join(CACHE_DIR, "sgk_anh")
 
-for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR,
-           SGK_ANH_DIR]:
+for _d in [CACHE_DIR, SGK_BAI_DIR, SGK_PAGES_DIR, OCR_CACHE_DIR]:
     os.makedirs(_d, exist_ok=True)
 
 
@@ -292,7 +290,10 @@ defaults = {
     "dacta_hientai": None,
     "de_kiem_tra_hientai": None,
     "ai_prompt_cache": {},
-    "anh_sgk_cache": {},
+    "nhieu_bai_rows": [
+        {"ten_bai": "", "so_tiet": "1"},
+    ],
+    "nhieu_bai_results": [],
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -300,7 +301,7 @@ for k, v in defaults.items():
 
 # ============ KẾT THÚC PHẦN 1/6 ============
 # ============================================================
-# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF + CHỤP ẢNH
+# PHẦN 2/6: ĐỌC FILE + OCR + QUẢN LÝ SGK + TÁCH PDF
 # ============================================================
 # Chức năng:
 #   - Đọc file: PDF, Word, Excel, CSV, TXT, ảnh
@@ -310,7 +311,6 @@ for k, v in defaults.items():
 #   - Đọc file Lịch báo giảng (docx/xlsx/csv/txt)
 #   - Gộp bài trùng tên (1 bài dạy nhiều lớp)
 #   - Tìm bài theo TÊN (fuzzy match)
-#   - CHỤP ẢNH từ PDF SGK
 # ============================================================
 
 
@@ -518,23 +518,6 @@ def _slugify(text):
 
 
 # ---------- D: PDF helpers ----------
-def _render_pdf_page_to_image(pdf_bytes, page_num, dpi=150):
-    if not HAS_PYMUPDF:
-        return None
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        if page_num < 0 or page_num >= len(doc):
-            doc.close()
-            return None
-        page = doc[page_num]
-        pix = page.get_pixmap(dpi=dpi)
-        img_bytes = pix.tobytes("png")
-        doc.close()
-        return img_bytes
-    except Exception:
-        return None
-
-
 def extract_pdf_page_text(pdf_bytes, page_num):
     if not HAS_PYMUPDF:
         return ""
@@ -563,6 +546,7 @@ def get_pdf_total_pages(pdf_bytes):
 
 
 def ocr_bai_pdf(sgk_name, bai_file):
+    """Đọc nội dung 1 bài PDF: text layer + OCR ảnh."""
     fpath = os.path.join(SGK_BAI_DIR, sgk_name, bai_file)
     if not os.path.exists(fpath):
         return ""
@@ -579,231 +563,23 @@ def ocr_bai_pdf(sgk_name, bai_file):
         if text and len(text.strip()) >= 30:
             parts.append(text)
             continue
-        img_bytes = _render_pdf_page_to_image(pdf_bytes, i, dpi=150)
-        if img_bytes:
-            text = ocr_image_with_gemini(img_bytes, f"{bai_file}_p{i+1}")
-            if text and not text.startswith("["):
-                parts.append(text)
-    return "\n\n---\n\n".join(parts)
-
-
-# ---------- D2: CHỤP ẢNH TỪ PDF SGK ----------
-def _crop_white_border_pil(img_bytes, padding=5):
-    """Cắt viền trắng xung quanh ảnh bằng PIL."""
-    if not HAS_PIL:
-        return img_bytes
-    try:
-        img = Image.open(io.BytesIO(img_bytes))
-        if img.mode != "RGBA":
-            img = img.convert("RGBA")
-
-        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-        bg.paste(img, (0, 0), img)
-        rgb_img = bg.convert("RGB")
-
-        from PIL import ImageOps
-        inv = ImageOps.invert(rgb_img)
-        gray = inv.convert("L")
-        bw = gray.point(lambda x: 255 if x > 10 else 0, mode="1")
-
-        bbox = bw.getbbox()
-        if bbox:
-            x0, y0, x1, y1 = bbox
-            w, h = img.size
-            x0 = max(0, x0 - padding)
-            y0 = max(0, y0 - padding)
-            x1 = min(w, x1 + padding)
-            y1 = min(h, y1 + padding)
-            cropped = img.crop((x0, y0, x1, y1))
-            buf = io.BytesIO()
-            cropped.save(buf, format="PNG")
-            return buf.getvalue()
-    except Exception:
-        pass
-    return img_bytes
-
-
-def _la_anh_full_trang(rect, page_rect, nguong=0.80):
-    """Kiểm tra ảnh có chiếm ≥ 80% diện tích trang không."""
-    try:
-        if page_rect.width <= 0 or page_rect.height <= 0:
-            return False
-        dien_tich_trang = page_rect.width * page_rect.height
-        dien_tich_anh = rect.width * rect.height
-        if dien_tich_trang <= 0:
-            return False
-        return (dien_tich_anh / dien_tich_trang) >= nguong
-    except Exception:
-        return False
-
-
-def chup_anh_tu_pdf(sgk_name, bai_file, max_anh=6):
-    """Chụp vùng ảnh từ PDF SGK."""
-    if not HAS_PYMUPDF:
-        return []
-
-    fpath = os.path.join(SGK_BAI_DIR, sgk_name, bai_file)
-    if not os.path.exists(fpath):
-        return []
-
-    # ===== CHECK CACHE SESSION =====
-    cache_key = hashlib.md5(
-        (sgk_name + "||" + bai_file).encode("utf-8")).hexdigest()
-    session_cache = st.session_state.setdefault("anh_sgk_cache", {})
-    if cache_key in session_cache:
-        return session_cache[cache_key]
-
-    # ===== CHECK CACHE LOCAL =====
-    cache_dir_local = os.path.join(SGK_ANH_DIR, sgk_name)
-    cache_meta_file = os.path.join(cache_dir_local,
-                                    cache_key + "_meta.txt")
-    if os.path.exists(cache_meta_file):
+        # Nếu trang không có text → thử OCR bằng ảnh render
+        if not HAS_PYMUPDF or not HAS_PIL:
+            continue
         try:
-            with open(cache_meta_file, "r", encoding="utf-8") as f:
-                so_anh = int(f.read().strip())
-            ds_anh = []
-            for i in range(so_anh):
-                p = os.path.join(cache_dir_local,
-                                 f"{cache_key}_{i}.png")
-                if os.path.exists(p):
-                    with open(p, "rb") as f:
-                        ds_anh.append(f.read())
-            if ds_anh:
-                session_cache[cache_key] = ds_anh
-                return ds_anh
-        except Exception:
-            pass
-
-    # ===== BẮT ĐẦU CHỤP ẢNH =====
-    ds_anh = []
-    try:
-        with open(fpath, "rb") as f:
-            pdf_bytes = f.read()
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception:
-        return []
-
-    try:
-        for page_num in range(len(doc)):
-            if len(ds_anh) >= max_anh:
-                break
-
-            page = doc[page_num]
-            page_rect = page.rect
-
-            try:
-                img_list = page.get_images(full=True)
-            except Exception:
-                img_list = []
-
-            ds_rect = []
-            for img_info in img_list:
-                try:
-                    xref = img_info[0]
-                    rects = page.get_image_rects(xref)
-                    for r in rects:
-                        if (r.width >= 50 and r.height >= 50):
-                            ds_rect.append(r)
-                except Exception:
-                    continue
-
-            try:
-                drawings = page.get_drawings()
-            except Exception:
-                drawings = []
-
-            for d in drawings:
-                try:
-                    r = d.get("rect")
-                    if r and r.width >= 80 and r.height >= 80:
-                        ds_rect.append(r)
-                except Exception:
-                    continue
-
-            for r in ds_rect:
-                if len(ds_anh) >= max_anh:
-                    break
-
-                if _la_anh_full_trang(r, page_rect, nguong=0.80):
-                    continue
-
-                try:
-                    r2 = fitz.Rect(
-                        max(0, r.x0 - 5),
-                        max(0, r.y0 - 5),
-                        min(page_rect.width, r.x1 + 5),
-                        min(page_rect.height, r.y1 + 5),
-                    )
-                except Exception:
-                    r2 = r
-
-                try:
-                    pix = page.get_pixmap(
-                        clip=r2, dpi=150, alpha=False)
-                    img_bytes = pix.tobytes("png")
-                except Exception:
-                    continue
-
-                if not img_bytes or len(img_bytes) < 500:
-                    continue
-
-                img_bytes = _crop_white_border_pil(
-                    img_bytes, padding=5)
-
-                if not img_bytes or len(img_bytes) < 500:
-                    continue
-
-                ds_anh.append(img_bytes)
-
-        doc.close()
-
-    except Exception:
-        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page = doc[i]
+            pix = page.get_pixmap(dpi=150)
+            img_bytes = pix.tobytes("png")
             doc.close()
+            if img_bytes:
+                text = ocr_image_with_gemini(
+                    img_bytes, f"{bai_file}_p{i+1}")
+                if text and not text.startswith("["):
+                    parts.append(text)
         except Exception:
-            pass
-
-    # ===== LƯU CACHE LOCAL =====
-    if ds_anh:
-        try:
-            os.makedirs(cache_dir_local, exist_ok=True)
-            for i, b in enumerate(ds_anh):
-                p = os.path.join(cache_dir_local,
-                                 f"{cache_key}_{i}.png")
-                with open(p, "wb") as f:
-                    f.write(b)
-            with open(cache_meta_file, "w",
-                      encoding="utf-8") as f:
-                f.write(str(len(ds_anh)))
-        except Exception:
-            pass
-
-    session_cache[cache_key] = ds_anh
-    return ds_anh
-
-
-def phan_loai_anh_theo_hoat_dong(ds_anh, max_moi_hd=2):
-    """Phân loại ảnh theo HĐ1/HĐ2/HĐ3.
-
-    - Ảnh #1-2 → HĐ1
-    - Ảnh #3-4 → HĐ2
-    - Ảnh #5-6 → HĐ3
-    - Ảnh #7+ → bỏ
-    """
-    ket_qua = {"hd1": [], "hd2": [], "hd3": []}
-    if not ds_anh:
-        return ket_qua
-
-    ds_anh = ds_anh[:3 * max_moi_hd]
-
-    for i, b in enumerate(ds_anh):
-        if i < max_moi_hd:
-            ket_qua["hd1"].append(b)
-        elif i < 2 * max_moi_hd:
-            ket_qua["hd2"].append(b)
-        elif i < 3 * max_moi_hd:
-            ket_qua["hd3"].append(b)
-    return ket_qua
+            continue
+    return "\n\n---\n\n".join(parts)
 
 
 # ---------- E: Quản lý metadata SGK ----------
@@ -1066,7 +842,6 @@ def parse_danh_sach_bai(text):
 
 
 def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
-    """Kiểm tra danh sách bài có hợp lệ không."""
     ds_loi = []
     if not ds_bai:
         return ["Danh sách bài rỗng."]
@@ -1095,7 +870,6 @@ def kiem_tra_danh_sach_bai(ds_bai, tong_so_trang_pdf):
 
 
 def gop_bai_trung(ds_bai):
-    """Gộp các dòng trùng tên bài thành 1 bài."""
     gop = {}
     thu_tu = []
 
@@ -1360,7 +1134,6 @@ def _norm_header(s):
 
 
 def doc_lich_bao_giang(file_obj):
-    """Đọc file Lịch BG (docx/xlsx/csv/txt) → list các dòng."""
     if file_obj is None:
         return ([], ["Chưa có file"])
 
@@ -1438,7 +1211,6 @@ def doc_lich_bao_giang(file_obj):
     if not rows:
         return ([], ["File không có dữ liệu"])
 
-    # Tìm dòng header
     header = None
     header_idx = 0
     for i, r in enumerate(rows[:5]):
@@ -1914,7 +1686,7 @@ SUBJECT_RULES = {
 
 
 # ============================================================
-# ĐẶC TRƯNG 4 BƯỚC + LOẠI ẢNH CHO 12 MÔN THCS
+# ĐẶC TRƯNG 4 BƯỚC CHO 12 MÔN THCS
 # ============================================================
 DAC_TRUNG_4_BUOC_MON = {
     "Toán": {
@@ -1922,7 +1694,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS làm bài vào vở, GV quan sát, hỗ trợ HS yếu",
         "buoc_3": "HS lên bảng trình bày lời giải, HS khác nhận xét",
         "buoc_4": "GV chốt công thức, lưu ý sai sót thường gặp",
-        "loai_anh": "hình vẽ hình học, đồ thị, biểu đồ, mô hình toán học",
         "vi_du_1": "GV: Yêu cầu HS làm bài tập 1 SGK tr.25.",
         "vi_du_2": "HS: Làm bài vào vở, so sánh kết quả với bạn.",
         "vi_du_3": "HS: 2 HS lên bảng trình bày lời giải.",
@@ -1933,7 +1704,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS đọc, phân tích chi tiết/nhân vật",
         "buoc_3": "HS trình bày cảm nhận, nhận xét",
         "buoc_4": "GV chốt nội dung và nghệ thuật",
-        "loai_anh": "sơ đồ tư duy, bảng phân tích nhân vật, tranh minh họa",
         "vi_du_1": "GV: Yêu cầu HS đọc đoạn trích SGK tr.45.",
         "vi_du_2": "HS: Đọc đoạn trích, ghi chi tiết về nhân vật.",
         "vi_du_3": "HS: Trình bày cảm nhận về nhân vật.",
@@ -1944,7 +1714,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS luyện nghe - nói theo cặp (role-play)",
         "buoc_3": "HS trình bày hội thoại trước lớp",
         "buoc_4": "GV sửa phát âm, chốt ngữ pháp trọng tâm",
-        "loai_anh": "hình minh họa từ vựng, sơ đồ ngữ pháp, tranh tình huống",
         "vi_du_1": "GV: Giới thiệu 5 từ vựng mới Unit 3.",
         "vi_du_2": "HS: Luyện hội thoại theo cặp về chủ đề.",
         "vi_du_3": "HS: 2 cặp trình bày hội thoại trước lớp.",
@@ -1955,7 +1724,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS làm thí nghiệm, ghi kết quả quan sát",
         "buoc_3": "HS báo cáo kết quả, so sánh với dự đoán",
         "buoc_4": "GV chốt kết luận, giải thích hiện tượng",
-        "loai_anh": "sơ đồ thí nghiệm, mô hình phân tử, biểu đồ dữ liệu",
         "vi_du_1": "GV: Giới thiệu thí nghiệm về tính chất của nước.",
         "vi_du_2": "HS: Làm thí nghiệm theo nhóm, ghi kết quả.",
         "vi_du_3": "HS: Đại diện nhóm báo cáo kết quả.",
@@ -1966,7 +1734,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS khai thác tư liệu, lập dòng thời gian",
         "buoc_3": "HS trình bày diễn biến, nhận xét",
         "buoc_4": "GV chốt nguyên nhân, kết quả, ý nghĩa",
-        "loai_anh": "dòng thời gian, bản đồ diễn biến, ảnh tư liệu lịch sử",
         "vi_du_1": "GV: Giao tư liệu về chiến thắng Bạch Đằng.",
         "vi_du_2": "HS: Khai thác tư liệu, lập dòng thời gian.",
         "vi_du_3": "HS: Trình bày diễn biến trận chiến.",
@@ -1977,7 +1744,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS đọc bản đồ, phân tích số liệu",
         "buoc_3": "HS trình bày nhận xét, so sánh vùng",
         "buoc_4": "GV chốt đặc điểm, mối quan hệ địa lí",
-        "loai_anh": "bản đồ, lược đồ, biểu đồ khí hậu, bảng số liệu",
         "vi_du_1": "GV: Giao bản đồ tự nhiên Việt Nam SGK tr.80.",
         "vi_du_2": "HS: Đọc bản đồ, xác định vị trí các vùng.",
         "vi_du_3": "HS: Trình bày đặc điểm tự nhiên.",
@@ -1988,7 +1754,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS phân tích tình huống, thảo luận nhóm",
         "buoc_3": "HS đóng vai, trình bày cách xử lý",
         "buoc_4": "GV chốt chuẩn mực, bài học",
-        "loai_anh": "hình minh họa tình huống, sơ đồ hành vi",
         "vi_du_1": "GV: Nêu tình huống về bảo vệ môi trường.",
         "vi_du_2": "HS: Thảo luận nhóm, phân tích tình huống.",
         "vi_du_3": "HS: Đóng vai xử lý tình huống.",
@@ -1999,7 +1764,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS quan sát, phác thảo",
         "buoc_3": "HS trưng bày sản phẩm, nhận xét",
         "buoc_4": "GV chốt kỹ thuật, ý tưởng sáng tạo",
-        "loai_anh": "ảnh tác phẩm mẫu, hình vẽ hướng dẫn, sản phẩm HS",
         "vi_du_1": "GV: Giới thiệu tác phẩm mẫu về tranh phong cảnh.",
         "vi_du_2": "HS: Quan sát, phác thảo theo mẫu.",
         "vi_du_3": "HS: Trưng bày sản phẩm, nhận xét bạn.",
@@ -2010,7 +1774,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS luyện hát/đọc nhạc theo nhóm",
         "buoc_3": "HS biểu diễn trước lớp",
         "buoc_4": "GV sửa cao độ, tiết tấu, chốt kiến thức",
-        "loai_anh": "khuông nhạc, nốt nhạc, hình nhạc cụ",
         "vi_du_1": "GV: Hát mẫu bài hát SGK tr.30.",
         "vi_du_2": "HS: Luyện hát theo nhóm.",
         "vi_du_3": "HS: Đại diện nhóm biểu diễn.",
@@ -2021,7 +1784,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS luyện tập theo nhóm",
         "buoc_3": "HS trình diễn động tác",
         "buoc_4": "GV sửa kỹ thuật, chốt yêu cầu",
-        "loai_anh": "hình động tác mẫu, sơ đồ kỹ thuật",
         "vi_du_1": "GV: Làm mẫu động tác chạy đều.",
         "vi_du_2": "HS: Luyện tập theo nhóm.",
         "vi_du_3": "HS: Trình diễn động tác.",
@@ -2032,7 +1794,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS thực hiện khảo sát/trải nghiệm",
         "buoc_3": "HS báo cáo sản phẩm dự án",
         "buoc_4": "GV chốt kỹ năng, định hướng",
-        "loai_anh": "sơ đồ dự án, poster, ảnh mẫu, sản phẩm nhóm",
         "vi_du_1": "GV: Giao nhiệm vụ khảo sát nghề nghiệp.",
         "vi_du_2": "HS: Thực hiện khảo sát theo nhóm.",
         "vi_du_3": "HS: Báo cáo sản phẩm dự án.",
@@ -2043,7 +1804,6 @@ DAC_TRUNG_4_BUOC_MON = {
         "buoc_2": "HS thực hành trên máy, viết chương trình",
         "buoc_3": "HS chạy thử, báo cáo kết quả",
         "buoc_4": "GV sửa lỗi, chốt thuật toán",
-        "loai_anh": "sơ đồ thuật toán, ảnh giao diện, mã nguồn",
         "vi_du_1": "GV: Giao bài toán tính tổng dãy số.",
         "vi_du_2": "HS: Viết chương trình trên máy.",
         "vi_du_3": "HS: Chạy thử, báo cáo kết quả.",
@@ -2154,7 +1914,7 @@ def get_mau_dang_dung():
 #   - Sản phẩm: lời giải chi tiết / biểu diễn kiến thức / [SGK tr...]
 #   - Phân số dùng LaTeX \frac{}{} → Word render phân số dọc
 #   - Mục tiêu 1,2,3,4 đậm nghiêng có số
-#   - Đánh dấu [HÌNH: mô tả] để app tự vẽ
+#   - Hình vẽ: dùng [Vẽ hình SGK.Tr X] để GV tự chèn
 #   - CẤM dùng $...$ bọc công thức
 # ============================================================
 def build_exec_prompt(plan):
@@ -2239,78 +1999,69 @@ def build_exec_prompt(plan):
         p.append("")
 
     # ============================================================
-    # QUY TẮC ĐÁNH DẤU HÌNH VẼ — APP SẼ TỰ VẼ
+    # QUY TẮC ĐÁNH DẤU HÌNH VẼ — GV TỰ CHÈN
     # ============================================================
     p.append("=== QUY TẮC ĐÁNH DẤU HÌNH VẼ (BẮT BUỘC) ===")
     p.append("")
-    p.append("Khi cần minh họa hình vẽ trong cột 'Sản phẩm', "
-             "PHẢI đánh dấu:")
+    p.append("Khi cần minh họa hình vẽ, PHẢI đánh dấu:")
     p.append("")
-    p.append("    [HÌNH: <mô tả chi tiết>]")
+    p.append("    [Vẽ hình SGK.Tr <số trang>]")
     p.append("")
-    p.append("App sẽ TỰ VẼ hình dựa trên mô tả. "
-             "KHÔNG được để trống hình.")
+    p.append("⚠️ BẮT BUỘC PHẢI CÓ SỐ TRANG.")
+    p.append("⚠️ KHÔNG được viết [Vẽ hình SGK.Tr] mà thiếu số trang.")
     p.append("")
     p.append("Ví dụ ĐÚNG theo môn:")
     p.append("")
     p.append("  MÔN TOÁN:")
-    p.append("    [HÌNH: tam giác đều ABC cạnh 3cm]")
-    p.append("    [HÌNH: hình vuông ABCD cạnh 4cm]")
-    p.append("    [HÌNH: hình tròn tâm O bán kính 2cm]")
-    p.append("    [HÌNH: lục giác đều cạnh 2cm]")
-    p.append("    [HÌNH: đoạn thẳng AB dài 5cm]")
-    p.append("    [HÌNH: góc vuông 90° tại A]")
-    p.append("    [HÌNH: đồ thị hàm số y = 2x + 1]")
-    p.append("    [HÌNH: parabol y = x²]")
-    p.append("    [HÌNH: hình chữ nhật ABCD có AB=5cm, BC=3cm]")
+    p.append("    [Vẽ hình SGK.Tr 25]")
+    p.append("    [Vẽ hình SGK.Tr 30]")
     p.append("")
     p.append("  MÔN KHOA HỌC TỰ NHIÊN:")
-    p.append("    [HÌNH: sơ đồ thí nghiệm đun nước]")
-    p.append("    [HÌNH: mô hình phân tử H₂O]")
-    p.append("    [HÌNH: mạch điện đơn giản có pin, bóng đèn]")
-    p.append("    [HÌNH: biểu đồ nhiệt độ theo thời gian]")
+    p.append("    [Vẽ hình SGK.Tr 45]")
+    p.append("    [Vẽ hình SGK.Tr 60]")
     p.append("")
     p.append("  MÔN LỊCH SỬ:")
-    p.append("    [HÌNH: dòng thời gian các sự kiện 1945-1975]")
-    p.append("    [HÌNH: sơ đồ diễn biến chiến dịch Điện Biên Phủ]")
+    p.append("    [Vẽ hình SGK.Tr 70]")
     p.append("")
     p.append("  MÔN ĐỊA LÍ:")
-    p.append("    [HÌNH: biểu đồ tròn cơ cấu dân số]")
-    p.append("    [HÌNH: biểu đồ cột diện tích các vùng]")
-    p.append("    [HÌNH: lược đồ Việt Nam]")
+    p.append("    [Vẽ hình SGK.Tr 80]")
     p.append("")
     p.append("  MÔN NGỮ VĂN:")
-    p.append("    [HÌNH: sơ đồ tư duy về nhân vật]")
-    p.append("    [HÌNH: bảng phân tích nhân vật]")
+    p.append("    [Vẽ hình SGK.Tr 15]")
     p.append("")
     p.append("  MÔN TIẾNG ANH:")
-    p.append("    [HÌNH: sơ đồ ngữ pháp thì hiện tại đơn]")
-    p.append("    [HÌNH: sơ đồ từ vựng chủ đề Family]")
+    p.append("    [Vẽ hình SGK.Tr 20]")
     p.append("")
     p.append("  MÔN TIN HỌC:")
-    p.append("    [HÌNH: lưu đồ thuật toán tính tổng 1 đến n]")
-    p.append("    [HÌNH: sơ đồ cấu trúc máy tính]")
+    p.append("    [Vẽ hình SGK.Tr 35]")
     p.append("")
     p.append("  MÔN ÂM NHẠC:")
-    p.append("    [HÌNH: khuông nhạc 5 dòng có nốt Đồ-Rê-Mi]")
+    p.append("    [Vẽ hình SGK.Tr 18]")
     p.append("")
     p.append("  MÔN GDCD:")
-    p.append("    [HÌNH: sơ đồ hành vi đúng/sai]")
+    p.append("    [Vẽ hình SGK.Tr 22]")
     p.append("")
     p.append("  MÔN MỸ THUẬT:")
-    p.append("    [HÌNH: hình khối lập phương]")
+    p.append("    [Vẽ hình SGK.Tr 10]")
     p.append("")
     p.append("  MÔN GDTC:")
-    p.append("    [HÌNH: sơ đồ sân bóng đá]")
+    p.append("    [Vẽ hình SGK.Tr 28]")
     p.append("")
     p.append("  MÔN HOẠT ĐỘNG TRẢI NGHIỆM:")
-    p.append("    [HÌNH: sơ đồ các bước dự án]")
+    p.append("    [Vẽ hình SGK.Tr 40]")
+    p.append("")
+    p.append("Ví dụ SAI:")
+    p.append("  ❌ [Vẽ hình SGK.Tr]  (thiếu số trang)")
+    p.append("  ❌ [Vẽ hình SGK]     (thiếu .Tr và số trang)")
+    p.append("  ❌ [Hình vẽ]         (sai cú pháp)")
+    p.append("  ❌ [ẢNH]             (sai cú pháp)")
+    p.append("")
+    p.append("App sẽ hiển thị trong Word: (GV chèn hình SGK tr.X)")
     p.append("")
     p.append("⚠️ CHÚ Ý:")
-    p.append("  - Phải đánh dấu [HÌNH: ...] khi cần minh họa")
-    p.append("  - Mô tả phải CỤ THỂ: tên hình, kích thước, "
-             "nhãn đỉnh, số đo...")
-    p.append("  - Có thể kết hợp [HÌNH: ...] và [ẢNH] trong cùng ô")
+    p.append("  - Phải đánh dấu [Vẽ hình SGK.Tr X] khi cần minh họa")
+    p.append("  - Số trang phải CỤ THỂ, không được để trống")
+    p.append("  - Ưu tiên ghi số trang trong SGK có hình đó")
     p.append("")
 
     if ky_hieu_mon:
@@ -2390,6 +2141,39 @@ def build_exec_prompt(plan):
                  "'[SGK không cung cấp]'.")
         p.append("5. Mục tiêu viết CHUNG CHUNG, không cụ thể số liệu.")
         p.append("")
+
+    # ============================================================
+    # QUY TẮC CHỐNG BỊA KIẾN THỨC NGOÀI CHƯƠNG TRÌNH
+    # ============================================================
+    p.append("=== ⚠️ CẤM TUYỆT ĐỐI BỊA KIẾN THỨC NGOÀI SGK "
+             "(BẮT BUỘC) ===")
+    p.append("")
+    p.append("🚫 KHÔNG được viết BẤT KỲ nội dung nào không có trong SGK.")
+    p.append("🚫 KHÔNG được dùng kiến thức ngoài chương trình lớp "
+             + str(plan.get("grade", "6")) + ".")
+    p.append("")
+    p.append("Ví dụ CẤM theo môn Toán:")
+    p.append("  - Lớp 6 KHÔNG được dùng: sin, cos, tan, cot, log, ln,")
+    p.append("    căn bậc hai phức tạp, phương trình bậc 2, hệ phương")
+    p.append("    trình, số vô tỉ, lũy thừa âm, đạo hàm, tích phân...")
+    p.append("  - Lớp 7 KHÔNG được dùng: sin, cos, tan, cot, log, ln,")
+    p.append("    căn bậc hai, phương trình bậc 2...")
+    p.append("  - Lớp 8 KHÔNG được dùng: sin, cos, tan, cot (chỉ học")
+    p.append("    đến định lý Pythagore), log, ln, phương trình bậc 2...")
+    p.append("  - Lớp 9 KHÔNG được dùng: log, ln, đạo hàm, tích phân,")
+    p.append("    ma trận, vector (được dùng sin, cos, tan, cot).")
+    p.append("")
+    p.append("Áp dụng cho TẤT CẢ 12 MÔN:")
+    p.append("  - KHÔNG dùng thuật ngữ bậc đại học")
+    p.append("  - KHÔNG dùng công thức ngoài chương trình")
+    p.append("  - KHÔNG dùng ký hiệu chưa được học")
+    p.append("  - KHÔNG bịa số liệu, ví dụ, bài tập")
+    p.append("")
+    p.append("✅ CHỈ ĐƯỢC VIẾT:")
+    p.append("  - Nội dung có trong SGK ở trên")
+    p.append("  - Hoặc ghi '[SGK không cung cấp]'")
+    p.append("  - Hoặc ghi '[Kiến thức ngoài chương trình]'")
+    p.append("")
 
     p.append("=== CẤU TRÚC 5512 (BẮT BUỘC) ===")
     p.append(mau_text)
@@ -2573,10 +2357,10 @@ def build_exec_prompt(plan):
     p.append("        + Chia BCNN cho từng mẫu để tìm thừa số phụ.")
     p.append("        + Nhân cả tử và mẫu với thừa số phụ tương ứng.")
     p.append("")
-    p.append("    (C) HÌNH VẼ — đánh dấu [HÌNH: mô tả chi tiết]")
+    p.append("    (C) HÌNH VẼ — đánh dấu [Vẽ hình SGK.Tr X]")
     p.append("        Ví dụ:")
-    p.append("        [HÌNH: tam giác đều ABC cạnh 3cm]")
-    p.append("        [HÌNH: hình vuông ABCD cạnh 4cm]")
+    p.append("        [Vẽ hình SGK.Tr 25]")
+    p.append("        [Vẽ hình SGK.Tr 30]")
     p.append("")
     p.append("    (D) [SGK trang...] — nếu kiến thức có sẵn trong SGK")
     p.append("        Ví dụ: [SGK tr.25]")
@@ -2603,7 +2387,7 @@ def build_exec_prompt(plan):
         "- HS: Đọc ví dụ về phép tính với phân số. | "
         "Cách quy đồng mẫu số:<br>"
         "Tìm bội chung nhỏ nhất của hai mẫu số.<br>"
-        "[HÌNH: hình tròn chia 4 phần bằng nhau] |"
+        "[Vẽ hình SGK.Tr 25] |"
     )
     p.append(
         "| **Bước 2: Thực hiện nhiệm vụ**<br>"
@@ -2652,7 +2436,6 @@ with st.sidebar:
     st.header("🧠 Bộ não")
     mem = st.session_state["memory"]
 
-    # ===== TRẠNG THÁI AI =====
     _ollama_now = USE_OLLAMA and _check_ollama()
     _so_cloud = len(available_providers)
 
@@ -2728,7 +2511,7 @@ with st.sidebar:
                      use_container_width=True, key="clean_session"):
             for k in ["draft", "last_topic", "weekly_results",
                       "lich_bao_giang", "ocr_session_cache",
-                      "anh_sgk_cache"]:
+                      "nhieu_bai_rows", "nhieu_bai_results"]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.success("✅ Đã xóa phiên")
@@ -2738,21 +2521,6 @@ with st.sidebar:
                      use_container_width=True, key="clean_ai_cache"):
             st.session_state["ai_prompt_cache"] = {}
             st.success("✅ Đã xóa cache AI — sẽ gọi AI mới")
-            st.rerun()
-
-        if st.button("🖼️ Xóa cache ảnh SGK",
-                     use_container_width=True, key="clean_anh_sgk"):
-            deleted = 0
-            if os.path.exists(SGK_ANH_DIR):
-                import shutil
-                try:
-                    shutil.rmtree(SGK_ANH_DIR)
-                    os.makedirs(SGK_ANH_DIR, exist_ok=True)
-                    deleted = 1
-                except Exception:
-                    pass
-            st.session_state["anh_sgk_cache"] = {}
-            st.success(f"✅ Đã xóa cache ảnh SGK ({deleted})")
             st.rerun()
 
         if st.button("♻️ Xóa cache Streamlit",
@@ -2813,7 +2581,6 @@ with st.sidebar:
 # CALL AI — HTTP REQUEST THUẦN, ĐA PROVIDER + OLLAMA LOCAL
 # ============================================================
 def _http_post_json(url, headers, payload, timeout=120):
-    """Gửi POST JSON, trả về (ok, data_or_error)."""
     try:
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -2832,7 +2599,6 @@ def _http_post_json(url, headers, payload, timeout=120):
 
 
 def _goi_ollama(prompt, system, model):
-    """Gọi Ollama local API — không cần token."""
     url = f"{OLLAMA_HOST}/api/generate"
 
     full_prompt = prompt
@@ -2864,7 +2630,6 @@ def _goi_ollama(prompt, system, model):
 
 
 def _goi_gemini(prompt, system, model):
-    """Gọi Gemini API."""
     api_key = PROVIDER_KEYS.get("GEMINI_API_KEY", "")
     if not api_key:
         return (False, "Chưa có GEMINI_API_KEY")
@@ -2909,7 +2674,6 @@ def _goi_gemini(prompt, system, model):
 
 
 def _goi_groq(prompt, system, model):
-    """Gọi Groq API (OpenAI-compatible)."""
     api_key = PROVIDER_KEYS.get("GROQ_API_KEY", "")
     if not api_key:
         return (False, "Chưa có GROQ_API_KEY")
@@ -2946,7 +2710,6 @@ def _goi_groq(prompt, system, model):
 
 
 def _goi_openrouter(prompt, system, model):
-    """Gọi OpenRouter API (OpenAI-compatible)."""
     api_key = PROVIDER_KEYS.get("OPENROUTER_API_KEY", "")
     if not api_key:
         return (False, "Chưa có OPENROUTER_API_KEY")
@@ -2982,7 +2745,6 @@ def _goi_openrouter(prompt, system, model):
 
 
 def _goi_mistral(prompt, system, model):
-    """Gọi Mistral AI API (OpenAI-compatible)."""
     api_key = PROVIDER_KEYS.get("MISTRAL_API_KEY", "")
     if not api_key:
         return (False, "Chưa có MISTRAL_API_KEY")
@@ -3016,7 +2778,6 @@ def _goi_mistral(prompt, system, model):
 
 
 def _goi_tbox(prompt, system, model):
-    """Gọi Ant T-Box (Bailing) API (OpenAI-compatible)."""
     api_key = PROVIDER_KEYS.get("TBOX_API_KEY", "")
     if not api_key:
         return (False, "Chưa có TBOX_API_KEY")
@@ -3067,7 +2828,6 @@ _UU_TIEN_PROVIDER = [
 
 
 def call_ai(prompt, system="", silent=False):
-    """Gọi AI — ưu tiên provider mạnh nhất, fallback theo chất lượng."""
     ds_loi = []
     ds_loi_chi_tiet = []
 
@@ -3133,7 +2893,6 @@ def call_ai(prompt, system="", silent=False):
 
 
 def call_ai_cached(prompt, system=""):
-    """Gọi AI có cache theo hash prompt."""
     cache_key = hashlib.md5(
         (system + "||" + prompt).encode("utf-8")).hexdigest()
     cache_store = st.session_state.setdefault("ai_prompt_cache", {})
@@ -3278,7 +3037,6 @@ with tab_manual:
         "📦 Nạp từ ZIP",
     ])
 
-    # ---------- TAB CON 1: TÁCH TỪ PDF GỘP ----------
     with _sub1:
         st.markdown("#### 📄 Tách từ 1 file PDF gộp")
         st.caption("Upload file PDF sách (đã đánh lại số trang 1→N). "
@@ -3310,7 +3068,6 @@ with tab_manual:
         _ds_bai_final = []
         _ds_loi_parse = []
 
-        # --- Nguồn 1: File Lịch BG ---
         if _nguon_ds.startswith("📄 Nạp từ file Lịch BG"):
             st.caption("Upload file Lịch BG (docx/xlsx/csv/txt). "
                        "App sẽ đọc cột Tên bài + Trang SGK. "
@@ -3333,7 +3090,6 @@ with tab_manual:
                         f"✅ Đọc được **{len(_ds_bai_final)}** dòng "
                         f"từ file Lịch BG")
 
-        # --- Nguồn 2: Dán text ---
         elif _nguon_ds.startswith("✍️ Dán text"):
             st.caption("Mỗi dòng: `Tên bài | Trang BĐ | Trang KT` "
                        "(hoặc dấu phẩy, tab)")
@@ -3350,7 +3106,6 @@ with tab_manual:
                     for _l in _ds_loi_parse:
                         st.write(f"  • {_l}")
 
-        # --- Nguồn 3: Nhập bảng ---
         else:
             st.caption("Nhập từng dòng: Tên bài, Trang BĐ, Trang KT")
             if "tach_bang_rows" not in st.session_state:
@@ -3408,7 +3163,6 @@ with tab_manual:
             _ds_bai_final = [r for r in st.session_state["tach_bang_rows"]
                              if r.get("ten_bai", "").strip()]
 
-        # --- Kiểm tra + xem trước ---
         if _pdf_bytes is None:
             st.warning("⚠️ Chưa upload file PDF.")
         elif not _ds_bai_final:
@@ -3481,7 +3235,6 @@ with tab_manual:
                         for _t, _l in _kq["ds_loi"]:
                             st.write(f"  • {_t}: {_l}")
 
-                    # ===== NÚT TẢI NGAY SAU KHI TÁCH =====
                     if _kq["so_ok"] > 0:
                         st.markdown("---")
                         st.markdown("#### ⬇️ Tải từng bài về máy")
@@ -3536,7 +3289,6 @@ with tab_manual:
 
                         st.balloons()
 
-    # ---------- TAB CON 2: NẠP PDF RỜI ----------
     with _sub2:
         st.markdown("#### 📚 Nạp nhiều file PDF rời")
         st.caption("Mỗi file = 1 bài. Tên file (bỏ .pdf) = tên bài. "
@@ -3661,7 +3413,6 @@ with tab_manual:
 
                     st.balloons()
 
-    # ---------- TAB CON 3: NẠP TỪ ZIP ----------
     with _sub3:
         st.markdown("#### 📦 Nạp từ file ZIP")
         st.caption("Upload file ZIP chứa nhiều PDF bài.")
@@ -4242,348 +3993,19 @@ with tab_match:
 
 # ============ KẾT THÚC PHẦN 4/6 ============
 # ============================================================
-# PHẦN 5/6: WORD HELPERS + VẼ HÌNH + SOẠN 1 BÀI
+# PHẦN 5/6: WORD HELPERS + SOẠN NHIỀU BÀI
 # ============================================================
 # Cập nhật:
 #   - Phân số LaTeX \frac{}{} → Field EQ của Word
 #   - GV/HS viết liền 1 dòng
 #   - Mục tiêu 1,2,3,4 đậm nghiêng có số
-#   - [HÌNH: mô tả] → app tự vẽ bằng matplotlib
+#   - [Vẽ hình SGK.Tr X] → (GV chèn hình SGK tr.X)
 #   - Xóa $ và $$ triệt để
+#   - Soạn nhiều bài: nhiều dòng + nút +/x
 # ============================================================
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn as _qn
-
-try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import (
-        Polygon, Circle, Rectangle, Arc, FancyArrowPatch, Wedge,
-    )
-    import numpy as np
-    HAS_MPL = True
-except Exception:
-    HAS_MPL = False
-
-
-# ============================================================
-# MODULE VẼ HÌNH — MATPLOTLIB
-# ============================================================
-def _ve_hinh_co_ban(mo_ta, size_inch=4):
-    """Vẽ hình đơn giản từ mô tả tiếng Việt.
-
-    Trả về bytes PNG hoặc None nếu không vẽ được.
-    """
-    if not HAS_MPL:
-        return None
-
-    try:
-        mo_ta_lower = mo_ta.lower().strip()
-        fig, ax = plt.subplots(figsize=(size_inch, size_inch))
-        ax.set_aspect("equal")
-        ax.axis("off")
-
-        # ===== TAM GIÁC =====
-        if "tam giác" in mo_ta_lower:
-            if "đều" in mo_ta_lower:
-                canh = _trich_so(mo_ta, "cạnh", default=3)
-                h = canh * (3 ** 0.5) / 2
-                diem = [(0, 0), (canh, 0), (canh / 2, h)]
-                ax.add_patch(Polygon(diem, closed=True, fill=False,
-                                      edgecolor="black", linewidth=1.5))
-                _ghi_nhan_dinh(ax, diem, ["A", "B", "C"])
-            elif "vuông" in mo_ta_lower:
-                a = _trich_so(mo_ta, "ab", default=3)
-                b = _trich_so(mo_ta, "bc", default=4)
-                diem = [(0, 0), (a, 0), (0, b)]
-                ax.add_patch(Polygon(diem, closed=True, fill=False,
-                                      edgecolor="black", linewidth=1.5))
-                _ghi_nhan_dinh(ax, diem, ["A", "B", "C"])
-            else:
-                canh = _trich_so(mo_ta, "cạnh", default=3)
-                h = canh * 0.85
-                diem = [(0, 0), (canh, 0), (canh * 0.4, h)]
-                ax.add_patch(Polygon(diem, closed=True, fill=False,
-                                      edgecolor="black", linewidth=1.5))
-                _ghi_nhan_dinh(ax, diem, ["A", "B", "C"])
-
-        # ===== HÌNH VUÔNG =====
-        elif "hình vuông" in mo_ta_lower:
-            canh = _trich_so(mo_ta, "cạnh", default=4)
-            diem = [(0, 0), (canh, 0), (canh, canh), (0, canh)]
-            ax.add_patch(Polygon(diem, closed=True, fill=False,
-                                  edgecolor="black", linewidth=1.5))
-            _ghi_nhan_dinh(ax, diem, ["A", "B", "C", "D"])
-
-        # ===== HÌNH CHỮ NHẬT =====
-        elif "chữ nhật" in mo_ta_lower:
-            dai = _trich_so(mo_ta, "dài", default=5)
-            rong = _trich_so(mo_ta, "rộng", default=3)
-            diem = [(0, 0), (dai, 0), (dai, rong), (0, rong)]
-            ax.add_patch(Polygon(diem, closed=True, fill=False,
-                                  edgecolor="black", linewidth=1.5))
-            _ghi_nhan_dinh(ax, diem, ["A", "B", "C", "D"])
-
-        # ===== HÌNH TRÒN =====
-        elif "hình tròn" in mo_ta_lower or "đường tròn" in mo_ta_lower:
-            r = _trich_so(mo_ta, "kính", default=2)
-            ax.add_patch(Circle((0, 0), r, fill=False,
-                                 edgecolor="black", linewidth=1.5))
-            ax.plot(0, 0, "ko", markersize=4)
-            ax.annotate("O", (0, 0), textcoords="offset points",
-                        xytext=(5, 5), fontsize=11)
-            ax.plot([0, r], [0, 0], "k--", linewidth=0.8)
-            ax.annotate(f"r={r}cm", (r / 2, 0.15),
-                        fontsize=10, ha="center")
-            ax.set_xlim(-r - 1, r + 1)
-            ax.set_ylim(-r - 1, r + 1)
-
-        # ===== LỤC GIÁC =====
-        elif "lục giác" in mo_ta_lower:
-            canh = _trich_so(mo_ta, "cạnh", default=2)
-            diem = []
-            for i in range(6):
-                goc = np.pi / 3 * i + np.pi / 6
-                diem.append((canh * np.cos(goc), canh * np.sin(goc)))
-            ax.add_patch(Polygon(diem, closed=True, fill=False,
-                                  edgecolor="black", linewidth=1.5))
-            _ghi_nhan_dinh(ax, diem,
-                            ["A", "B", "C", "D", "E", "F"])
-
-        # ===== ĐOẠN THẲNG =====
-        elif "đoạn thẳng" in mo_ta_lower:
-            dai = _trich_so(mo_ta, "dài", default=5)
-            ax.plot([0, dai], [0, 0], "k-", linewidth=1.5)
-            ax.plot(0, 0, "ko", markersize=5)
-            ax.plot(dai, 0, "ko", markersize=5)
-            ax.annotate("A", (0, 0), textcoords="offset points",
-                        xytext=(-15, -5), fontsize=11)
-            ax.annotate("B", (dai, 0), textcoords="offset points",
-                        xytext=(5, -5), fontsize=11)
-            ax.annotate(f"{dai}cm", (dai / 2, 0.15),
-                        fontsize=10, ha="center")
-            ax.set_xlim(-1, dai + 1)
-            ax.set_ylim(-1, 1)
-
-        # ===== GÓC =====
-        elif "góc" in mo_ta_lower:
-            do = _trich_so(mo_ta, "°", default=90)
-            if do == 0:
-                do = 90
-            ax.plot([0, 2], [0, 0], "k-", linewidth=1.5)
-            rad = np.radians(do)
-            ax.plot([0, 2 * np.cos(rad)], [0, 2 * np.sin(rad)],
-                    "k-", linewidth=1.5)
-            ax.add_patch(Arc((0, 0), 0.8, 0.8, angle=0,
-                              theta1=0, theta2=do,
-                              edgecolor="red", linewidth=1.2))
-            ax.annotate(f"{do}°", (0.5, 0.2), fontsize=10,
-                        color="red")
-            ax.set_xlim(-0.5, 2.5)
-            ax.set_ylim(-0.5, 2.5)
-
-        # ===== ĐỒ THỊ HÀM SỐ y = ax + b =====
-        elif "đồ thị" in mo_ta_lower and "y =" in mo_ta_lower:
-            ham_so = _trich_ham_so(mo_ta)
-            if ham_so:
-                x = np.linspace(-5, 5, 200)
-                try:
-                    y = eval(ham_so, {"x": x, "np": np})
-                    ax.plot(x, y, "b-", linewidth=1.8)
-                    ax.axhline(0, color="black", linewidth=0.6)
-                    ax.axvline(0, color="black", linewidth=0.6)
-                    ax.grid(True, alpha=0.3)
-                    ax.annotate(f"y = {ham_so}", (-4.5, 4),
-                                fontsize=11, color="blue")
-                except Exception:
-                    return None
-            else:
-                return None
-
-        # ===== PARABOL =====
-        elif "parabol" in mo_ta_lower or "y = x²" in mo_ta_lower:
-            x = np.linspace(-4, 4, 200)
-            y = x ** 2
-            ax.plot(x, y, "b-", linewidth=1.8)
-            ax.axhline(0, color="black", linewidth=0.6)
-            ax.axvline(0, color="black", linewidth=0.6)
-            ax.grid(True, alpha=0.3)
-            ax.annotate("y = x²", (-3.5, 12), fontsize=11,
-                        color="blue")
-
-        # ===== BIỂU ĐỒ TRÒN =====
-        elif "biểu đồ tròn" in mo_ta_lower:
-            labels = ["A", "B", "C", "D"]
-            sizes = [30, 25, 25, 20]
-            ax.pie(sizes, labels=labels, autopct="%1.0f%%",
-                    startangle=90)
-            ax.axis("equal")
-
-        # ===== BIỂU ĐỒ CỘT =====
-        elif "biểu đồ cột" in mo_ta_lower:
-            labels = ["A", "B", "C", "D"]
-            values = [20, 35, 25, 30]
-            ax.bar(labels, values, color="steelblue",
-                    edgecolor="black")
-            ax.set_ylabel("Giá trị")
-            ax.grid(True, axis="y", alpha=0.3)
-
-        # ===== DÒNG THỜI GIAN =====
-        elif "dòng thời gian" in mo_ta_lower:
-            _ve_dong_thoi_gian(ax, mo_ta)
-
-        # ===== SƠ ĐỒ (mũi tên + hộp) =====
-        elif "sơ đồ" in mo_ta_lower or "lưu đồ" in mo_ta_lower:
-            _ve_so_do_don_gian(ax, mo_ta)
-
-        # ===== KHUÔNG NHẠC =====
-        elif "khuông nhạc" in mo_ta_lower:
-            _ve_khuong_nhac(ax)
-
-        # ===== SÂN BÓNG ĐÁ =====
-        elif "sân bóng" in mo_ta_lower or "sân bãi" in mo_ta_lower:
-            _ve_san_bong(ax)
-
-        # ===== FALLBACK: HÌNH CHỮ NHẬT + GHI MÔ TẢ =====
-        else:
-            _ve_fallback(ax, mo_ta)
-
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=120,
-                    bbox_inches="tight", facecolor="white")
-        plt.close(fig)
-        buf.seek(0)
-        return buf.getvalue()
-
-    except Exception:
-        try:
-            plt.close("all")
-        except Exception:
-            pass
-        return None
-
-
-def _trich_so(text, key, default=0):
-    """Trích số theo từ khóa (cm, cạnh, dài, rộng...)."""
-    try:
-        key = key.lower()
-        text_lower = text.lower()
-        idx = text_lower.find(key)
-        if idx < 0:
-            return default
-        # Tìm số gần nhất trong vòng 20 ký tự
-        window = text_lower[max(0, idx - 20):idx + 20]
-        nums = re.findall(r"(\d+(?:\.\d+)?)", window)
-        if nums:
-            return float(nums[-1]) if "." in nums[-1] else int(nums[-1])
-    except Exception:
-        pass
-    return default
-
-
-def _trich_ham_so(mo_ta):
-    """Trích hàm số từ mô tả, ví dụ 'y = 2x + 1'."""
-    m = re.search(r"y\s*=\s*([^\]\}]+?)(?:[\]\}]|$)", mo_ta)
-    if m:
-        hs = m.group(1).strip()
-        # Chuẩn hóa: 2x → 2*x, x^2 → x**2
-        hs = re.sub(r"(\d)\s*x", r"\1*x", hs)
-        hs = hs.replace("^", "**")
-        hs = re.sub(r"(?<![a-zA-Z0-9_])x", "x", hs)
-        return hs
-    return None
-
-
-def _ghi_nhan_dinh(ax, diem, nhan):
-    """Ghi nhãn A, B, C... lên các đỉnh."""
-    for (x, y), ten in zip(diem, nhan):
-        ax.annotate(ten, (x, y), textcoords="offset points",
-                    xytext=(5, 5), fontsize=12)
-
-
-def _ve_dong_thoi_gian(ax, mo_ta):
-    """Vẽ dòng thời gian đơn giản."""
-    ax.plot([0, 10], [0, 0], "k-", linewidth=2)
-    for i, (x, label) in enumerate([
-        (1, "Sự kiện 1"), (3.5, "Sự kiện 2"),
-        (6, "Sự kiện 3"), (8.5, "Sự kiện 4")]):
-        ax.plot(x, 0, "ko", markersize=8)
-        ax.annotate(label, (x, 0), textcoords="offset points",
-                    xytext=(0, 15 if i % 2 == 0 else -25),
-                    ha="center", fontsize=9)
-        ax.plot([x, x], [0, 0.5 if i % 2 == 0 else -0.5],
-                "k-", linewidth=0.6)
-    ax.set_xlim(-1, 11)
-    ax.set_ylim(-1.5, 1.5)
-
-
-def _ve_so_do_don_gian(ax, mo_ta):
-    """Vẽ sơ đồ mũi tên + hộp đơn giản."""
-    ax.text(0.5, 0.9, mo_ta[:60], ha="center", va="top",
-            fontsize=10, wrap=True,
-            bbox=dict(boxstyle="round", facecolor="#e0f2fe",
-                       edgecolor="black"))
-    y_pos = 0.6
-    for i, label in enumerate(["Bước 1", "Bước 2", "Bước 3"]):
-        ax.text(0.5, y_pos, label, ha="center", va="center",
-                fontsize=10,
-                bbox=dict(boxstyle="round", facecolor="#fef3c7",
-                           edgecolor="black"))
-        if i < 2:
-            ax.annotate("", xy=(0.5, y_pos - 0.06),
-                        xytext=(0.5, y_pos - 0.14),
-                        arrowprops=dict(arrowstyle="->",
-                                          color="black"))
-        y_pos -= 0.2
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-
-
-def _ve_khuong_nhac(ax):
-    """Vẽ khuông nhạc 5 dòng + vài nốt."""
-    for i in range(5):
-        ax.plot([0, 8], [i * 0.3, i * 0.3], "k-", linewidth=0.8)
-    notes = [(1, 0.6), (2, 0.9), (3, 0.3), (4, 0.6), (5, 0.9)]
-    for x, y in notes:
-        ax.plot(x, y, "ko", markersize=8)
-        ax.plot([x + 0.15, x + 0.15], [y, y + 0.6], "k-",
-                linewidth=1.2)
-    ax.set_xlim(-0.5, 8.5)
-    ax.set_ylim(-0.3, 2)
-
-
-def _ve_san_bong(ax):
-    """Vẽ sân bóng đá đơn giản."""
-    ax.add_patch(Rectangle((0, 0), 10, 6, fill=False,
-                            edgecolor="black", linewidth=1.5))
-    ax.plot([5, 5], [0, 6], "k-", linewidth=1)
-    ax.add_patch(Circle((5, 3), 0.8, fill=False,
-                         edgecolor="black", linewidth=1))
-    ax.add_patch(Rectangle((0, 2), 1.2, 2, fill=False,
-                            edgecolor="black", linewidth=1))
-    ax.add_patch(Rectangle((8.8, 2), 1.2, 2, fill=False,
-                            edgecolor="black", linewidth=1))
-    ax.set_xlim(-0.5, 10.5)
-    ax.set_ylim(-0.5, 6.5)
-
-
-def _ve_fallback(ax, mo_ta):
-    """Vẽ hình chữ nhật + ghi mô tả khi không nhận diện được."""
-    ax.add_patch(Rectangle((0.1, 0.1), 0.8, 0.8, fill=False,
-                            edgecolor="gray", linewidth=1.5,
-                            linestyle="--"))
-    ax.text(0.5, 0.5, mo_ta[:80], ha="center", va="center",
-            fontsize=10, wrap=True)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-
-
-def _ve_hinh(mo_ta):
-    """Wrapper — trả về bytes PNG hoặc None."""
-    return _ve_hinh_co_ban(mo_ta)
 
 
 # ============================================================
@@ -4665,19 +4087,49 @@ def _text_sang_eq_arg(text):
 
 def _chen_text_co_phan_so(paragraph, text, size=13,
                            bold=False, italic=False):
-    """Chèn text có chứa \\frac{}{} và [HÌNH: ...] vào paragraph."""
+    """Chèn text có chứa \\frac{}{} vào paragraph.
+
+    Đồng thời xử lý [Vẽ hình SGK.Tr X] → (GV chèn hình SGK tr.X)
+    """
     if not text:
         return
 
-    # XÓA $ và $$ triệt để TRƯỚC KHI xử lý
+    # XÓA $ và $$ triệt để
     text = text.replace("$$", "").replace("$", "")
 
-    # Xử lý [HÌNH: ...] — chèn ảnh vẽ
-    if "[HÌNH:" in text or "[hình:" in text.lower():
-        _chen_text_va_hinh(paragraph, text,
-                            size=size, bold=bold, italic=italic)
+    # Xử lý [Vẽ hình SGK.Tr X] → (GV chèn hình SGK tr.X)
+    pattern_hinh = re.compile(
+        r"\[Vẽ hình SGK\.Tr\s*(\d+)\]", re.IGNORECASE)
+    if pattern_hinh.search(text):
+        # Tách text theo pattern, chèn text + ghi chú
+        last_end = 0
+        for m in pattern_hinh.finditer(text):
+            before = text[last_end:m.start()]
+            if before:
+                _chen_text_phan_so_don_gian(
+                    paragraph, before, size=size,
+                    bold=bold, italic=italic)
+            # Ghi chú GV tự chèn
+            so_trang = m.group(1)
+            run_note = paragraph.add_run(
+                f"(GV chèn hình SGK tr.{so_trang})")
+            _set_run_font(run_note, size, bold=False, italic=True)
+            last_end = m.end()
+        after = text[last_end:]
+        if after:
+            _chen_text_phan_so_don_gian(
+                paragraph, after, size=size,
+                bold=bold, italic=italic)
         return
 
+    # Không có [Vẽ hình SGK.Tr X] → xử lý bình thường
+    _chen_text_phan_so_don_gian(paragraph, text, size=size,
+                                  bold=bold, italic=italic)
+
+
+def _chen_text_phan_so_don_gian(paragraph, text, size=13,
+                                  bold=False, italic=False):
+    """Chèn text có \\frac{}{} vào paragraph."""
     parts = _latex_frac_sang_eq(text)
 
     for loai, val in parts:
@@ -4709,50 +4161,8 @@ def _chen_text_co_phan_so(paragraph, text, size=13,
             r.append(fld_end)
 
 
-def _chen_text_va_hinh(paragraph, text, size=13,
-                        bold=False, italic=False):
-    """Xử lý text có [HÌNH: mô tả] — chèn ảnh vẽ vào paragraph."""
-    pattern = re.compile(r"\[HÌNH:\s*([^\]]+)\]", re.IGNORECASE)
-    last_end = 0
-
-    for m in pattern.finditer(text):
-        # Text trước [HÌNH: ...]
-        before = text[last_end:m.start()]
-        if before:
-            _chen_text_co_phan_so(paragraph, before,
-                                   size=size, bold=bold, italic=italic)
-
-        # Vẽ hình
-        mo_ta = m.group(1).strip()
-        img_bytes = _ve_hinh(mo_ta)
-        if img_bytes:
-            try:
-                run = paragraph.add_run()
-                run.add_picture(io.BytesIO(img_bytes),
-                                 width=Cm(7))
-                # Xuống dòng
-                paragraph.add_run().add_break()
-            except Exception:
-                run = paragraph.add_run(f"[Hình: {mo_ta}]")
-                _set_run_font(run, size, bold=bold, italic=italic)
-        else:
-            run = paragraph.add_run(f"[Hình: {mo_ta}]")
-            _set_run_font(run, size, bold=bold, italic=italic)
-
-        last_end = m.end()
-
-    # Text còn lại
-    after = text[last_end:]
-    if after:
-        _chen_text_co_phan_so(paragraph, after,
-                               size=size, bold=bold, italic=italic)
-
-
 def fix_math(text):
-    """Chuyển LaTeX đơn giản thành Unicode.
-
-    XÓA $ và $$ triệt để.
-    """
+    """Chuyển LaTeX đơn giản thành Unicode. XÓA $ và $$."""
     if not text:
         return text
 
@@ -4919,37 +4329,6 @@ def _set_table_borders(table, sz=6, color="000000"):
     tblPr.append(borders)
 
 
-def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
-    if not ds_anh:
-        return
-
-    for idx, img_bytes in enumerate(ds_anh):
-        try:
-            p = cell.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p.paragraph_format.space_before = Pt(2)
-            p.paragraph_format.space_after = Pt(2)
-            p.paragraph_format.first_line_indent = Inches(0)
-            p.paragraph_format.left_indent = Inches(0)
-            p.paragraph_format.right_indent = Inches(0)
-
-            width_cm = max_width_cm
-            if HAS_PIL:
-                try:
-                    img = Image.open(io.BytesIO(img_bytes))
-                    w_px, h_px = img.size
-                    if h_px > w_px * 1.5:
-                        width_cm = max_width_cm * 0.7
-                except Exception:
-                    width_cm = max_width_cm
-
-            run = p.add_run()
-            run.add_picture(io.BytesIO(img_bytes),
-                            width=Cm(width_cm))
-        except Exception:
-            continue
-
-
 def _la_dong_gv_hs(ln):
     if not ln:
         return False
@@ -4965,7 +4344,6 @@ def _chuan_hoa_dong_bang(ln):
     if not s:
         return ""
 
-    # Xóa $ nếu có
     s = s.replace("$", "")
 
     if _la_dong_gv_hs(s):
@@ -4981,9 +4359,8 @@ def _chuan_hoa_dong_bang(ln):
     return s
 
 
-def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
-                               ds_anh_o_nay):
-    """Ghi text + ảnh + hình vẽ vào cell."""
+def _ghi_text_vao_cell(cell, val, cur_align, is_header):
+    """Ghi text (không ảnh, không hình) vào cell."""
     align_map = {
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -4991,59 +4368,45 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
-    # Xóa $ và $$ triệt để
     val = val.replace("$$", "").replace("$", "")
 
     if is_header:
         p = cell.paragraphs[0]
         val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
         val = re.sub(r"^\d+[\.\)]\s+", "", val)
-        val = val.replace("**", "").replace("[ẢNH]", "")
-        val = re.sub(r"\[HÌNH:[^\]]+\]", "", val, flags=re.IGNORECASE)
+        val = val.replace("**", "")
         val = val.strip()
         run = p.add_run(val)
         _set_run_font(run, 13, bold=True)
         return
 
-    # Kiểm tra có ảnh chụp hoặc hình vẽ
-    co_anh_chup = "[ẢNH]" in val
-    co_hinh_ve = bool(re.search(r"\[HÌNH:[^\]]+\]", val,
-                                  re.IGNORECASE))
+    val = _tach_dong_trong_o(val)
+    lines_clean = []
+    for ln in val.split("\n"):
+        ln2 = _chuan_hoa_dong_bang(ln)
+        ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
+        if ln2:
+            lines_clean.append(ln2)
 
-    if not co_anh_chup and not co_hinh_ve:
-        # Text thuần
-        val = _tach_dong_trong_o(val)
-        lines_clean = []
-        for ln in val.split("\n"):
-            ln2 = _chuan_hoa_dong_bang(ln)
-            ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
-            if ln2:
-                lines_clean.append(ln2)
+    first = True
+    for line_content in lines_clean:
+        if first:
+            target_p = cell.paragraphs[0]
+            first = False
+        else:
+            target_p = cell.add_paragraph()
+            target_p.paragraph_format.line_spacing_rule = \
+                WD_LINE_SPACING.SINGLE
+            target_p.paragraph_format.space_before = Pt(2)
+            target_p.paragraph_format.space_after = Pt(2)
+            target_p.paragraph_format.first_line_indent = Inches(0)
+            target_p.paragraph_format.left_indent = Inches(0)
+            target_p.paragraph_format.right_indent = Inches(0)
 
-        first = True
-        for line_content in lines_clean:
-            if first:
-                target_p = cell.paragraphs[0]
-                first = False
-            else:
-                target_p = cell.add_paragraph()
-                target_p.paragraph_format.line_spacing_rule = \
-                    WD_LINE_SPACING.SINGLE
-                target_p.paragraph_format.space_before = Pt(2)
-                target_p.paragraph_format.space_after = Pt(2)
-                target_p.paragraph_format.first_line_indent = Inches(0)
-                target_p.paragraph_format.left_indent = Inches(0)
-                target_p.paragraph_format.right_indent = Inches(0)
+        target_p.alignment = align_map.get(
+            cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-            target_p.alignment = align_map.get(
-                cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
-
-            _ghi_mot_dong_vao_para(target_p, line_content)
-        return
-
-    # Có ảnh chụp hoặc hình vẽ → xử lý
-    _ghi_text_anh_hinh_vao_cell(cell, val, cur_align,
-                                  ds_anh_o_nay, align_map)
+        _ghi_mot_dong_vao_para(target_p, line_content)
 
 
 def _ghi_mot_dong_vao_para(paragraph, line_content):
@@ -5076,102 +4439,6 @@ def _ghi_mot_dong_vao_para(paragraph, line_content):
     # Dòng thường
     _chen_text_co_phan_so(paragraph, line_content,
                            size=13, bold=False, italic=False)
-
-
-def _ghi_text_anh_hinh_vao_cell(cell, val, cur_align,
-                                  ds_anh_o_nay, align_map):
-    """Xử lý ô có [ẢNH] và/hoặc [HÌNH: ...]."""
-    # Tách val theo [ẢNH] và [HÌNH: ...]
-    pattern = re.compile(
-        r"(\[ẢNH\]|\[HÌNH:[^\]]+\])", re.IGNORECASE)
-    parts = pattern.split(val)
-
-    first_para = True
-    for part in parts:
-        if not part:
-            continue
-
-        if part == "[ẢNH]":
-            if ds_anh_o_nay:
-                img_bytes = ds_anh_o_nay.pop(0)
-                try:
-                    p_anh = cell.add_paragraph()
-                    p_anh.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    p_anh.paragraph_format.space_before = Pt(2)
-                    p_anh.paragraph_format.space_after = Pt(2)
-                    p_anh.paragraph_format.first_line_indent = Inches(0)
-                    p_anh.paragraph_format.left_indent = Inches(0)
-                    p_anh.paragraph_format.right_indent = Inches(0)
-
-                    width_cm = 6.5
-                    if HAS_PIL:
-                        try:
-                            img = Image.open(io.BytesIO(img_bytes))
-                            w_px, h_px = img.size
-                            if h_px > w_px * 1.5:
-                                width_cm = 6.5 * 0.7
-                        except Exception:
-                            width_cm = 6.5
-
-                    run = p_anh.add_run()
-                    run.add_picture(io.BytesIO(img_bytes),
-                                     width=Cm(width_cm))
-                except Exception:
-                    pass
-            continue
-
-        m_hinh = re.match(r"\[HÌNH:\s*([^\]]+)\]", part,
-                            re.IGNORECASE)
-        if m_hinh:
-            mo_ta = m_hinh.group(1).strip()
-            img_bytes = _ve_hinh(mo_ta)
-            try:
-                p_h = cell.add_paragraph()
-                p_h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_h.paragraph_format.space_before = Pt(2)
-                p_h.paragraph_format.space_after = Pt(2)
-                p_h.paragraph_format.first_line_indent = Inches(0)
-                p_h.paragraph_format.left_indent = Inches(0)
-                p_h.paragraph_format.right_indent = Inches(0)
-
-                if img_bytes:
-                    run = p_h.add_run()
-                    run.add_picture(io.BytesIO(img_bytes),
-                                     width=Cm(6.5))
-                else:
-                    run = p_h.add_run(f"[Hình: {mo_ta}]")
-                    _set_run_font(run, 11, italic=True)
-            except Exception:
-                pass
-            continue
-
-        # Text thường
-        val_clean = _tach_dong_trong_o(part)
-        lines_clean = []
-        for ln in val_clean.split("\n"):
-            ln2 = _chuan_hoa_dong_bang(ln)
-            ln2 = re.sub(r"\s{2,}", " ", ln2).strip()
-            if ln2:
-                lines_clean.append(ln2)
-
-        for line_content in lines_clean:
-            if first_para:
-                target_p = cell.paragraphs[0]
-                first_para = False
-            else:
-                target_p = cell.add_paragraph()
-                target_p.paragraph_format.line_spacing_rule = \
-                    WD_LINE_SPACING.SINGLE
-                target_p.paragraph_format.space_before = Pt(2)
-                target_p.paragraph_format.space_after = Pt(2)
-                target_p.paragraph_format.first_line_indent = Inches(0)
-                target_p.paragraph_format.left_indent = Inches(0)
-                target_p.paragraph_format.right_indent = Inches(0)
-
-            target_p.alignment = align_map.get(
-                cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
-
-            _ghi_mot_dong_vao_para(target_p, line_content)
 
 
 def add_para(doc, text, align="justify", size=14,
@@ -5241,17 +4508,12 @@ def _tach_dong_trong_o(val):
     val = re.sub(r"(?<!^)(?<!\n)(?=\s*-\s*(?:GV|HS)\s*[:\-\.])",
                  "\n", val)
 
-    # Tách trước [HÌNH:
-    val = re.sub(r"(?<!^)(?<!\n)(?=\[HÌNH:)", "\n", val,
-                 flags=re.IGNORECASE)
-
     raw_lines = [ln.strip() for ln in val.split("\n") if ln.strip()]
     merged = []
     for ln in raw_lines:
         if not ln:
             continue
-        if _la_dong_gv_hs(ln) or re.match(r"^\*\*\s*Bước", ln) \
-                or re.match(r"^\[HÌNH:", ln, re.IGNORECASE):
+        if _la_dong_gv_hs(ln) or re.match(r"^\*\*\s*Bước", ln):
             merged.append(ln)
             continue
         if merged and len(ln) < 12 \
@@ -5264,7 +4526,7 @@ def _tach_dong_trong_o(val):
 
 
 def add_table(doc, rows, style="grid", col_aligns=None,
-              header_aligns=None, anh_cot_2=None):
+              header_aligns=None):
     if not rows:
         return
 
@@ -5307,8 +4569,6 @@ def add_table(doc, rows, style="grid", col_aligns=None,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
-    _ds_anh_con_lai = list(anh_cot_2) if anh_cot_2 else []
-
     for i, row in enumerate(rows):
         for j in range(n):
             c = t.cell(i, j)
@@ -5328,19 +4588,7 @@ def add_table(doc, rows, style="grid", col_aligns=None,
                                          WD_ALIGN_PARAGRAPH.JUSTIFY)
 
             val = row[j] if j < len(row) else ""
-
-            if (not is_header and j == 1 and "[ẢNH]" in val):
-                _so_anh_can = val.count("[ẢNH]")
-                _anh_o_nay = []
-                for _k in range(_so_anh_can):
-                    if _ds_anh_con_lai:
-                        _anh_o_nay.append(_ds_anh_con_lai.pop(0))
-
-                _ghi_text_va_anh_vao_cell(
-                    c, val, cur_align, is_header, _anh_o_nay)
-            else:
-                _ghi_text_va_anh_vao_cell(
-                    c, val, cur_align, is_header, [])
+            _ghi_text_vao_cell(c, val, cur_align, is_header)
 
 
 def _add_heading(doc, text, size=14):
@@ -5475,10 +4723,7 @@ def _add_heading(doc, text, size=14):
     return p
 
 
-def write_content_to_doc(d, content, ds_anh_phan_loai=None):
-    if ds_anh_phan_loai is None:
-        ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
-
+def write_content_to_doc(d, content):
     content = content.replace("$$", "").replace("$", "")
     content = re.sub(r"^\s*BẢNG\s*2\s*CỘT\s*:?\s*$", "",
                      content, flags=re.MULTILINE)
@@ -5550,20 +4795,9 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
                     if 2 <= len(cells) <= 4:
                         rows.append(cells)
                 if rows:
-                    so_bang += 1
-                    if so_bang == 1:
-                        anh_bang = ds_anh_phan_loai.get("hd1", [])
-                    elif so_bang == 2:
-                        anh_bang = ds_anh_phan_loai.get("hd2", [])
-                    elif so_bang == 3:
-                        anh_bang = ds_anh_phan_loai.get("hd3", [])
-                    else:
-                        anh_bang = []
-
                     add_table(d, rows, style="grid",
                               col_aligns=["justify", "justify"],
-                              header_aligns=["center", "center"],
-                              anh_cot_2=anh_bang)
+                              header_aligns=["center", "center"])
             i = j
             continue
 
@@ -5621,7 +4855,7 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
         i += 1
 
 
-def make_doc(title, body, subject_name="", ds_anh_phan_loai=None):
+def make_doc(title, body, subject_name=""):
     d = Document()
     s = d.sections[0]
     s.top_margin = Inches(0.7)
@@ -5644,7 +4878,7 @@ def make_doc(title, body, subject_name="", ds_anh_phan_loai=None):
     pf.space_before = Pt(2)
     pf.space_after = Pt(2)
 
-    write_content_to_doc(d, body, ds_anh_phan_loai=ds_anh_phan_loai)
+    write_content_to_doc(d, body)
 
     b = io.BytesIO()
     d.save(b)
@@ -5652,10 +4886,10 @@ def make_doc(title, body, subject_name="", ds_anh_phan_loai=None):
 
 
 # ============================================================
-# SOẠN 1 BÀI
+# SOẠN NHIỀU BÀI — nhiều dòng, nút +/x
 # ============================================================
 st.divider()
-st.subheader("💬 Soạn 1 bài theo lệnh")
+st.subheader("💬 Soạn bài theo lệnh")
 
 _danh_sach_mon = list(SUBJECT_RULES.keys())
 _danh_sach_sgk = list_sgk_da_tach()
@@ -5670,43 +4904,76 @@ with _col2:
         value=st.session_state["memory"].get("default_grade", "6"),
         key="chon_lop_soan")
 with _col3:
-    _tiet_chon = st.text_input("⏱️ Số tiết", value="1",
-                                key="chon_tiet_soan")
+    _tiet_chon_default = st.text_input("⏱️ Số tiết mặc định", value="1",
+                                        key="chon_tiet_soan")
 
-if _danh_sach_sgk:
-    with st.expander("🔍 Tra cứu tên bài SGK", expanded=False):
-        _sgk_tc = st.selectbox("Chọn SGK",
-                                [s["sgk_name"] for s in _danh_sach_sgk],
-                                key="tc_sgk_sel")
-        _ds_ten_tc = list_ten_bai(_sgk_tc)
-        if _ds_ten_tc:
-            _filter = st.text_input("Lọc theo tên bài", value="",
-                                     key="tc_filter")
-            _opts_tc = [""] + [t for t in _ds_ten_tc
-                                if not _filter or
-                                _filter.lower() in t.lower()]
-            _chon_bai = st.selectbox(
-                "Chọn bài để điền vào ô Lệnh",
-                _opts_tc,
-                key="chon_bai_dien")
-            if _chon_bai:
-                st.session_state["single_cmd"] = _chon_bai
-                st.success(f"✅ Đã điền: **{_chon_bai}**")
+_sgk_name_can = suggest_sgk_name(_mon_chon, _lop_chon)
+_meta_sgk_chon = load_sgk_metadata(_sgk_name_can)
+if _meta_sgk_chon:
+    st.caption(f"📚 SGK đã nạp: **{_sgk_name_can}** — "
+               f"{_meta_sgk_chon.get('so_bai', 0)} bài")
+else:
+    st.warning(f"⚠️ Chưa có SGK: **{_sgk_name_can}**. "
+               "Vào tab **📥 Nạp SGK** để nạp trước.")
+
+# ===== DANH SÁCH BÀI CẦN SOẠN =====
+st.markdown("#### 📝 Danh sách bài cần soạn")
+
+if "nhieu_bai_rows" not in st.session_state:
+    st.session_state["nhieu_bai_rows"] = [
+        {"ten_bai": "", "so_tiet": _tiet_chon_default},
+    ]
+
+_rows = st.session_state["nhieu_bai_rows"]
+
+for _i in range(len(_rows)):
+    _row = _rows[_i]
+    _c1, _c2, _c3, _c4 = st.columns([5, 1.2, 0.6, 0.6])
+    with _c1:
+        _row["ten_bai"] = st.text_input(
+            f"Bài {_i+1}",
+            value=_row.get("ten_bai", ""),
+            placeholder="VD: Ước chung lớn nhất",
+            key=f"nhieu_ten_{_i}",
+            label_visibility="collapsed",
+        )
+    with _c2:
+        _row["so_tiet"] = st.text_input(
+            "Số tiết",
+            value=_row.get("so_tiet", _tiet_chon_default),
+            key=f"nhieu_tiet_{_i}",
+            label_visibility="collapsed",
+        )
+    with _c3:
+        # Nút thêm dòng mới ngay dưới dòng này
+        if st.button("➕", key=f"nhieu_them_{_i}",
+                     use_container_width=True):
+            _rows.insert(_i + 1,
+                         {"ten_bai": "",
+                          "so_tiet": _tiet_chon_default})
+            st.rerun()
+    with _c4:
+        # Nút xóa dòng này (chỉ cho xóa nếu > 1 dòng)
+        if len(_rows) > 1:
+            if st.button("❌", key=f"nhieu_xoa_{_i}",
+                         use_container_width=True):
+                _rows.pop(_i)
+                st.rerun()
         else:
-            st.info("SGK này chưa có bài nào.")
+            st.write("")
 
-_rules = SUBJECT_RULES.get(_mon_chon, {})
-if _rules:
-    _kh = _rules.get("ky_hieu", "")
-    if _kh:
-        st.markdown(
-            f"<div style='background:#e0f7ff; padding:8px 14px; "
-            f"border-radius:8px; border-left:4px solid #0ea5e9; "
-            f"margin-bottom:8px;'>"
-            f"<b style='font-size:16px;'>{_kh}</b> "
-            f"<b>Môn {_mon_chon}</b></div>",
-            unsafe_allow_html=True)
+# Nút thêm dòng ở cuối
+_c_add1, _c_add2 = st.columns([1, 4])
+with _c_add1:
+    if st.button("➕ Thêm bài", key="nhieu_them_cuoi",
+                 use_container_width=True):
+        _rows.append({"ten_bai": "",
+                      "so_tiet": _tiet_chon_default})
+        st.rerun()
 
+st.caption(f"📊 Tổng: **{len(_rows)}** bài chờ soạn")
+
+# ===== TÙY CHỌN TÍCH HỢP =====
 st.markdown("#### 🔗 Tùy chọn tích hợp")
 _tich_hop_chon = st.radio(
     "Mục 4. Tích hợp (Năng lực số / AI):",
@@ -5728,161 +4995,242 @@ if _tich_hop_chon == "Có tích hợp":
                      "- Sử dụng máy tính cầm tay để tính toán."),
     )
 
-cmd = st.text_area(
-    "Lệnh", height=100,
-    placeholder="VD: Soạn bài Ước chung lớn nhất",
-    label_visibility="collapsed",
-    key="single_cmd")
+# ===== NÚT SOẠN TẤT CẢ =====
+_btn_run_all = st.button("▶️ Soạn tất cả", type="primary",
+                          use_container_width=True,
+                          key="btn_soan_nhieu")
 
-_c_btn1, _c_btn2 = st.columns([3, 1])
-with _c_btn1:
-    _run_btn = st.button("▶️ Thực hiện", type="primary",
-                          use_container_width=True)
-with _c_btn2:
-    if st.button("🗑️ Xóa", use_container_width=True, key="clear_single"):
-        st.session_state["draft"] = ""
-        st.rerun()
+if _btn_run_all:
+    # Lọc các dòng có tên bài
+    _ds_bai_can = []
+    for _r in st.session_state["nhieu_bai_rows"]:
+        _ten = (_r.get("ten_bai", "") or "").strip()
+        if _ten:
+            _ds_bai_can.append({
+                "ten_bai": _ten,
+                "so_tiet": _r.get("so_tiet", "1") or "1",
+            })
 
-if _run_btn and cmd.strip():
-    _errors = []
+    if not _ds_bai_can:
+        st.warning("⚠️ Chưa có bài nào để soạn. Nhập tên bài trước.")
+    elif not (USE_OLLAMA and _check_ollama()) \
+            and not available_providers:
+        st.error("❌ Chưa có AI nào (Ollama hoặc API key).")
+    else:
+        _mau = get_mau_dang_dung()
+        _ok_mau, _msg_mau = kiem_tra_mau_5512(_mau.get("cau_truc", ""))
+        if not _ok_mau:
+            st.error("❌ Mẫu 5512 không đạt: " + _msg_mau)
+        else:
+            _progress = st.progress(0)
+            _status = st.empty()
+            _results = []
+            _total = len(_ds_bai_can)
+            _ok_count = 0
+            _loi_count = 0
 
-    if not (USE_OLLAMA and _check_ollama()) and not available_providers:
-        _errors.append("❌ Chưa có AI nào (Ollama hoặc API key).")
+            for _idx, _b in enumerate(_ds_bai_can):
+                _ten = _b["ten_bai"]
+                _status.write(
+                    f"🤖 Đang soạn {_idx+1}/{_total}: **{_ten[:50]}**"
+                )
+                _progress.progress(int(_idx / _total * 100))
 
-    _mau = get_mau_dang_dung()
-    _ok_mau, _msg_mau = kiem_tra_mau_5512(_mau.get("cau_truc", ""))
-    if not _ok_mau:
-        _errors.append("❌ Mẫu 5512 không đạt: " + _msg_mau)
+                sgk_excerpt = ""
+                bai_tim_duoc = None
+                if _meta_sgk_chon:
+                    bai_tim_duoc = find_bai_by_name(
+                        _sgk_name_can, _ten)
+                    if bai_tim_duoc:
+                        text = ocr_bai_pdf(
+                            _sgk_name_can, bai_tim_duoc["file"])
+                        if text:
+                            sgk_excerpt = (
+                                f"\n=== "
+                                f"{bai_tim_duoc.get('ten_bai', '')} "
+                                f"===\n{text}"
+                            )
 
-    _sgk_name_can = suggest_sgk_name(_mon_chon, _lop_chon)
-    _meta_sgk = load_sgk_metadata(_sgk_name_can)
-    if not _meta_sgk:
-        _errors.append(
-            f"⚠️ Chưa có SGK: **{_sgk_name_can}**. "
-            "Vẫn có thể soạn nhưng nội dung sẽ chung chung hơn.")
+                _plan = {
+                    "task": "Soạn kế hoạch bài dạy",
+                    "subject": _mon_chon,
+                    "grade": _lop_chon,
+                    "topic": _ten,
+                    "period": _b["so_tiet"],
+                    "sgk_excerpt": sgk_excerpt[:8000],
+                    "tich_hop_chon": (_tich_hop_chon == "Có tích hợp"),
+                    "tich_hop_noi_dung": _tich_hop_noi_dung,
+                }
+                _prompt = build_exec_prompt(_plan)
 
-    if _errors:
-        for e in _errors:
-            if e.startswith("⚠️"):
-                st.warning(e)
+                try:
+                    _result = call_ai(_prompt)
+                    if _result:
+                        _results.append({
+                            "ten_bai": _ten,
+                            "so_tiet": _b["so_tiet"],
+                            "content": _result,
+                            "ok": True,
+                        })
+                        save_history(
+                            "Soạn bài " + _mon_chon, _ten, _result)
+                        _ok_count += 1
+                    else:
+                        _results.append({
+                            "ten_bai": _ten,
+                            "so_tiet": _b["so_tiet"],
+                            "content": "",
+                            "ok": False,
+                            "error": "AI không trả về nội dung",
+                        })
+                        _loi_count += 1
+                except Exception as _e:
+                    _results.append({
+                        "ten_bai": _ten,
+                        "so_tiet": _b["so_tiet"],
+                        "content": "",
+                        "ok": False,
+                        "error": str(_e),
+                    })
+                    _loi_count += 1
+
+            _progress.progress(100)
+            _status.write("✅ Hoàn tất!")
+            st.session_state["nhieu_bai_results"] = _results
+
+            if _ok_count > 0:
+                st.success(
+                    f"✅ Đã soạn xong **{_ok_count}/{_total}** bài. "
+                    f"❌ Lỗi: **{_loi_count}**.")
+                st.balloons()
             else:
-                st.error(e)
+                st.error(
+                    f"❌ Không soạn được bài nào. Lỗi: {_loi_count}.")
 
-    if not any(e.startswith("❌") for e in _errors):
-        sgk_excerpt = ""
-        bai_tim_duoc = None
-        ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
+# ===== HIỂN THỊ KẾT QUẢ =====
+if st.session_state.get("nhieu_bai_results"):
+    _kq_all = st.session_state["nhieu_bai_results"]
+    _ok_all = [r for r in _kq_all if r["ok"]]
 
-        with st.spinner("📖 Đang tìm bài trong SGK..."):
-            if _meta_sgk:
-                bai_tim_duoc = find_bai_by_name(_sgk_name_can, cmd.strip())
+    if _ok_all:
+        st.divider()
+        st.subheader("📄 Kết quả")
 
-        if bai_tim_duoc:
-            st.info(
-                f"📖 Tìm thấy bài: **{bai_tim_duoc.get('ten_bai', '')}**"
+        # Gộp tất cả vào 1 file Word
+        _d_gop = Document()
+        _s_gop = _d_gop.sections[0]
+        _s_gop.top_margin = Inches(0.7)
+        _s_gop.bottom_margin = Inches(0.7)
+        _s_gop.left_margin = Inches(0.8)
+        _s_gop.right_margin = Inches(0.8)
+
+        _style_gop = _d_gop.styles["Normal"]
+        _style_gop.font.name = "Times New Roman"
+        _style_gop.font.size = Pt(14)
+        _rpr_gop = _style_gop.element.get_or_add_rPr()
+        _rfonts_gop = _rpr_gop.find(qn("w:rFonts"))
+        if _rfonts_gop is None:
+            _rfonts_gop = _rpr_gop.makeelement(qn("w:rFonts"), {})
+            _rpr_gop.append(_rfonts_gop)
+        for _at in ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"]:
+            _rfonts_gop.set(qn(_at), "Times New Roman")
+        _pf_gop = _style_gop.paragraph_format
+        _pf_gop.line_spacing_rule = WD_LINE_SPACING.SINGLE
+        _pf_gop.space_before = Pt(2)
+        _pf_gop.space_after = Pt(2)
+
+        _so_bai_da_ghi = 0
+        for _r in _ok_all:
+            if _so_bai_da_ghi == 0:
+                _d_gop.add_page_break()
+            else:
+                _d_gop.add_paragraph("")
+                _d_gop.add_paragraph("")
+
+            _so_bai_da_ghi += 1
+
+            _tieude = _d_gop.add_paragraph()
+            _tieude.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _tieude.paragraph_format.space_before = Pt(6)
+            _tieude.paragraph_format.space_after = Pt(6)
+            _run_tieude = _tieude.add_run(
+                f"KẾ HOẠCH BÀI DẠY: {_r['ten_bai']}")
+            _set_run_font(_run_tieude, 15, bold=True)
+
+            _p_lop = _d_gop.add_paragraph()
+            _p_lop.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _p_lop.paragraph_format.space_before = Pt(2)
+            _p_lop.paragraph_format.space_after = Pt(6)
+            _run_lop = _p_lop.add_run(
+                f"Môn: {_mon_chon} | Lớp: {_lop_chon}")
+            _set_run_font(_run_lop, 13, bold=False)
+
+            write_content_to_doc(_d_gop, _r["content"])
+
+        _b_gop = io.BytesIO()
+        _d_gop.save(_b_gop)
+
+        # Nút tải
+        _safe_gop = re.sub(
+            r"[^A-Za-z0-9_\-]", "_",
+            f"{_mon_chon}_Lop{_lop_chon}"
+        )[:45] or "tai_lieu"
+
+        _d1, _d2 = st.columns(2)
+        with _d1:
+            st.download_button(
+                f"⬇️ Tải Word ({len(_ok_all)} bài gộp)",
+                _b_gop.getvalue(),
+                file_name=_safe_gop + ".docx",
+                mime=("application/vnd.openxmlformats-officedocument."
+                      "wordprocessingml.document"),
+                type="primary",
+                use_container_width=True,
+                key="nhieu_dl_word",
             )
-            with st.spinner("📖 Đang lấy nội dung SGK..."):
-                text = ocr_bai_pdf(_sgk_name_can, bai_tim_duoc["file"])
-                if text:
-                    sgk_excerpt = (
-                        f"\n=== {bai_tim_duoc.get('ten_bai', '')} ===\n"
-                        f"{text}"
+        with _d2:
+            _txt_gop = ""
+            for _r in _ok_all:
+                _txt_gop += (
+                    f"\n\n{'='*60}\n"
+                    f"KẾ HOẠCH BÀI DẠY: {_r['ten_bai']}\n"
+                    f"Môn: {_mon_chon} | Lớp: {_lop_chon}\n"
+                    f"{'='*60}\n\n"
+                    f"{_r['content']}"
+                )
+            st.download_button(
+                f"⬇️ Tải TXT ({len(_ok_all)} bài gộp)",
+                _txt_gop.encode("utf-8"),
+                file_name=_safe_gop + ".txt",
+                mime="text/plain",
+                use_container_width=True,
+                key="nhieu_dl_txt",
+            )
+
+        # Chi tiết từng bài
+        st.markdown("### 📑 Chi tiết từng bài")
+        for _idx, _r in enumerate(_kq_all):
+            _icon = "✅" if _r["ok"] else "❌"
+            with st.expander(
+                f"{_icon} {_r['ten_bai'][:60]}",
+                expanded=False,
+            ):
+                if _r["ok"]:
+                    st.text_area(
+                        "Nội dung (có thể sửa)",
+                        _r["content"],
+                        height=300,
+                        key=f"nhieu_edit_{_idx}",
                     )
                 else:
-                    st.warning("⚠️ Không đọc được nội dung bài.")
+                    st.error(
+                        "Lỗi: "
+                        + _r.get("error", "Không rõ nguyên nhân"))
 
-            with st.spinner("🖼️ Đang lấy ảnh từ SGK..."):
-                try:
-                    _ds_anh = chup_anh_tu_pdf(
-                        _sgk_name_can, bai_tim_duoc["file"],
-                        max_anh=6)
-                    if _ds_anh:
-                        ds_anh_phan_loai = phan_loai_anh_theo_hoat_dong(
-                            _ds_anh, max_moi_hd=2)
-                        _so_anh = (len(ds_anh_phan_loai["hd1"]) +
-                                    len(ds_anh_phan_loai["hd2"]) +
-                                    len(ds_anh_phan_loai["hd3"]))
-                        st.success(
-                            f"🖼️ Đã lấy **{_so_anh}** ảnh từ SGK "
-                            f"(HĐ1: {len(ds_anh_phan_loai['hd1'])}, "
-                            f"HĐ2: {len(ds_anh_phan_loai['hd2'])}, "
-                            f"HĐ3: {len(ds_anh_phan_loai['hd3'])})"
-                        )
-                    else:
-                        st.caption("ℹ️ Bài này không có ảnh trong SGK.")
-                except Exception as _e_anh:
-                    st.caption(f"⚠️ Không lấy được ảnh: {_e_anh}")
-
-        elif _meta_sgk:
-            st.warning(
-                f"⚠️ Không tìm thấy bài **{cmd}** trong SGK "
-                f"`{_sgk_name_can}`. Vẫn soạn nhưng không có nguồn SGK."
-            )
-
-        with st.spinner("🤖 Đang sinh giáo án..."):
-            _plan = {
-                "task": "Soạn kế hoạch bài dạy",
-                "subject": _mon_chon,
-                "grade": _lop_chon,
-                "topic": cmd,
-                "period": _tiet_chon,
-                "sgk_excerpt": sgk_excerpt[:8000],
-                "tich_hop_chon": (_tich_hop_chon == "Có tích hợp"),
-                "tich_hop_noi_dung": _tich_hop_noi_dung,
-            }
-            _prompt = build_exec_prompt(_plan)
-            try:
-                _result = call_ai(_prompt)
-                if _result:
-                    st.session_state["draft"] = _result
-                    st.session_state["last_topic"] = (
-                        _mon_chon + " - " + cmd
-                    )
-                    st.session_state["draft_anh"] = ds_anh_phan_loai
-                    save_history("Soạn bài " + _mon_chon, cmd, _result)
-                    st.success("✅ Đã soạn xong!")
-            except Exception as e:
-                st.error("❌ Lỗi AI: " + str(e))
-
-if st.session_state.get("draft"):
-    st.divider()
-    st.subheader("📄 Kết quả")
-
-    content = st.session_state["draft"]
-    ds_anh_draft = st.session_state.get("draft_anh",
-                                         {"hd1": [], "hd2": [], "hd3": []})
-
-    safe_name = re.sub(
-        r"[^A-Za-z0-9_\-]", "_",
-        st.session_state.get("last_topic", "tai_lieu")
-    )[:45] or "tai_lieu"
-
-    _d1, _d2 = st.columns(2)
-    with _d1:
-        st.download_button(
-            "⬇️ Tải Word",
-            make_doc("Tài liệu", content,
-                     subject_name=_mon_chon,
-                     ds_anh_phan_loai=ds_anh_draft),
-            file_name=safe_name + ".docx",
-            mime=("application/vnd.openxmlformats-officedocument."
-                  "wordprocessingml.document"),
-            type="primary",
-            use_container_width=True,
-        )
-    with _d2:
-        st.download_button(
-            "⬇️ Tải TXT",
-            content.encode("utf-8"),
-            file_name=safe_name + ".txt",
-            mime="text/plain",
-            use_container_width=True,
-        )
-
-    st.session_state["draft"] = st.text_area(
-        "Nội dung (có thể sửa)", content,
-        height=500, key="edit_draft",
-    )
+        # Nút xóa kết quả
+        if st.button("🗑️ Xóa kết quả", key="nhieu_clear_kq"):
+            st.session_state["nhieu_bai_results"] = []
+            st.rerun()
 
 
 # ============ KẾT THÚC PHẦN 5/6 ============
@@ -6775,7 +6123,6 @@ if st.session_state["lich_bao_giang"]:
                 )
                 _sgk_excerpt_row = ""
                 _ten_bai_row = _b.get("ten_bai", "").strip()
-                _anh_row = {"hd1": [], "hd2": [], "hd3": []}
 
                 _bai_row = None
                 if _ten_bai_row:
@@ -6790,16 +6137,6 @@ if st.session_state["lich_bao_giang"]:
                             f"\n=== {_bai_row.get('ten_bai', '')} ===\n"
                             f"{_text_row}"
                         )
-
-                    try:
-                        _ds_anh_row = chup_anh_tu_pdf(
-                            _sgk_name_row, _bai_row["file"],
-                            max_anh=6)
-                        if _ds_anh_row:
-                            _anh_row = phan_loai_anh_theo_hoat_dong(
-                                _ds_anh_row, max_moi_hd=2)
-                    except Exception:
-                        pass
 
                 _plan_row = {
                     "task": "Soạn kế hoạch bài dạy",
@@ -6821,7 +6158,6 @@ if st.session_state["lich_bao_giang"]:
                             "bai_gop": _b,
                             "content": _result_row,
                             "ok": True,
-                            "anh": _anh_row,
                         })
                         save_history(
                             f"Soạn bài {_b.get('mon', '')}",
@@ -6834,7 +6170,6 @@ if st.session_state["lich_bao_giang"]:
                             "bai_gop": _b,
                             "content": "",
                             "ok": False,
-                            "anh": _anh_row,
                             "error": "AI không trả về nội dung",
                         })
                 except Exception as _e:
@@ -6843,7 +6178,6 @@ if st.session_state["lich_bao_giang"]:
                         "bai_gop": _b,
                         "content": "",
                         "ok": False,
-                        "anh": _anh_row,
                         "error": str(_e),
                     })
 
@@ -6935,10 +6269,7 @@ if st.session_state.get("weekly_results"):
                         f"Lớp: {_lop_str}")
                     _set_run_font(_run_lop, 13, bold=False)
 
-                    _anh_row_w = _r.get("anh",
-                                        {"hd1": [], "hd2": [], "hd3": []})
-                    write_content_to_doc(_d_tuan, _r["content"],
-                                          ds_anh_phan_loai=_anh_row_w)
+                    write_content_to_doc(_d_tuan, _r["content"])
 
             _b_tuan = io.BytesIO()
             _d_tuan.save(_b_tuan)
@@ -7043,10 +6374,7 @@ if st.session_state.get("weekly_results"):
                     st.download_button(
                         "⬇️ Tải Word bài này",
                         make_doc("Tài liệu", _edited,
-                                 subject_name=_bg.get("mon", ""),
-                                 ds_anh_phan_loai=_r.get(
-                                     "anh",
-                                     {"hd1": [], "hd2": [], "hd3": []})),
+                                 subject_name=_bg.get("mon", "")),
                         file_name=f"{_safe_name_row}.docx",
                         mime=("application/vnd.openxmlformats-"
                               "officedocument.wordprocessingml."
@@ -7077,7 +6405,7 @@ st.divider()
 with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
     st.markdown(
         """
-        **🧠 Trợ lý Giáo viên THCS — Phiên bản 3.0**
+        **🧠 Trợ lý Giáo viên THCS — Phiên bản 3.1**
 
         - **Mẫu:** CV 5512 chuẩn Bộ GD&ĐT
         - **AI cloud:** Gemini / Mistral / Groq / T-Box / OpenRouter
@@ -7085,10 +6413,13 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         - **Lưu trữ:** GitHub
         - **Môn hỗ trợ:** 12 môn THCS
         - **Đặc trưng 4 bước:** riêng cho từng môn
-        - **Ảnh minh họa:** từ SGK, chèn theo [ẢNH]
         - **Phân số:** dùng LaTeX \\frac{}{} → Word render phân số dọc
         - **Cột GV/HS:** mỗi hành động `- GV:` / `- HS:` 1 dòng,
           viết liền sau dấu hai chấm
+        - **Hình vẽ:** AI đánh dấu `[Vẽ hình SGK.Tr X]` →
+          Word hiển thị `(GV chèn hình SGK tr.X)`
+        - **Soạn nhiều bài:** bấm ➕ thêm dòng, ❌ xóa dòng,
+          gộp tất cả vào 1 file Word
 
         **📚 Quy trình soạn tuần:**
 
@@ -7099,7 +6430,7 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         5. **Tải Word** → File gồm:
            - Phiếu báo giảng (trang 1 → hết)
            - Các giáo án **nối tiếp nhau** (không trống trang)
-           - **Ảnh từ SGK** chèn vào bước cần
+           - Ghi chú `(GV chèn hình SGK tr.X)` tại chỗ cần hình
         """
     )
 
