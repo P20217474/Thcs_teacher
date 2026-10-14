@@ -1572,7 +1572,7 @@ c) Tổ chức thực hiện và sản phẩm:
 # ============================================================
 KY_HIEU_MON = {
     "Toán": (
-        "Phân số: a/b (VD: 3/4). "
+        "Phân số: dùng LaTeX \\frac{a}{b} (VD: \\frac{3}{4}). "
         "Số mũ: x², x³, xⁿ. Chỉ số dưới: x₁, a₁. "
         "Căn: √x, ∛x. "
         "So sánh: ≤, ≥, ≠, ≈, <, >. "
@@ -1602,6 +1602,7 @@ KY_HIEU_MON = {
         "Ký hiệu hóa học: H₂O, CO₂, O₂, NaCl, HCl. "
         "Mũi tên phản ứng: →. "
         "Điều kiện: t° (nhiệt độ), ↑ (khí), ↓ (kết tủa). "
+        "Phân số: dùng LaTeX \\frac{a}{b} (VD: \\frac{1}{2}). "
         "Số mũ: ², ³, ⁺, ⁻, ₂, ₃."
     ),
     "Lịch sử": (
@@ -1634,7 +1635,8 @@ KY_HIEU_MON = {
     "Âm nhạc": (
         "Nốt nhạc: Đồ, Rê, Mi, Pha, Son, La, Si. "
         "Ký hiệu: ♪, ♫, ♬, ♩, ♭ (giáng), ♯ (thăng), ♮ (bình). "
-        "Số chỉ nhịp: 2/4, 3/4, 4/4, 6/8."
+        "Số chỉ nhịp: dùng LaTeX \\frac{2}{4}, \\frac{3}{4}, "
+        "\\frac{4}{4}, \\frac{6}{8}."
     ),
     "Giáo dục thể chất": (
         "Động tác: chạy, nhảy, ném, bắt, đá. "
@@ -2147,13 +2149,16 @@ def get_mau_dang_dung():
 
 
 # ============================================================
-# BUILD PROMPT — CHUẨN MỚI: ÉP AI SINH ĐÚNG FORMAT - GV: / - HS:
+# BUILD PROMPT — CHUẨN MỚI
+#   - GV/HS viết liền 1 dòng (không xuống dòng sau dấu hai chấm)
+#   - Sản phẩm: lời giải chi tiết / biểu diễn kiến thức / [SGK tr...]
+#   - Phân số dùng LaTeX \frac{}{} → Word render thành phân số dọc
+#   - Mục tiêu 1,2,3,4 đậm nghiêng có số
 # ============================================================
 def build_exec_prompt(plan):
     """Xây prompt 5512 theo mẫu chuẩn mới."""
     mem = st.session_state["memory"]
 
-    # 1. Tra môn
     ten_mon_input = plan.get("subject", "") or \
         mem.get("default_subject", "")
     matched_key, rules = get_subject_rules(ten_mon_input)
@@ -2202,7 +2207,6 @@ def build_exec_prompt(plan):
     p.append("- Số tiết: " + str(plan.get("period", "1")))
     p.append("")
 
-    # Đặc trưng môn
     p.append("=== ĐẶC TRƯNG MÔN " + ten_mon_chuan.upper() + " ===")
     p.append("Ký hiệu: " + rules.get("ky_hieu", ""))
     p.append("Năng lực riêng: " +
@@ -2215,7 +2219,6 @@ def build_exec_prompt(plan):
         p.append("KHÔNG NÊN: " + rules["khong_nen"])
     p.append("")
 
-    # Đặc trưng 4 bước
     if dac_trung:
         p.append("=== ĐẶC TRƯNG 4 BƯỚC MÔN " +
                  ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
@@ -2233,7 +2236,6 @@ def build_exec_prompt(plan):
         p.append("   Ví dụ: " + dac_trung.get("vi_du_4", ""))
         p.append("")
 
-    # Quy tắc chèn ảnh
     if dac_trung:
         p.append("=== QUY TẮC CHÈN ẢNH MINH HỌA MÔN " +
                  ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
@@ -2254,26 +2256,45 @@ def build_exec_prompt(plan):
         p.append("- KHÔNG đánh dấu ở bước Kết luận")
         p.append("")
 
-    # Ký hiệu môn
     if ky_hieu_mon:
         p.append("=== KÝ HIỆU UNICODE CHO MÔN " +
                  ten_mon_chuan.upper() + " ===")
         p.append(ky_hieu_mon)
         p.append("")
 
-    # Quy tắc trình bày ký hiệu
+    # ============================================================
+    # QUY TẮC TRÌNH BÀY KÝ HIỆU — PHÂN SỐ DÙNG LaTeX \frac{}{}
+    # ============================================================
     p.append("=== QUY TẮC TRÌNH BÀY KÝ HIỆU (BẮT BUỘC) ===")
-    p.append("🚫 TUYỆT ĐỐI KHÔNG dùng LaTeX:")
-    p.append("   - KHÔNG viết \\frac{3}{4} → viết 3/4")
+    p.append("")
+    p.append("🚫 TUYỆT ĐỐI KHÔNG dùng dấu gạch chéo cho phân số:")
+    p.append("   - KHÔNG viết 3/4")
+    p.append("   - KHÔNG viết 23/20")
+    p.append("   - KHÔNG viết (a+b)/(c-d)")
+    p.append("")
+    p.append("✅ PHÂN SỐ BẮT BUỘC dùng LaTeX \\frac{}{}:")
+    p.append("   - Viết: \\frac{3}{4}")
+    p.append("   - Viết: \\frac{23}{20}")
+    p.append("   - Viết: \\frac{x^2+1}{2y-3}")
+    p.append("   - Viết: \\frac{a+b}{c-d}")
+    p.append("   - Viết: \\frac{1}{2} + \\frac{2}{3}")
+    p.append("")
+    p.append("   (Word sẽ tự render thành phân số tử trên / "
+             "gạch ngang / mẫu dưới)")
+    p.append("")
+    p.append("🚫 Các LaTeX khác KHÔNG dùng:")
     p.append("   - KHÔNG viết \\text{km} → viết km")
     p.append("   - KHÔNG viết \\times → viết ×")
+    p.append("   - KHÔNG viết \\div → viết ÷")
     p.append("   - KHÔNG viết x^{2} → viết x²")
     p.append("   - KHÔNG viết x_{1} → viết x₁")
     p.append("   - KHÔNG viết \\sqrt{x} → viết √x")
     p.append("   - KHÔNG viết $...$ hoặc $$...$$")
     p.append("")
-    p.append("✅ DÙNG UNICODE trực tiếp:")
-    p.append("   - Phân số: 3/4, 15/20, (a+b)/2")
+    p.append("   ⚠️ NGOẠI LỆ: \\frac{}{} là LaTeX DUY NHẤT được dùng")
+    p.append("   cho phân số.")
+    p.append("")
+    p.append("✅ DÙNG UNICODE trực tiếp cho các ký hiệu khác:")
     p.append("   - Số mũ: x², x³, xⁿ, 10⁶")
     p.append("   - Chỉ số dưới: x₁, a₂, H₂O, CO₂")
     p.append("   - Căn: √x, ∛x, √(a+b)")
@@ -2286,7 +2307,6 @@ def build_exec_prompt(plan):
     p.append("   - Đơn vị: km, cm, m, kg, g, L, mL, °C, km/h")
     p.append("")
 
-    # Nguồn SGK
     if sgk_text and len(sgk_text.strip()) > 50:
         p.append("=== NGUỒN SGK (BẮT BUỘC DÙNG) ===")
         p.append(sgk_text)
@@ -2294,7 +2314,8 @@ def build_exec_prompt(plan):
         p.append("⚠️ CHỈ ĐƯỢC VIẾT NỘI DUNG CÓ TRONG SGK Ở TRÊN.")
         p.append("⚠️ KHÔNG suy diễn từ tên chương, tên bài.")
         p.append("⚠️ KHÔNG thêm ký hiệu toán nếu SGK không có.")
-        p.append("⚠️ Nếu SGK không cung cấp → ghi '[SGK không cung cấp]'.")
+        p.append("⚠️ Nếu SGK không cung cấp → ghi "
+                 "'[SGK không cung cấp]'.")
         p.append("")
     else:
         p.append("=== ⚠️ CẢNH BÁO: KHÔNG CÓ NỘI DUNG SGK ===")
@@ -2311,12 +2332,10 @@ def build_exec_prompt(plan):
         p.append("5. Mục tiêu viết CHUNG CHUNG, không cụ thể số liệu.")
         p.append("")
 
-    # Cấu trúc 5512
     p.append("=== CẤU TRÚC 5512 (BẮT BUỘC) ===")
     p.append(mau_text)
     p.append("")
 
-    # Tiêu đề bài dạy
     p.append("=== TIÊU ĐỀ BÀI DẠY (DÙNG ĐÚNG FORMAT) ===")
     tieu_de = topic
     tieu_de += " (" + str(plan.get("period", "1")) + " tiết)"
@@ -2327,14 +2346,28 @@ def build_exec_prompt(plan):
              str(plan.get("period", "1")) + " tiết)**")
     p.append("")
 
-    # Tên HĐ2
     p.append("=== HOẠT ĐỘNG 2 PHẢI ĐẶT TÊN: ===")
     p.append("**2. Hoạt động 2: " + hd2_title + "**")
     p.append("")
 
-    # Quy tắc chung
+    # ============================================================
+    # QUY TẮC MỤC TIÊU 1,2,3,4 ĐẬM NGHIÊNG CÓ SỐ
+    # ============================================================
+    p.append("=== QUY TẮC MỤC I. MỤC TIÊU (BẮT BUỘC) ===")
+    p.append("")
+    p.append("Mục I. Mục tiêu PHẢI có đúng 4 mục con, "
+             "ĐẬM + NGHIÊNG + CÓ SỐ ở đầu:")
+    p.append("")
+    p.append("**1. Kiến thức trọng tâm:** <nội dung>")
+    p.append("**2. Năng lực:** <nội dung>")
+    p.append("**3. Phẩm chất:** <nội dung>")
+    p.append("**4. Tích hợp:** <nội dung>")
+    p.append("")
+    p.append("→ 4 dòng này PHẢI in đậm + in nghiêng + có số 1,2,3,4")
+    p.append("")
+
     p.append("=== QUY TẮC BẮT BUỘC ===")
-    p.append("1. Mục I (Mục tiêu) có 4 phần:")
+    p.append("1. Mục I (Mục tiêu) có 4 phần (đậm + nghiêng + số):")
     p.append("   1. Kiến thức trọng tâm: ...")
     p.append("   2. Năng lực: ...")
     p.append("   3. Phẩm chất: ...")
@@ -2367,7 +2400,6 @@ def build_exec_prompt(plan):
 
     p.append("5. Mục c) là BẢNG 2 CỘT: "
              "| Hoạt động của GV và HS | Sản phẩm |")
-    p.append("   - Cột Sản phẩm phải CHI TIẾT, bám sát SGK")
     p.append("")
 
     p.append("6. TUYỆT ĐỐI KHÔNG BỊA kiến thức không có trong SGK.")
@@ -2383,9 +2415,10 @@ def build_exec_prompt(plan):
     p.append("9. KHÔNG có phần 'Hướng dẫn về nhà' cuối bài.")
     p.append("")
 
-    p.append("10. VỀ CÔNG THỨC TOÁN VÀ KÝ HIỆU:")
-    p.append("   - Viết phân số dạng a/b, KHÔNG dùng dấu gạch ngang")
-    p.append("   - Viết số mũ dạng Unicode x², KHÔNG dùng x^2")
+    p.append("10. VỀ PHÂN SỐ VÀ KÝ HIỆU:")
+    p.append("   - Phân số BẮT BUỘC dùng LaTeX: \\frac{3}{4}")
+    p.append("   - KHÔNG dùng gạch chéo 3/4")
+    p.append("   - Số mũ dạng Unicode x², KHÔNG dùng x^2")
     p.append("   - Đơn vị viết liền sau số: 60 km/h, 5 kg, 100 °C")
     p.append("")
 
@@ -2397,19 +2430,22 @@ def build_exec_prompt(plan):
     p.append("    - 'Chúc các em học tốt'")
     p.append("")
 
-    # 4 bước
     p.append("12. MỖI BẢNG 2 CỘT PHẢI CÓ ĐÚNG 4 DÒNG (4 BƯỚC):")
     p.append("")
     p.append("| Hoạt động của GV và HS | Sản phẩm |")
     p.append("|---|---|")
-    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>... | ... |")
-    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>... | ... |")
-    p.append("| **Bước 3: Báo cáo, thảo luận**<br>... | ... |")
-    p.append("| **Bước 4: Kết luận, nhận định**<br>... | ... |")
+    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>- GV: ...<br>"
+             "- HS: ... | ... |")
+    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>- GV: ...<br>"
+             "- HS: ... | ... |")
+    p.append("| **Bước 3: Báo cáo, thảo luận**<br>- GV: ...<br>"
+             "- HS: ... | ... |")
+    p.append("| **Bước 4: Kết luận, nhận định**<br>- GV: ...<br>"
+             "- HS: ... | ... |")
     p.append("")
 
     # ============================================================
-    # QUY TẮC VIẾT CỘT "HOẠT ĐỘNG CỦA GV VÀ HS" (BẮT BUỘC)
+    # QUY TẮC VIẾT CỘT "HOẠT ĐỘNG CỦA GV VÀ HS"
     # ============================================================
     p.append("13. QUY TẮC VIẾT CỘT 'Hoạt động của GV và HS' "
              "(BẮT BUỘC):")
@@ -2417,74 +2453,127 @@ def build_exec_prompt(plan):
     p.append("    Trong mỗi bước, mỗi hành động GV/HS phải:")
     p.append("    1. Bắt đầu bằng dấu gạch đầu dòng '- '")
     p.append("    2. Theo sau là 'GV:' hoặc 'HS:'")
-    p.append("    3. Mỗi hành động 1 dòng riêng, dùng <br> để xuống dòng")
+    p.append("    3. NỘI DUNG VIẾT LIỀN SAU DẤU HAI CHẤM "
+             "(không xuống dòng)")
+    p.append("    4. Mỗi hành động 1 dòng riêng, dùng <br> để xuống dòng")
     p.append("")
     p.append("    Ví dụ ĐÚNG:")
-    p.append("    - GV: Yêu cầu HS nhắc lại quy tắc.<br>")
-    p.append("    - GV: Ghi ví dụ 3/4 + 2/5 lên bảng.<br>")
-    p.append("    - HS: Nhắc lại quy tắc.<br>")
-    p.append("    - HS: Ghi ví dụ vào vở.")
+    p.append("    - GV: Cho HS nhắc lại định nghĩa phân số.<br>")
+    p.append("    - GV: Nêu ví dụ về phép tính với phân số.<br>")
+    p.append("    - HS: Nhắc lại định nghĩa phân số.<br>")
+    p.append("    - HS: Đọc ví dụ về phép tính với phân số.")
     p.append("")
-    p.append("    Ví dụ SAI:")
-    p.append("    ❌ GV: Yêu cầu HS nhắc lại quy tắc. "
-             "HS: Nhắc lại quy tắc.")
-    p.append("    ❌ GV yêu cầu HS nhắc lại quy tắc "
-             "(thiếu dấu - và thiếu GV:)")
+    p.append("    Ví dụ SAI (xuống dòng sau dấu hai chấm):")
+    p.append("    ❌ - GV:")
+    p.append("       Cho HS nhắc lại định nghĩa phân số.")
+    p.append("")
+    p.append("    Ví dụ SAI (viết gộp):")
+    p.append("    ❌ GV: Cho HS nhắc lại. HS: Nhắc lại.")
+    p.append("")
+    p.append("    Ví dụ SAI (thiếu dấu -):")
+    p.append("    ❌ GV Cho HS nhắc lại định nghĩa.")
     p.append("")
     p.append("    🚫 CẤM viết chung chung:")
     p.append("      ❌ 'GV tổng kết tiết học'")
     p.append("      ❌ 'HS ghi chú lại kiến thức'")
     p.append("      ❌ 'GV yêu cầu HS thực hiện nhiệm vụ'")
-    p.append("      ❌ 'HS thực hiện nhiệm vụ'")
-    p.append("      ❌ 'GV hướng dẫn HS'")
-    p.append("      ❌ 'HS thảo luận nhóm'")
     p.append("")
     p.append("    ✅ PHẢI viết cụ thể:")
-    p.append("      ✅ '- GV: Yêu cầu HS nhắc lại quy tắc ...'")
-    p.append("      ✅ '- GV: Ghi ví dụ 3/4 + 2/5 lên bảng'")
-    p.append("      ✅ '- GV: Gọi 2 HS lên bảng trình bày'")
-    p.append("      ✅ '- HS: Đọc SGK tr.25, ghi công thức vào vở'")
-    p.append("      ✅ '- HS: Làm bài tập 1, so sánh với bạn'")
-    p.append("      ✅ '- HS: Trả lời câu hỏi của GV'")
+    p.append("      ✅ '- GV: Yêu cầu HS nhắc lại quy tắc cộng hai "
+             "phân số.'")
+    p.append("      ✅ '- GV: Ghi ví dụ \\frac{3}{4} + \\frac{2}{5} "
+             "lên bảng.'")
+    p.append("      ✅ '- GV: Gọi 2 HS lên bảng trình bày.'")
+    p.append("      ✅ '- HS: Đọc SGK tr.25, ghi công thức vào vở.'")
+    p.append("      ✅ '- HS: Làm bài tập 1, so sánh với bạn.'")
     p.append("")
     p.append("    Mỗi bước PHẢI có CẢ GV và HS (không chỉ 1 bên).")
     p.append("")
 
     # ============================================================
-    # VÍ DỤ MẪU BẢNG 4 BƯỚC (BẮT BUỘC COPY FORMAT)
+    # QUY TẮC CỘT "SẢN PHẨM"
     # ============================================================
-    p.append("14. VÍ DỤ MẪU BẢNG ĐÚNG CHUẨN (BẮT BUỘC COPY FORMAT):")
+    p.append("14. QUY TẮC VIẾT CỘT 'Sản phẩm' (BẮT BUỘC):")
+    p.append("")
+    p.append("    Cột Sản phẩm phải ghi 1 trong 3 dạng sau:")
+    p.append("")
+    p.append("    (A) LỜI GIẢI CHI TIẾT — trình bày đầy đủ các bước")
+    p.append("        Ví dụ:")
+    p.append("        - Lời giải bài tập 1:")
+    p.append("        a) \\frac{3}{4} + \\frac{2}{5} = "
+             "\\frac{15}{20} + \\frac{8}{20} = \\frac{23}{20}")
+    p.append("        b) \\frac{5}{6} - \\frac{1}{3} = "
+             "\\frac{5}{6} - \\frac{2}{6} = \\frac{3}{6} = "
+             "\\frac{1}{2}")
+    p.append("")
+    p.append("    (B) BIỂU DIỄN KIẾN THỨC CHI TIẾT — theo đặc trưng "
+             "từng bài, từng môn, từng kiểu bài")
+    p.append("        Ví dụ:")
+    p.append("        - Cách quy đồng mẫu số:")
+    p.append("        + Tìm bội chung nhỏ nhất của hai mẫu số.")
+    p.append("        + Chia BCNN cho từng mẫu để tìm thừa số phụ.")
+    p.append("        + Nhân cả tử và mẫu với thừa số phụ tương ứng.")
+    p.append("")
+    p.append("    (C) [SGK trang...] — nếu kiến thức có sẵn trong SGK "
+             "và không cần viết lại")
+    p.append("        Ví dụ: [SGK tr.25]")
+    p.append("")
+    p.append("    🚫 CẤM ghi chung chung:")
+    p.append("      ❌ 'HS nắm được cách quy đồng'")
+    p.append("      ❌ 'Kiến thức trọng tâm'")
+    p.append("      ❌ '...'")
+    p.append("      ❌ Để trống")
+    p.append("")
+
+    # ============================================================
+    # VÍ DỤ MẪU BẢNG 4 BƯỚC ĐÚNG CHUẨN
+    # ============================================================
+    p.append("15. VÍ DỤ MẪU BẢNG ĐÚNG CHUẨN (COPY FORMAT):")
     p.append("")
     p.append("| Hoạt động của GV và HS | Sản phẩm |")
     p.append("|---|---|")
-    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>"
-             "- GV: Yêu cầu HS nhắc lại quy tắc cộng hai phân số "
-             "khác mẫu.<br>"
-             "- GV: Ghi ví dụ 3/4 + 2/5 lên bảng.<br>"
-             "- HS: Nhắc lại quy tắc, ghi vào vở. | "
-             "- Quy tắc cộng hai phân số khác mẫu.<br>"
-             "- Ví dụ: 3/4 + 2/5 |")
-    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>"
-             "- GV: Yêu cầu HS làm bài tập 1 SGK tr.25.<br>"
-             "- GV: Quan sát, hỗ trợ HS gặp khó khăn.<br>"
-             "- HS: Làm bài vào vở, so sánh kết quả với bạn. | "
-             "- Lời giải bài tập 1:<br>"
-             "a) 3/4 + 2/5 = 23/20<br>"
-             "b) 5/6 - 1/3 = 1/2 |")
-    p.append("| **Bước 3: Báo cáo, thảo luận**<br>"
-             "- GV: Gọi 2 HS lên bảng trình bày.<br>"
-             "- GV: Yêu cầu HS khác nhận xét.<br>"
-             "- HS: 2 HS lên bảng làm bài.<br>"
-             "- HS: Nhận xét, bổ sung. | "
-             "- Lời giải đúng.<br>"
-             "- Nhận xét của HS khác. |")
-    p.append("| **Bước 4: Kết luận, nhận định**<br>"
-             "- GV: Chốt lại quy tắc cộng hai phân số khác mẫu.<br>"
-             "- GV: Lưu ý HS quy đồng mẫu số trước khi cộng.<br>"
-             "- HS: Ghi nhớ, ghi vào vở. | "
-             "- Kiến thức trọng tâm: Quy tắc cộng hai phân số "
-             "khác mẫu.<br>"
-             "- Lưu ý: quy đồng mẫu số trước khi cộng. |")
+    p.append(
+        "| **Bước 1: Chuyển giao nhiệm vụ**<br>"
+        "- GV: Cho HS nhắc lại định nghĩa phân số.<br>"
+        "- GV: Nêu ví dụ về phép tính với phân số.<br>"
+        "- HS: Nhắc lại định nghĩa phân số.<br>"
+        "- HS: Đọc ví dụ về phép tính với phân số. | "
+        "Cách quy đồng mẫu số:<br>"
+        "Tìm bội chung nhỏ nhất của hai mẫu số. |"
+    )
+    p.append(
+        "| **Bước 2: Thực hiện nhiệm vụ**<br>"
+        "- GV: Yêu cầu HS làm bài tập 1 SGK tr.25.<br>"
+        "- GV: Quan sát, hỗ trợ HS gặp khó khăn.<br>"
+        "- HS: Làm bài vào vở, so sánh kết quả với bạn. | "
+        "Lời giải bài tập 1:<br>"
+        "a) \\frac{3}{4} + \\frac{2}{5} = "
+        "\\frac{15}{20} + \\frac{8}{20} = \\frac{23}{20}<br>"
+        "b) \\frac{5}{6} - \\frac{1}{3} = "
+        "\\frac{5}{6} - \\frac{2}{6} = \\frac{3}{6} = "
+        "\\frac{1}{2} |"
+    )
+    p.append(
+        "| **Bước 3: Báo cáo, thảo luận**<br>"
+        "- GV: Gọi 2 HS lên bảng trình bày.<br>"
+        "- GV: Yêu cầu HS khác nhận xét.<br>"
+        "- HS: 2 HS lên bảng làm bài.<br>"
+        "- HS: Nhận xét, bổ sung. | "
+        "Lời giải đúng:<br>"
+        "a) \\frac{23}{20}<br>"
+        "b) \\frac{1}{2}<br>"
+        "Nhận xét của HS khác. |"
+    )
+    p.append(
+        "| **Bước 4: Kết luận, nhận định**<br>"
+        "- GV: Chốt lại quy tắc cộng hai phân số khác mẫu.<br>"
+        "- GV: Lưu ý HS quy đồng mẫu số trước khi cộng.<br>"
+        "- HS: Ghi nhớ, ghi vào vở. | "
+        "Quy tắc cộng hai phân số khác mẫu:<br>"
+        "Bước 1: Quy đồng mẫu số.<br>"
+        "Bước 2: Cộng tử, giữ nguyên mẫu.<br>"
+        "Bước 3: Rút gọn kết quả (nếu có). |"
+    )
     p.append("")
 
     return "\n".join(p)
@@ -4091,33 +4180,138 @@ with tab_match:
 # ============================================================
 # PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI + CHÈN ẢNH THEO [ẢNH]
 # ============================================================
-# Chức năng:
-#   - fix_math: chuyển LaTeX → Unicode tiếng Việt
-#   - _set_run_font, _set_table_borders
-#   - _ghi_text_va_anh_vao_cell: GHI TEXT + ẢNH, GIỮ dấu "- "
-#     cho dòng "- GV:" / "- HS:"
-#   - _tach_dong_trong_o: TÁCH dòng, GIỮ dấu "- " cho GV/HS
-#   - add_para, add_table, _add_heading
-#   - write_content_to_doc (chèn ảnh theo [ẢNH])
-#   - make_doc
-#   - Nút "Soạn 1 bài" + tùy chọn Tích hợp + chèn ảnh
+# Cập nhật:
+#   - Phân số LaTeX \frac{}{} → Field EQ của Word
+#   - GV/HS viết liền 1 dòng (không tách sau dấu hai chấm)
+#   - Mục tiêu 1,2,3,4 đậm nghiêng có số
 # ============================================================
+
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn as _qn
+
+
+# ============================================================
+# CHUYỂN LaTeX \frac{}{} → FIELD EQ CỦA WORD
+# ============================================================
+def _latex_frac_sang_eq(latex_str):
+    """Chuyển chuỗi LaTeX \\frac{a}{b} thành list các phần.
+
+    Trả về: [("text", "..."), ("eq", "\\F(a,b)"), ("text", "..."), ...]
+    Hỗ trợ \\frac lồng nhau.
+    """
+    if not latex_str:
+        return []
+
+    result = []
+    i = 0
+    n = len(latex_str)
+    buf = []
+
+    def _doc_arg(s, start):
+        """Đọc đối số trong {...} từ vị trí start (đã ở sau '{')."""
+        depth = 1
+        j = start
+        while j < len(s) and depth > 0:
+            if s[j] == "{":
+                depth += 1
+            elif s[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start:j], j + 1
+            j += 1
+        return s[start:], len(s)
+
+    while i < n:
+        if latex_str[i:i + 5] == "\\frac" and i + 5 < n \
+                and latex_str[i + 5] == "{":
+            if buf:
+                result.append(("text", "".join(buf)))
+                buf = []
+
+            tu, i = _doc_arg(latex_str, i + 6)
+            if i < n and latex_str[i] == "{":
+                mau, i = _doc_arg(latex_str, i + 1)
+                tu_eq = _text_sang_eq_arg(tu)
+                mau_eq = _text_sang_eq_arg(mau)
+                result.append(("eq", f"\\F({tu_eq},{mau_eq})"))
+            else:
+                buf.append("\\frac{" + tu + "}")
+            continue
+
+        buf.append(latex_str[i])
+        i += 1
+
+    if buf:
+        result.append(("text", "".join(buf)))
+
+    return result
+
+
+def _text_sang_eq_arg(text):
+    """Chuyển text LaTeX đơn giản thành tham số EQ."""
+    if not text:
+        return ""
+
+    parts = _latex_frac_sang_eq(text)
+    out = []
+    for loai, val in parts:
+        if loai == "eq":
+            out.append(val)
+        else:
+            out.append(val)
+
+    s = "".join(out)
+    s = s.replace("{", "").replace("}", "")
+    return s.strip()
+
+
+def _chen_text_co_phan_so(paragraph, text, size=13,
+                           bold=False, italic=False):
+    """Chèn text có chứa \\frac{}{} vào paragraph."""
+    if not text:
+        return
+
+    parts = _latex_frac_sang_eq(text)
+
+    for loai, val in parts:
+        if loai == "text":
+            if val:
+                run = paragraph.add_run(val)
+                _set_run_font(run, size, bold=bold, italic=italic)
+        elif loai == "eq":
+            run = paragraph.add_run()
+            _set_run_font(run, size, bold=bold, italic=italic)
+            r = run._r
+
+            fld_begin = OxmlElement("w:fldChar")
+            fld_begin.set(_qn("w:fldCharType"), "begin")
+
+            instr = OxmlElement("w:instrText")
+            instr.set(_qn("xml:space"), "preserve")
+            instr.text = f" EQ {val} "
+
+            fld_sep = OxmlElement("w:fldChar")
+            fld_sep.set(_qn("w:fldCharType"), "separate")
+
+            fld_end = OxmlElement("w:fldChar")
+            fld_end.set(_qn("w:fldCharType"), "end")
+
+            r.append(fld_begin)
+            r.append(instr)
+            r.append(fld_sep)
+            r.append(fld_end)
 
 
 def fix_math(text):
-    """Chuyển LaTeX đơn giản thành Unicode tiếng Việt."""
+    """Chuyển LaTeX đơn giản thành Unicode.
+
+    LƯU Ý: \\frac{}{} KHÔNG chuyển thành gạch chéo nữa.
+    Giữ nguyên để hàm _chen_text_co_phan_so xử lý.
+    """
     if not text:
         return text
 
-    # ============ PHÂN SỐ ============
-    for _ in range(5):
-        text_new = re.sub(
-            r"\\(?:d|t)?frac\{([^{}]+)\}\{([^{}]+)\}",
-            r"(\1)/(\2)", text
-        )
-        if text_new == text:
-            break
-        text = text_new
+    # KHÔNG ĐỤNG VÀO \frac{}{}
 
     # ============ CĂN ============
     for _ in range(3):
@@ -4231,9 +4425,8 @@ def fix_math(text):
     text = text.replace("\\(", "").replace("\\)", "")
     text = text.replace("\\[", "").replace("\\]", "")
 
-    # ============ DẤU \ CÒN SÓT ============
-    text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
-    text = re.sub(r"\\", "", text)
+    # ============ DẤU \ CÒN SÓT (trừ \frac) ============
+    text = re.sub(r"\\(?!frac)([a-zA-Z]+)", r"\1", text)
 
     # ============ DỌN KHOẢNG TRẮNG ============
     text = re.sub(r"[ \t]+", " ", text)
@@ -4260,8 +4453,6 @@ def _set_run_font(run, size=14, bold=False, italic=False):
 
 def _set_table_borders(table, sz=6, color="000000"):
     """Set viền đơn cho toàn bộ bảng."""
-    from docx.oxml import OxmlElement
-
     tbl = table._tbl
     tblPr = tbl.tblPr
 
@@ -4314,28 +4505,21 @@ def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
 
 
 def _la_dong_gv_hs(ln):
-    """Kiểm tra dòng có phải dòng 'GV:' hoặc 'HS:' không.
-
-    Trả về True nếu dòng bắt đầu bằng:
-    - GV: / GV : / GV. / GV -
-    - HS: / HS : / HS. / HS -
-    (sau khi đã strip dấu "- " hoặc "* " ở đầu)
-    """
+    """Kiểm tra dòng có phải '- GV:' / '- HS:' không."""
     if not ln:
         return False
     s = ln.strip()
-    # Bỏ dấu "- " hoặc "* " hoặc "+ " ở đầu
     s2 = re.sub(r"^[\-\+\*]\s*", "", s)
-    # Kiểm tra bắt đầu bằng GV: / HS: / GV. / HS.
     return bool(re.match(r"^(GV|HS)\s*[:\-\.]\s*", s2, re.IGNORECASE))
 
 
 def _chuan_hoa_dong_bang(ln):
     """Chuẩn hóa 1 dòng trong ô bảng.
 
-    - Nếu dòng là "- GV: ..." hoặc "- HS: ..." → GIỮ NGUYÊN dấu "- "
-    - Nếu dòng là "**Bước N: ...**" → GIỮ NGUYÊN
-    - Các dòng khác: bỏ dấu "- " / "* " / "•" ở đầu
+    - Dòng '- GV: ...' / '- HS: ...' → GIỮ dấu '- ' và nội dung
+      LIỀN sau dấu hai chấm
+    - Dòng '**Bước N: ...**' → giữ nguyên
+    - Các dòng khác: bỏ dấu đầu dòng
     """
     if not ln:
         return ""
@@ -4343,18 +4527,14 @@ def _chuan_hoa_dong_bang(ln):
     if not s:
         return ""
 
-    # ===== Dòng GV/HS → chuẩn hóa về "- GV:" / "- HS:" =====
     if _la_dong_gv_hs(s):
-        # Bỏ mọi dấu "- " / "* " cũ
         s2 = re.sub(r"^[\-\+\*]\s*", "", s)
-        # Đảm bảo bắt đầu bằng "- "
-        return "- " + s2
+        s2 = re.sub(r"^(GV|HS)\s*:\s*", r"\1: ", s2)
+        return "- " + s2.strip()
 
-    # ===== Dòng Bước → giữ nguyên =====
     if re.match(r"^\*\*\s*Bước\s*\d+\s*:", s, re.IGNORECASE):
         return s
 
-    # ===== Các dòng khác: bỏ dấu đầu dòng =====
     s = re.sub(r"^[\-\+\*\•\#]+\s*", "", s)
     s = re.sub(r"^\d+[\.\)]\s+", "", s)
     return s
@@ -4362,7 +4542,12 @@ def _chuan_hoa_dong_bang(ln):
 
 def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                                ds_anh_o_nay):
-    """Ghi text + ảnh vào cell. GIỮ dấu "- " cho dòng "- GV:" / "- HS:"."""
+    """Ghi text + ảnh vào cell.
+
+    - GIỮ dấu '- ' cho dòng '- GV:' / '- HS:'
+    - NỘI DUNG VIẾT LIỀN sau dấu hai chấm
+    - Chèn field EQ cho phân số \\frac{}{}
+    """
     align_map = {
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -4370,7 +4555,6 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
-    # ===== HEADER =====
     if is_header:
         p = cell.paragraphs[0]
         val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
@@ -4380,11 +4564,9 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
         _set_run_font(run, 13, bold=True)
         return
 
-    # ===== CÓ [ẢNH] =====
     co_anh = "[ẢNH]" in val
 
     if not co_anh:
-        # Ghi text bình thường
         val = _tach_dong_trong_o(val)
         lines_clean = []
         for ln in val.split("\n"):
@@ -4411,29 +4593,37 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
             target_p.alignment = align_map.get(
                 cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
-            # ===== Tách phần "**Bước N:**" ra để in đậm =====
+            # Dòng Bước → in đậm phần tiêu đề
             m_buoc = re.match(
                 r"^(\*\*Bước\s*\d+\s*:[^\*]*\*\*)(.*)$",
                 line_content, re.IGNORECASE | re.DOTALL)
             if m_buoc:
-                run1 = target_p.add_run(m_buoc.group(1).replace("**", ""))
+                run1 = target_p.add_run(
+                    m_buoc.group(1).replace("**", ""))
                 _set_run_font(run1, 13, bold=True)
                 rest = m_buoc.group(2)
                 if rest:
-                    run2 = target_p.add_run(rest)
-                    _set_run_font(run2, 13, bold=False)
+                    _chen_text_co_phan_so(
+                        target_p, rest, size=13,
+                        bold=False, italic=False)
             else:
-                for part in re.split(r"(\*\*[^\*]+\*\*)", line_content):
-                    if part.startswith("**") and part.endswith("**") \
-                            and len(part) > 4:
-                        run = target_p.add_run(part[2:-2])
-                        _set_run_font(run, 13, bold=True)
-                    else:
-                        run = target_p.add_run(part.replace("**", ""))
-                        _set_run_font(run, 13, bold=False)
+                # Dòng GV/HS → in đậm phần "GV:" / "HS:"
+                m_gvhs = re.match(
+                    r"^(\-\s*(?:GV|HS)\s*:\s*)(.*)$",
+                    line_content, re.IGNORECASE)
+                if m_gvhs:
+                    run1 = target_p.add_run(m_gvhs.group(1))
+                    _set_run_font(run1, 13, bold=True)
+                    _chen_text_co_phan_so(
+                        target_p, m_gvhs.group(2),
+                        size=13, bold=False, italic=False)
+                else:
+                    _chen_text_co_phan_so(
+                        target_p, line_content,
+                        size=13, bold=False, italic=False)
         return
 
-    # ===== CÓ [ẢNH]: chèn ảnh vào vị trí [ẢNH] =====
+    # ===== CÓ [ẢNH] =====
     _parts = re.split(r"(\[ẢNH\])", val)
 
     first_para = True
@@ -4500,26 +4690,34 @@ def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
                     _set_run_font(run1, 13, bold=True)
                     rest = m_buoc.group(2)
                     if rest:
-                        run2 = target_p.add_run(rest)
-                        _set_run_font(run2, 13, bold=False)
+                        _chen_text_co_phan_so(
+                            target_p, rest, size=13,
+                            bold=False, italic=False)
                 else:
-                    for p2 in re.split(r"(\*\*[^\*]+\*\*)", line_content):
-                        if p2.startswith("**") and p2.endswith("**") \
-                                and len(p2) > 4:
-                            run = target_p.add_run(p2[2:-2])
-                            _set_run_font(run, 13, bold=True)
-                        else:
-                            run = target_p.add_run(p2.replace("**", ""))
-                            _set_run_font(run, 13, bold=False)
+                    m_gvhs = re.match(
+                        r"^(\-\s*(?:GV|HS)\s*:\s*)(.*)$",
+                        line_content, re.IGNORECASE)
+                    if m_gvhs:
+                        run1 = target_p.add_run(m_gvhs.group(1))
+                        _set_run_font(run1, 13, bold=True)
+                        _chen_text_co_phan_so(
+                            target_p, m_gvhs.group(2),
+                            size=13, bold=False, italic=False)
+                    else:
+                        _chen_text_co_phan_so(
+                            target_p, line_content,
+                            size=13, bold=False, italic=False)
 
 
 def add_para(doc, text, align="justify", size=14,
              bold=False, italic=False, space=2):
-    """Thêm đoạn văn với canh lề + khoảng cách 2pt."""
+    """Thêm đoạn văn với canh lề + khoảng cách 2pt.
+
+    Hỗ trợ phân số \\frac{}{} → field EQ.
+    """
     if not text:
         return
 
-    text = fix_math(text)
     text = text.replace("<br>", "\n").replace("<br/>", "\n")
     text = text.replace("<br />", "\n")
 
@@ -4538,7 +4736,6 @@ def add_para(doc, text, align="justify", size=14,
         if not line:
             continue
 
-        # GIỮ dấu "- " nếu là dòng GV/HS
         if _la_dong_gv_hs(line):
             line = _chuan_hoa_dong_bang(line)
         else:
@@ -4552,6 +4749,9 @@ def add_para(doc, text, align="justify", size=14,
         if not line:
             continue
 
+        # Chuyển LaTeX ký hiệu (không đụng \frac)
+        line = fix_math(line)
+
         p = doc.add_paragraph()
         p.alignment = align_value
         p.paragraph_format.first_line_indent = \
@@ -4561,16 +4761,18 @@ def add_para(doc, text, align="justify", size=14,
         p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
         p.paragraph_format.space_before = Pt(space)
         p.paragraph_format.space_after = Pt(space)
-        run = p.add_run(line)
-        _set_run_font(run, size, bold=bold, italic=italic)
+
+        # Chèn text + phân số
+        _chen_text_co_phan_so(p, line, size=size,
+                               bold=bold, italic=italic)
 
 
 def _tach_dong_trong_o(val):
     """Tách nội dung 1 ô bảng thành nhiều dòng hợp lý.
 
-    GIỮ NGUYÊN dấu "- " cho dòng "- GV:" / "- HS:"
+    GIỮ NGUYÊN dấu '- ' cho dòng '- GV:' / '- HS:'
+    KHÔNG tách nội dung sau dấu hai chấm.
     """
-    val = fix_math(val)
     val = val.replace("<br>", "\n").replace("<br/>", "\n")
     val = val.replace("<br />", "\n")
     val = val.replace("[ẢNH]", "")
@@ -4582,15 +4784,6 @@ def _tach_dong_trong_o(val):
     val = re.sub(r"(?<!^)(?<!\n)(?=\s*-\s*(?:GV|HS)\s*[:\-\.])",
                  "\n", val)
 
-    chu_hoa = (r"[A-ZĐÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆ"
-               r"ÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰ"
-               r"ỲÝỶỸỴ]")
-    val = re.sub(r"([\.\!\?\:])\s+(?=" + chu_hoa + r")", r"\1\n", val)
-
-    keywords = ["Em hãy", "Vậy ", "Do đó", "Tuy nhiên", "Vì vậy"]
-    for kw in keywords:
-        val = re.sub(r"(?<=[\.\!\?])\s+" + re.escape(kw), "\n" + kw, val)
-
     raw_lines = [ln.strip() for ln in val.split("\n") if ln.strip()]
     merged = []
     for ln in raw_lines:
@@ -4600,7 +4793,6 @@ def _tach_dong_trong_o(val):
         if _la_dong_gv_hs(ln) or re.match(r"^\*\*\s*Bước", ln):
             merged.append(ln)
             continue
-        # Dòng ngắn mà dòng trước không phải GV/HS/Bước → gộp
         if merged and len(ln) < 12 \
                 and not _la_dong_gv_hs(merged[-1]) \
                 and not re.match(r"^\*\*\s*Bước", merged[-1]):
@@ -4692,11 +4884,15 @@ def add_table(doc, rows, style="grid", col_aligns=None,
 
 
 def _add_heading(doc, text, size=14):
-    """Thêm heading với định dạng đúng chuẩn."""
+    """Thêm heading với định dạng đúng chuẩn.
+
+    Hỗ trợ:
+    - Mục tiêu 1,2,3,4 → đậm + nghiêng + số
+    - Phân số \\frac{}{} → field EQ
+    """
     if not text:
         return
 
-    text = fix_math(text)
     text = re.sub(r"^[\*#\-\+\\]+\s*", "", text)
     text = text.rstrip("*").strip()
 
@@ -4719,6 +4915,7 @@ def _add_heading(doc, text, size=14):
     is_thoi_gian = bool(re.match(r"^Thời\s*gian\s*thực\s*hiện\s*:",
                                   text, re.I))
 
+    # ===== 3 DÒNG TIÊU ĐỀ 5512 =====
     if is_ten_bai or is_mon_hoc or is_thoi_gian:
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p.paragraph_format.first_line_indent = Inches(0)
@@ -4744,11 +4941,34 @@ def _add_heading(doc, text, size=14):
         run_label = p.add_run(label + " ")
         _set_run_font(run_label, size, bold=True)
         if content:
-            run_content = p.add_run(content)
-            _set_run_font(run_content, size, bold=False)
+            _chen_text_co_phan_so(p, content, size=size,
+                                   bold=False, italic=False)
         return p
 
-    # Mục a) b) c) — Nghiêng đậm, trái
+    # ===== MỤC TIÊU 1,2,3,4 → ĐẬM + NGHIÊNG + SỐ =====
+    m_muctieu = re.match(
+        r"^([1-4])\.\s*(Kiến thức trọng tâm|Năng lực|Phẩm chất|"
+        r"Tích hợp)\s*:\s*(.*)$",
+        text, re.IGNORECASE)
+    if m_muctieu:
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p.paragraph_format.first_line_indent = Inches(0.39)
+        p.paragraph_format.left_indent = Inches(0)
+        p.paragraph_format.right_indent = Inches(0)
+
+        so = m_muctieu.group(1)
+        ten = m_muctieu.group(2)
+        nd = m_muctieu.group(3)
+
+        run1 = p.add_run(f"{so}. {ten}: ")
+        _set_run_font(run1, size, bold=True, italic=True)
+
+        if nd:
+            _chen_text_co_phan_so(p, nd, size=size,
+                                   bold=False, italic=False)
+        return p
+
+    # ===== Mục a) b) c) =====
     if re.match(r"^[a-z]\)\s", text):
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p.paragraph_format.first_line_indent = Inches(0.39)
@@ -4767,15 +4987,15 @@ def _add_heading(doc, text, size=14):
             if content_part:
                 if not content_part.startswith(" "):
                     content_part = " " + content_part
-                run2 = p.add_run(content_part)
-                _set_run_font(run2, size, bold=False, italic=True)
+                _chen_text_co_phan_so(p, content_part, size=size,
+                                       bold=False, italic=True)
         else:
             clean = re.sub(r"\*\*", "", text).strip()
             run = p.add_run(clean)
             _set_run_font(run, size, bold=True, italic=True)
         return p
 
-    # Mục I, II, III — Đậm, trái
+    # ===== Mục I, II, III =====
     if re.match(r"^(I|II|III|IV|V)\.\s", text):
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p.paragraph_format.first_line_indent = Inches(0)
@@ -4785,7 +5005,7 @@ def _add_heading(doc, text, size=14):
         _set_run_font(run, size, bold=True)
         return p
 
-    # Mục 1. 2. 3. — Đậm, trái thụt vào
+    # ===== Mục 1. 2. 3. =====
     if re.match(r"^\d+\.\s+", text):
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         p.paragraph_format.first_line_indent = Inches(0.39)
@@ -4795,6 +5015,7 @@ def _add_heading(doc, text, size=14):
         _set_run_font(run, size, bold=True)
         return p
 
+    # ===== Heading thường =====
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.first_line_indent = Inches(0.39)
     p.paragraph_format.left_indent = Inches(0)
@@ -4809,7 +5030,6 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
     if ds_anh_phan_loai is None:
         ds_anh_phan_loai = {"hd1": [], "hd2": [], "hd3": []}
 
-    content = fix_math(content)
     content = re.sub(r"^\s*BẢNG\s*2\s*CỘT\s*:?\s*$", "",
                      content, flags=re.MULTILINE)
     content = re.sub(r"^\s*Bảng\s*2\s*cột\s*:?\s*$", "",
@@ -4911,17 +5131,29 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
             i += 1
             continue
 
+        # Mục I, II, III
         if re.match(r"^\*\*\s*(I|II|III|IV|V)\.\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
+        # Mục tiêu 1,2,3,4
+        if re.match(
+            r"^\*\*\s*[1-4]\.\s*(Kiến thức trọng tâm|Năng lực|"
+            r"Phẩm chất|Tích hợp)",
+            stripped, re.IGNORECASE):
+            _add_heading(d, stripped.replace("**", "").strip())
+            i += 1
+            continue
+
+        # Mục 1. 2. 3. 4. (khác mục tiêu)
         if re.match(r"^\*\*\s*\d+\.\s+[A-Za-zÀ-ỹ]", stripped) and \
            len(stripped) < 120:
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
             continue
 
+        # Mục a) b) c)
         if re.match(r"^\*\*\s*[a-z]\)\s+\S", stripped):
             _add_heading(d, stripped.replace("**", "").strip())
             i += 1
@@ -4976,7 +5208,7 @@ def make_doc(title, body, subject_name="", ds_anh_phan_loai=None):
 
 
 # ============================================================
-# SOẠN 1 BÀI — CÓ TÙY CHỌN TÍCH HỢP + CHÈN ẢNH SGK
+# SOẠN 1 BÀI
 # ============================================================
 st.divider()
 st.subheader("💬 Soạn 1 bài theo lệnh")
@@ -5031,7 +5263,7 @@ if _rules:
             f"<b>Môn {_mon_chon}</b></div>",
             unsafe_allow_html=True)
 
-# ===== TÙY CHỌN TÍCH HỢP =====
+# TÙY CHỌN TÍCH HỢP
 st.markdown("#### 🔗 Tùy chọn tích hợp")
 _tich_hop_chon = st.radio(
     "Mục 4. Tích hợp (Năng lực số / AI):",
@@ -5220,7 +5452,7 @@ st.subheader("📅 Soạn cả tuần + Lịch báo giảng")
 
 
 # ============================================================
-# HÀM GỘP BÀI TRÙNG — lưu ds_dong_goc
+# HÀM GỘP BÀI TRÙNG
 # ============================================================
 def _gop_lich_bao_giang(ds_rows):
     """Gộp các dòng trùng tên bài thành 1.
@@ -5286,7 +5518,6 @@ def _gop_lich_bao_giang(ds_rows):
 def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
                                ngay_bd, buoi, mem):
     """Tạo phiếu báo giảng Word theo mẫu chuẩn."""
-    from docx.oxml import OxmlElement
     from docx.shared import Cm
 
     d = Document()
@@ -5415,7 +5646,7 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     d.add_paragraph("")
 
     # ============================================================
-    # BẢNG 7 CỘT — DÙNG ds_dong_goc
+    # BẢNG 7 CỘT
     # ============================================================
     _HEADERS = ["Thứ\nngày,\ntháng", "Tiết\nTKB", "Lớp", "Môn",
                 "Tiết\nPP\nCT", "Tên bài", "Ghi\nchú"]
@@ -6412,7 +6643,9 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         - **Môn hỗ trợ:** 12 môn THCS
         - **Đặc trưng 4 bước:** riêng cho từng môn
         - **Ảnh minh họa:** từ SGK, chèn theo [ẢNH]
-        - **Cột GV/HS:** mỗi hành động `- GV:` / `- HS:` 1 dòng
+        - **Phân số:** dùng LaTeX \\frac{}{} → Word render phân số dọc
+        - **Cột GV/HS:** mỗi hành động `- GV:` / `- HS:` 1 dòng,
+          viết liền sau dấu hai chấm
 
         **📚 Quy trình soạn tuần:**
 
