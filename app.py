@@ -4261,14 +4261,7 @@ def _gop_lich_bao_giang(ds_rows):
 # ============================================================
 def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
                                ngay_bd, buoi, mem):
-    """Tạo phiếu báo giảng Word theo mẫu chuẩn.
-
-    - Header 2 cột: UBND + CHXHCNVN
-    - Tiêu đề: PHIẾU BÁO GIẢNG BUỔI ...
-    - Bảng 7 cột có viền, gộp ô cột "Thứ ngày, tháng"
-    - Center cho cột 1-5,7; Justify cho cột 6 (Tên bài)
-    - ĐỘ RỘNG CỘT KHÁC NHAU (không đều)
-    """
+    """Tạo phiếu báo giảng Word theo mẫu chuẩn."""
     from docx.oxml import OxmlElement
     from docx.shared import Cm
 
@@ -4301,7 +4294,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     hdr_table = d.add_table(rows=3, cols=2)
     hdr_table.autofit = True
 
-    # Xóa viền
     for row_obj in hdr_table.rows:
         for cell in row_obj.cells:
             tcPr = cell._tc.get_or_add_tcPr()
@@ -4408,11 +4400,12 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     _thu_order = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6",
                   "Thứ 7", "Chủ nhật"]
 
-    # Tạo danh sách dòng
+    # Tạo danh sách dòng theo từng thứ
     _ds_dong = []
     for _thu in _thu_order:
         _dong_cua_thu = []
         for _b in lich_bao_giang:
+            # Kiểm tra bài này có dạy vào _thu không
             if _thu not in _b.get("ds_thu", []):
                 continue
             _ds_lop = _b.get("ds_lop", [])
@@ -4458,19 +4451,15 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
         1.8,   # Cột 7: Ghi chú
     ]
 
-    # Tắt autofit để Word không tự co giãn
     _t.autofit = False
 
-    # Set độ rộng cho từng ô (Word yêu cầu set cả cell lẫn column)
     for _row in _t.rows:
         for _j, _cell in enumerate(_row.cells):
             _cell.width = Cm(_col_widths_cm[_j])
 
-    # Set độ rộng cho cột
     for _j, _col in enumerate(_t.columns):
         _col.width = Cm(_col_widths_cm[_j])
 
-    # Set tblLayout = "fixed" để Word không tự điều chỉnh
     _tblPr = _t._tbl.tblPr
     if _tblPr is not None:
         _layout = _tblPr.find(qn("w:tblLayout"))
@@ -4479,7 +4468,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
             _tblPr.append(_layout)
         _layout.set(qn("w:type"), "fixed")
 
-        # Set tổng độ rộng bảng
         _tblW = _tblPr.find(qn("w:tblW"))
         if _tblW is None:
             _tblW = _tblPr.makeelement(qn("w:tblW"), {})
@@ -4487,6 +4475,9 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
         _total_cm = sum(_col_widths_cm)
         _tblW.set(qn("w:w"), str(int(_total_cm * 567)))
         _tblW.set(qn("w:type"), "dxa")
+
+    # Set viền bao toàn bộ
+    _set_table_borders(_t, sz=6, color="000000")
 
     # Header
     for _j, _h in enumerate(_HEADERS):
@@ -4540,7 +4531,7 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
             _set_run_font(run, 13, bold=False)
 
     # ============================================================
-    # GỘP Ô CỘT "Thứ ngày, tháng"
+    # GỘP Ô CỘT "Thứ ngày, tháng" (sửa lỗi định dạng)
     # ============================================================
     for _thu in _thu_order:
         _cac_dong = [
@@ -4563,13 +4554,22 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
         p.paragraph_format.space_before = Pt(2)
         p.paragraph_format.space_after = Pt(2)
         p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+        p.paragraph_format.first_line_indent = Inches(0)
+        p.paragraph_format.left_indent = Inches(0)
+        p.paragraph_format.right_indent = Inches(0)
 
+        # Dòng 1: "Thứ X" — đậm
         run1 = p.add_run(f"{_thu}")
         _set_run_font(run1, 13, bold=True)
-        p.add_run().add_break()
+
+        # Xuống dòng bằng break trên run1
+        run1.add_break()
+
+        # Dòng 2: "dd/mm/yyyy" — thường
         run2 = p.add_run(_ngay_cua_thu.strftime("%d/%m/%Y"))
         _set_run_font(run2, 13, bold=False)
 
+        # Gộp ô
         if _dong_cuoi > _dong_dau:
             _cell_goc = _t.cell(_dong_dau, 0)
             _cell_cuoi = _t.cell(_dong_cuoi, 0)
@@ -4610,15 +4610,19 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
         _col_buoi = st.text_input("Cột Buổi",
                                    value="Buổi,Sáng/Chiều",
                                    key="lbg_col_buoi")
-        _col_thu = st.text_input("Cột Thứ",
-                                  value="Thứ,Thứ trong tuần,Ngày",
-                                  key="lbg_col_thu")
-        _col_tiet_tkb = st.text_input("Cột Tiết TKB",
-                                       value="Tiết TKB,Tiết,TKB",
-                                       key="lbg_col_tiet_tkb")
-        _col_tiet_ppct = st.text_input("Cột Tiết PPCT",
-                                        value="Tiết PPCT,PPCT,Tiết PP CT",
-                                        key="lbg_col_tiet_ppct")
+        _col_thu = st.text_input(
+            "Cột Thứ",
+            value="Thứ,Thứ trong tuần,Thứ ngày,Thứ ngày tháng,"
+                  "Thứ ngày, tháng,Thứ/ngày,Ngày",
+            key="lbg_col_thu")
+        _col_tiet_tkb = st.text_input(
+            "Cột Tiết TKB",
+            value="Tiết TKB,Tiết,TKB,Tiết thứ,Tiết TKB (Tiết)",
+            key="lbg_col_tiet_tkb")
+        _col_tiet_ppct = st.text_input(
+            "Cột Tiết PPCT",
+            value="Tiết PPCT,PPCT,Tiết PP CT,Tiết PPCT (Tiết)",
+            key="lbg_col_tiet_ppct")
         _col_mon = st.text_input("Cột Môn",
                                   value="Môn,Môn học,Subject",
                                   key="lbg_col_mon")
@@ -4649,9 +4653,11 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
     def _find_col(headers, candidates_csv):
         cands = [_norm_header(c) for c in candidates_csv.split(",")
                  if c.strip()]
+        # Ưu tiên khớp chính xác
         for i, h in enumerate(headers):
             if _norm_header(h) in cands:
                 return i
+        # Sau đó khớp mờ
         for i, h in enumerate(headers):
             hn = _norm_header(h)
             for c in cands:
@@ -4659,44 +4665,84 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                     return i
         return None
 
+    # ============ BẢNG CHUẨN HÓA "THỨ" (mở rộng) ============
     _THU_MAP = {
+        # Thứ 2
         "2": "Thứ 2", "thu 2": "Thứ 2", "thứ 2": "Thứ 2",
         "t2": "Thứ 2", "thu hai": "Thứ 2", "thứ hai": "Thứ 2",
-        "hai": "Thứ 2", "monday": "Thứ 2",
+        "hai": "Thứ 2", "monday": "Thứ 2", "mon": "Thứ 2",
+        "thu2": "Thứ 2", "thứ hai ": "Thứ 2",
+        # Thứ 3
         "3": "Thứ 3", "thu 3": "Thứ 3", "thứ 3": "Thứ 3",
         "t3": "Thứ 3", "thu ba": "Thứ 3", "thứ ba": "Thứ 3",
-        "ba": "Thứ 3",
+        "ba": "Thứ 3", "tuesday": "Thứ 3", "tue": "Thứ 3",
+        "thu3": "Thứ 3",
+        # Thứ 4
         "4": "Thứ 4", "thu 4": "Thứ 4", "thứ 4": "Thứ 4",
         "t4": "Thứ 4", "thu tu": "Thứ 4", "thứ tư": "Thứ 4",
-        "tư": "Thứ 4",
+        "tư": "Thứ 4", "tu": "Thứ 4",
+        "wednesday": "Thứ 4", "wed": "Thứ 4", "thu4": "Thứ 4",
+        # Thứ 5
         "5": "Thứ 5", "thu 5": "Thứ 5", "thứ 5": "Thứ 5",
         "t5": "Thứ 5", "thu nam": "Thứ 5", "thứ năm": "Thứ 5",
-        "năm": "Thứ 5",
+        "năm": "Thứ 5", "nam": "Thứ 5",
+        "thursday": "Thứ 5", "thu": "Thứ 5", "thu5": "Thứ 5",
+        # Thứ 6
         "6": "Thứ 6", "thu 6": "Thứ 6", "thứ 6": "Thứ 6",
         "t6": "Thứ 6", "thu sau": "Thứ 6", "thứ sáu": "Thứ 6",
-        "sáu": "Thứ 6",
+        "sáu": "Thứ 6", "sau": "Thứ 6",
+        "friday": "Thứ 6", "fri": "Thứ 6", "thu6": "Thứ 6",
+        # Thứ 7
         "7": "Thứ 7", "thu 7": "Thứ 7", "thứ 7": "Thứ 7",
         "t7": "Thứ 7", "thu bay": "Thứ 7", "thứ bảy": "Thứ 7",
-        "bảy": "Thứ 7",
+        "bảy": "Thứ 7", "bay": "Thứ 7",
+        "saturday": "Thứ 7", "sat": "Thứ 7", "thu7": "Thứ 7",
+        # Chủ nhật
         "cn": "Chủ nhật", "chunhat": "Chủ nhật",
-        "chủ nhật": "Chủ nhật", "sunday": "Chủ nhật",
+        "chủ nhật": "Chủ nhật", "chu nhat": "Chủ nhật",
+        "sunday": "Chủ nhật", "sun": "Chủ nhật",
     }
 
     def _chuan_hoa_thu(s):
+        """Chuẩn hóa 'Thứ' về dạng 'Thứ X'."""
         if not s:
             return "Thứ 2"
         raw = str(s).strip()
         key = _norm_header(raw)
-        if key.startswith("thu "):
-            key = key[4:]
+        if not key:
+            return "Thứ 2"
+
+        # Thử khớp trực tiếp
         if key in _THU_MAP:
             return _THU_MAP[key]
-        m = re.search(r"\d", raw)
+
+        # Bỏ tiền tố "thu "
+        if key.startswith("thu "):
+            key2 = key[4:]
+            if key2 in _THU_MAP:
+                return _THU_MAP[key2]
+
+        # Bỏ tiền tố "thứ "
+        if key.startswith("thứ "):
+            key2 = key[4:]
+            if key2 in _THU_MAP:
+                return _THU_MAP[key2]
+
+        # Tìm số trong chuỗi
+        m = re.search(r"[2-7]", raw)
         if m and m.group() in _THU_MAP:
             return _THU_MAP[m.group()]
+
+        # Tìm từ khóa trong chuỗi
+        for _k, _v in _THU_MAP.items():
+            if len(_k) >= 3 and _k in key:
+                return _v
+
+        # Fallback
         return "Thứ 2"
 
     def _parse_lbg_rows(headers, rows):
+        """Parse các dòng từ file Lịch BG."""
         idx_buoi = _find_col(headers, _col_buoi)
         idx_thu = _find_col(headers, _col_thu)
         idx_tiet_tkb = _find_col(headers, _col_tiet_tkb)
@@ -4718,9 +4764,16 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
             if not ten_bai:
                 continue
 
+            # Xử lý trường hợp tên bài có xuống dòng (merge cell)
+            ten_bai = re.sub(r"\s+", " ", ten_bai).strip()
+
+            # Xử lý "Thứ"
+            _thu_raw = _get(idx_thu, "Thứ 2")
+            _thu_chuan = _chuan_hoa_thu(_thu_raw)
+
             out.append({
                 "buoi": _get(idx_buoi, "Sáng") or "Sáng",
-                "thu": _chuan_hoa_thu(_get(idx_thu, "Thứ 2")),
+                "thu": _thu_chuan,
                 "tiet_tkb": _get(idx_tiet_tkb),
                 "tiet_ppct": _get(idx_tiet_ppct),
                 "mon": _get(idx_mon, "Toán") or "Toán",
@@ -4763,13 +4816,26 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
         return _parse_lbg_rows(rows[0], rows[1:])
 
     def _read_lbg_docx(data):
+        """Đọc file DOCX — xử lý merge cell."""
         d = Document(io.BytesIO(data))
         if d.tables:
             t = d.tables[0]
-            all_rows = [[c.text.strip() for c in row.cells]
-                        for row in t.rows]
-            if len(all_rows) >= 2:
-                return _parse_lbg_rows(all_rows[0], all_rows[1:])
+            # Đọc tất cả các ô, xử lý merge cell
+            all_rows_raw = []
+            for row in t.rows:
+                row_cells = []
+                for cell in row.cells:
+                    row_cells.append(cell.text.strip())
+                all_rows_raw.append(row_cells)
+
+            # Loại bỏ dòng trống
+            all_rows_raw = [r for r in all_rows_raw
+                            if any(c for c in r)]
+            if len(all_rows_raw) >= 2:
+                return _parse_lbg_rows(all_rows_raw[0],
+                                        all_rows_raw[1:])
+
+        # Fallback: đọc từ paragraph
         out = []
         for p in d.paragraphs:
             line = p.text.strip()
@@ -4857,15 +4923,28 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
                 st.error("❌ Định dạng file không được hỗ trợ.")
 
             if _parsed:
+                # DEBUG: Đếm số giá trị Thứ
+                _ds_thu_debug = {}
+                for _r in _parsed:
+                    _t = _r.get("thu", "")
+                    _ds_thu_debug[_t] = _ds_thu_debug.get(_t, 0) + 1
+
                 st.success(
                     f"✅ Đã đọc được **{len(_parsed)}** dòng "
                     f"từ file `{_lbg_file.name}`."
                 )
 
+                with st.expander("🔍 DEBUG — Kiểm tra dữ liệu",
+                                 expanded=False):
+                    st.write("**Số dòng đọc được:** "
+                             f"{len(_parsed)}")
+                    st.write("**Các giá trị 'Thứ' đọc được:**")
+                    st.json(_ds_thu_debug)
+
                 with st.expander("👁️ Xem trước dữ liệu gốc",
                                  expanded=False):
                     _preview = []
-                    for _r in _parsed[:10]:
+                    for _r in _parsed[:20]:
                         _preview.append({
                             "Buổi": _r["buoi"],
                             "Thứ": _r["thu"],
