@@ -1960,6 +1960,145 @@ SUBJECT_RULES = {
 }
 
 
+# ============================================================
+# ĐẶC TRƯNG 4 BƯỚC + LOẠI ẢNH CHO 12 MÔN THCS
+# ============================================================
+DAC_TRUNG_4_BUOC_MON = {
+    "Toán": {
+        "buoc_1": "GV giao bài tập/ví dụ cụ thể (số bài, số trang SGK)",
+        "buoc_2": "HS làm bài vào vở, GV quan sát, hỗ trợ HS yếu",
+        "buoc_3": "HS lên bảng trình bày lời giải, HS khác nhận xét",
+        "buoc_4": "GV chốt công thức, lưu ý sai sót thường gặp",
+        "loai_anh": "hình vẽ hình học, đồ thị, biểu đồ, mô hình toán học",
+        "vi_du_1": "GV: Yêu cầu HS làm bài tập 1 SGK tr.25.",
+        "vi_du_2": "HS: Làm bài vào vở, so sánh kết quả với bạn.",
+        "vi_du_3": "HS: 2 HS lên bảng trình bày lời giải.",
+        "vi_du_4": "GV: Chốt quy tắc cộng hai phân số khác mẫu.",
+    },
+    "Ngữ văn": {
+        "buoc_1": "GV giao đoạn văn/đoạn thơ cụ thể (SGK tr.X)",
+        "buoc_2": "HS đọc, phân tích chi tiết/nhân vật",
+        "buoc_3": "HS trình bày cảm nhận, nhận xét",
+        "buoc_4": "GV chốt nội dung và nghệ thuật",
+        "loai_anh": "sơ đồ tư duy, bảng phân tích nhân vật, tranh minh họa",
+        "vi_du_1": "GV: Yêu cầu HS đọc đoạn trích SGK tr.45.",
+        "vi_du_2": "HS: Đọc đoạn trích, ghi chi tiết về nhân vật.",
+        "vi_du_3": "HS: Trình bày cảm nhận về nhân vật.",
+        "vi_du_4": "GV: Chốt nội dung và nghệ thuật của đoạn trích.",
+    },
+    "Tiếng Anh": {
+        "buoc_1": "GV giới thiệu từ vựng/ngữ pháp mới (Unit X, Lesson Y)",
+        "buoc_2": "HS luyện nghe - nói theo cặp (role-play)",
+        "buoc_3": "HS trình bày hội thoại trước lớp",
+        "buoc_4": "GV sửa phát âm, chốt ngữ pháp trọng tâm",
+        "loai_anh": "hình minh họa từ vựng, sơ đồ ngữ pháp, tranh tình huống",
+        "vi_du_1": "GV: Giới thiệu 5 từ vựng mới Unit 3.",
+        "vi_du_2": "HS: Luyện hội thoại theo cặp về chủ đề.",
+        "vi_du_3": "HS: 2 cặp trình bày hội thoại trước lớp.",
+        "vi_du_4": "GV: Sửa phát âm, chốt cấu trúc câu.",
+    },
+    "Khoa học tự nhiên": {
+        "buoc_1": "GV giới thiệu thí nghiệm/hiện tượng cụ thể",
+        "buoc_2": "HS làm thí nghiệm, ghi kết quả quan sát",
+        "buoc_3": "HS báo cáo kết quả, so sánh với dự đoán",
+        "buoc_4": "GV chốt kết luận, giải thích hiện tượng",
+        "loai_anh": "sơ đồ thí nghiệm, mô hình phân tử, biểu đồ dữ liệu",
+        "vi_du_1": "GV: Giới thiệu thí nghiệm về tính chất của nước.",
+        "vi_du_2": "HS: Làm thí nghiệm theo nhóm, ghi kết quả.",
+        "vi_du_3": "HS: Đại diện nhóm báo cáo kết quả.",
+        "vi_du_4": "GV: Chốt kết luận về tính chất của nước.",
+    },
+    "Lịch sử": {
+        "buoc_1": "GV giao tư liệu/sự kiện cụ thể (SGK tr.X)",
+        "buoc_2": "HS khai thác tư liệu, lập dòng thời gian",
+        "buoc_3": "HS trình bày diễn biến, nhận xét",
+        "buoc_4": "GV chốt nguyên nhân, kết quả, ý nghĩa",
+        "loai_anh": "dòng thời gian, bản đồ diễn biến, ảnh tư liệu lịch sử",
+        "vi_du_1": "GV: Giao tư liệu về chiến thắng Bạch Đằng.",
+        "vi_du_2": "HS: Khai thác tư liệu, lập dòng thời gian.",
+        "vi_du_3": "HS: Trình bày diễn biến trận chiến.",
+        "vi_du_4": "GV: Chốt nguyên nhân, kết quả, ý nghĩa.",
+    },
+    "Địa lí": {
+        "buoc_1": "GV giao bản đồ/biểu đồ cụ thể (SGK tr.X)",
+        "buoc_2": "HS đọc bản đồ, phân tích số liệu",
+        "buoc_3": "HS trình bày nhận xét, so sánh vùng",
+        "buoc_4": "GV chốt đặc điểm, mối quan hệ địa lí",
+        "loai_anh": "bản đồ, lược đồ, biểu đồ khí hậu, bảng số liệu",
+        "vi_du_1": "GV: Giao bản đồ tự nhiên Việt Nam SGK tr.80.",
+        "vi_du_2": "HS: Đọc bản đồ, xác định vị trí các vùng.",
+        "vi_du_3": "HS: Trình bày đặc điểm tự nhiên.",
+        "vi_du_4": "GV: Chốt đặc điểm, mối quan hệ địa lí.",
+    },
+    "Giáo dục công dân": {
+        "buoc_1": "GV nêu tình huống cụ thể (SGK tr.X)",
+        "buoc_2": "HS phân tích tình huống, thảo luận nhóm",
+        "buoc_3": "HS đóng vai, trình bày cách xử lý",
+        "buoc_4": "GV chốt chuẩn mực, bài học",
+        "loai_anh": "hình minh họa tình huống, sơ đồ hành vi",
+        "vi_du_1": "GV: Nêu tình huống về bảo vệ môi trường.",
+        "vi_du_2": "HS: Thảo luận nhóm, phân tích tình huống.",
+        "vi_du_3": "HS: Đóng vai xử lý tình huống.",
+        "vi_du_4": "GV: Chốt chuẩn mực, bài học.",
+    },
+    "Mỹ thuật": {
+        "buoc_1": "GV giới thiệu tác phẩm/mẫu vật cụ thể",
+        "buoc_2": "HS quan sát, phác thảo",
+        "buoc_3": "HS trưng bày sản phẩm, nhận xét",
+        "buoc_4": "GV chốt kỹ thuật, ý tưởng sáng tạo",
+        "loai_anh": "ảnh tác phẩm mẫu, hình vẽ hướng dẫn, sản phẩm HS",
+        "vi_du_1": "GV: Giới thiệu tác phẩm mẫu về tranh phong cảnh.",
+        "vi_du_2": "HS: Quan sát, phác thảo theo mẫu.",
+        "vi_du_3": "HS: Trưng bày sản phẩm, nhận xét bạn.",
+        "vi_du_4": "GV: Chốt kỹ thuật vẽ, ý tưởng sáng tạo.",
+    },
+    "Âm nhạc": {
+        "buoc_1": "GV hát mẫu/đọc nhạc mẫu",
+        "buoc_2": "HS luyện hát/đọc nhạc theo nhóm",
+        "buoc_3": "HS biểu diễn trước lớp",
+        "buoc_4": "GV sửa cao độ, tiết tấu, chốt kiến thức",
+        "loai_anh": "khuông nhạc, nốt nhạc, hình nhạc cụ",
+        "vi_du_1": "GV: Hát mẫu bài hát SGK tr.30.",
+        "vi_du_2": "HS: Luyện hát theo nhóm.",
+        "vi_du_3": "HS: Đại diện nhóm biểu diễn.",
+        "vi_du_4": "GV: Sửa cao độ, tiết tấu, chốt kiến thức.",
+    },
+    "Giáo dục thể chất": {
+        "buoc_1": "GV làm mẫu động tác cụ thể",
+        "buoc_2": "HS luyện tập theo nhóm",
+        "buoc_3": "HS trình diễn động tác",
+        "buoc_4": "GV sửa kỹ thuật, chốt yêu cầu",
+        "loai_anh": "hình động tác mẫu, sơ đồ kỹ thuật",
+        "vi_du_1": "GV: Làm mẫu động tác chạy đều.",
+        "vi_du_2": "HS: Luyện tập theo nhóm.",
+        "vi_du_3": "HS: Trình diễn động tác.",
+        "vi_du_4": "GV: Sửa kỹ thuật, chốt yêu cầu.",
+    },
+    "Hoạt động trải nghiệm, hướng nghiệp": {
+        "buoc_1": "GV giao nhiệm vụ trải nghiệm/dự án",
+        "buoc_2": "HS thực hiện khảo sát/trải nghiệm",
+        "buoc_3": "HS báo cáo sản phẩm dự án",
+        "buoc_4": "GV chốt kỹ năng, định hướng",
+        "loai_anh": "sơ đồ dự án, poster, ảnh mẫu, sản phẩm nhóm",
+        "vi_du_1": "GV: Giao nhiệm vụ khảo sát nghề nghiệp.",
+        "vi_du_2": "HS: Thực hiện khảo sát theo nhóm.",
+        "vi_du_3": "HS: Báo cáo sản phẩm dự án.",
+        "vi_du_4": "GV: Chốt kỹ năng, định hướng nghề.",
+    },
+    "Tin học": {
+        "buoc_1": "GV giao bài toán/thuật toán cụ thể",
+        "buoc_2": "HS thực hành trên máy, viết chương trình",
+        "buoc_3": "HS chạy thử, báo cáo kết quả",
+        "buoc_4": "GV sửa lỗi, chốt thuật toán",
+        "loai_anh": "sơ đồ thuật toán, ảnh giao diện, mã nguồn",
+        "vi_du_1": "GV: Giao bài toán tính tổng dãy số.",
+        "vi_du_2": "HS: Viết chương trình trên máy.",
+        "vi_du_3": "HS: Chạy thử, báo cáo kết quả.",
+        "vi_du_4": "GV: Sửa lỗi, chốt thuật toán.",
+    },
+}
+
+
 def _chuan_hoa_ten_mon(ten_mon):
     if not ten_mon:
         return ""
@@ -2057,7 +2196,7 @@ def get_mau_dang_dung():
 
 
 # ============================================================
-# BUILD PROMPT — CẬP NHẬT CẢNH BÁO SGK RỖNG
+# BUILD PROMPT — CẬP NHẬT ĐẶC TRƯNG 4 BƯỚC + ẢNH THEO MÔN
 # ============================================================
 def build_exec_prompt(plan):
     """Xây prompt 5512 theo mẫu chuẩn mới."""
@@ -2083,6 +2222,9 @@ def build_exec_prompt(plan):
 
     # Lấy ký hiệu đặc trưng của môn
     ky_hieu_mon = KY_HIEU_MON.get(ten_mon_chuan, "")
+
+    # Lấy đặc trưng 4 bước của môn
+    dac_trung = DAC_TRUNG_4_BUOC_MON.get(ten_mon_chuan, {})
 
     # Lấy tùy chọn tích hợp
     tich_hop_chon = plan.get("tich_hop_chon", False)
@@ -2129,6 +2271,49 @@ def build_exec_prompt(plan):
     if rules.get("khong_nen"):
         p.append("KHÔNG NÊN: " + rules["khong_nen"])
     p.append("")
+
+    # ============================================================
+    # ĐẶC TRƯNG 4 BƯỚC CỦA MÔN (MỚI)
+    # ============================================================
+    if dac_trung:
+        p.append("=== ĐẶC TRƯNG 4 BƯỚC MÔN " +
+                 ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
+        p.append("")
+        p.append("Bước 1: " + dac_trung.get("buoc_1", ""))
+        p.append("   Ví dụ: " + dac_trung.get("vi_du_1", ""))
+        p.append("")
+        p.append("Bước 2: " + dac_trung.get("buoc_2", ""))
+        p.append("   Ví dụ: " + dac_trung.get("vi_du_2", ""))
+        p.append("")
+        p.append("Bước 3: " + dac_trung.get("buoc_3", ""))
+        p.append("   Ví dụ: " + dac_trung.get("vi_du_3", ""))
+        p.append("")
+        p.append("Bước 4: " + dac_trung.get("buoc_4", ""))
+        p.append("   Ví dụ: " + dac_trung.get("vi_du_4", ""))
+        p.append("")
+
+    # ============================================================
+    # QUY TẮC CHÈN ẢNH THEO MÔN (MỚI)
+    # ============================================================
+    if dac_trung:
+        p.append("=== QUY TẮC CHÈN ẢNH MINH HỌA MÔN " +
+                 ten_mon_chuan.upper() + " (BẮT BUỘC) ===")
+        p.append("")
+        p.append("Loại ảnh cần chèn: " + dac_trung.get("loai_anh", ""))
+        p.append("")
+        p.append("Khi nào đánh dấu [ẢNH]:")
+        p.append("- Bước nào có 'quan sát hình', 'vẽ hình', "
+                 "'nhận xét hình'")
+        p.append("- Bước nào cần minh họa công thức, định nghĩa bằng hình")
+        p.append("- Bước nào liên quan đến hình học, đồ thị, biểu đồ")
+        p.append("")
+        p.append("Cách đánh dấu:")
+        p.append("- Đặt ký hiệu [ẢNH] ở ĐẦU cột 'Sản phẩm' của bước đó")
+        p.append("- VD: [ẢNH]<br>- Tam giác đều ABC<br>- 3 cạnh bằng nhau")
+        p.append("- Mỗi bảng tối đa 2 ảnh")
+        p.append("- Chỉ đánh dấu [ẢNH] ở bước THỰC SỰ cần hình")
+        p.append("- KHÔNG đánh dấu ở bước Kết luận")
+        p.append("")
 
     # KÝ HIỆU ĐẶC TRƯNG
     if ky_hieu_mon:
@@ -2255,6 +2440,99 @@ def build_exec_prompt(plan):
     p.append("   - Viết phân số dạng a/b, KHÔNG dùng dấu gạch ngang")
     p.append("   - Viết số mũ dạng Unicode x², KHÔNG dùng x^2")
     p.append("   - Đơn vị viết liền sau số: 60 km/h, 5 kg, 100 °C")
+    p.append("")
+
+    # ============================================================
+    # QUY TẮC CẤM "KẾT THÚC TIẾT HỌC" (MỚI)
+    # ============================================================
+    p.append("11. KHÔNG viết các cụm từ sau ở cuối bài:")
+    p.append("    - 'Kết thúc tiết học'")
+    p.append("    - 'Kết thúc bài học'")
+    p.append("    - 'Tổng kết tiết học'")
+    p.append("    - 'Kết thúc chương trình'")
+    p.append("    - 'Chúc các em học tốt'")
+    p.append("")
+
+    # ============================================================
+    # QUY TẮC VIẾT BẢNG 4 BƯỚC (MỚI)
+    # ============================================================
+    p.append("12. MỖI BẢNG 2 CỘT PHẢI CÓ ĐÚNG 4 DÒNG (4 BƯỚC):")
+    p.append("")
+    p.append("| Hoạt động của GV và HS | Sản phẩm |")
+    p.append("|---|---|")
+    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>GV: ...<br>HS: ... "
+             "| ... |")
+    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>GV: ...<br>HS: ... "
+             "| ... |")
+    p.append("| **Bước 3: Báo cáo, thảo luận**<br>GV: ...<br>HS: ... "
+             "| ... |")
+    p.append("| **Bước 4: Kết luận, nhận định**<br>GV: ...<br>HS: ... "
+             "| ... |")
+    p.append("")
+
+    # ============================================================
+    # QUY TẮC VIẾT CỤ THỂ GV/HS (MỚI)
+    # ============================================================
+    p.append("13. TRONG CỘT 'Hoạt động của GV và HS':")
+    p.append("    - PHẢI ghi rõ 'GV: ...' và 'HS: ...'")
+    p.append("    - Mỗi bước ghi rõ:")
+    p.append("      + GV làm gì CỤ THỂ (yêu cầu gì, gọi ai, ghi gì)")
+    p.append("      + HS làm gì CỤ THỂ (đọc gì, làm gì, trả lời gì)")
+    p.append("")
+    p.append("    🚫 CẤM viết chung chung:")
+    p.append("      ❌ 'GV tổng kết tiết học'")
+    p.append("      ❌ 'HS ghi chú lại kiến thức'")
+    p.append("      ❌ 'GV yêu cầu HS thực hiện nhiệm vụ'")
+    p.append("      ❌ 'HS thực hiện nhiệm vụ'")
+    p.append("      ❌ 'GV hướng dẫn HS'")
+    p.append("      ❌ 'HS thảo luận nhóm'")
+    p.append("")
+    p.append("    ✅ PHẢI viết cụ thể:")
+    p.append("      ✅ 'GV: Yêu cầu HS nhắc lại quy tắc ...'")
+    p.append("      ✅ 'GV: Ghi ví dụ 3/4 + 2/5 lên bảng'")
+    p.append("      ✅ 'GV: Gọi 2 HS lên bảng trình bày'")
+    p.append("      ✅ 'HS: Đọc SGK tr.25, ghi công thức vào vở'")
+    p.append("      ✅ 'HS: Làm bài tập 1, so sánh với bạn'")
+    p.append("      ✅ 'HS: Trả lời câu hỏi của GV'")
+    p.append("")
+    p.append("    Mỗi bước PHẢI có CẢ GV và HS (không chỉ 1 bên).")
+    p.append("")
+
+    # ============================================================
+    # VÍ DỤ MẪU BẢNG 4 BƯỚC (MỚI)
+    # ============================================================
+    p.append("14. VÍ DỤ MẪU BẢNG ĐÚNG CHUẨN (BẮT BUỘC COPY FORMAT):")
+    p.append("")
+    p.append("| Hoạt động của GV và HS | Sản phẩm |")
+    p.append("|---|---|")
+    p.append("| **Bước 1: Chuyển giao nhiệm vụ**<br>"
+             "GV: Yêu cầu HS nhắc lại quy tắc cộng hai phân số "
+             "khác mẫu.<br>"
+             "GV: Ghi ví dụ 3/4 + 2/5 lên bảng.<br>"
+             "HS: Nhắc lại quy tắc, ghi vào vở. | "
+             "- Quy tắc cộng hai phân số khác mẫu.<br>"
+             "- Ví dụ: 3/4 + 2/5 |")
+    p.append("| **Bước 2: Thực hiện nhiệm vụ**<br>"
+             "GV: Yêu cầu HS làm bài tập 1 SGK tr.25.<br>"
+             "GV: Quan sát, hỗ trợ HS gặp khó khăn.<br>"
+             "HS: Làm bài vào vở, so sánh kết quả với bạn. | "
+             "- Lời giải bài tập 1:<br>"
+             "a) 3/4 + 2/5 = 23/20<br>"
+             "b) 5/6 - 1/3 = 1/2 |")
+    p.append("| **Bước 3: Báo cáo, thảo luận**<br>"
+             "GV: Gọi 2 HS lên bảng trình bày.<br>"
+             "GV: Yêu cầu HS khác nhận xét.<br>"
+             "HS: 2 HS lên bảng làm bài.<br>"
+             "HS: Nhận xét, bổ sung. | "
+             "- Lời giải đúng.<br>"
+             "- Nhận xét của HS khác. |")
+    p.append("| **Bước 4: Kết luận, nhận định**<br>"
+             "GV: Chốt lại quy tắc cộng hai phân số khác mẫu.<br>"
+             "GV: Lưu ý HS quy đồng mẫu số trước khi cộng.<br>"
+             "HS: Ghi nhớ, ghi vào vở. | "
+             "- Kiến thức trọng tâm: Quy tắc cộng hai phân số "
+             "khác mẫu.<br>"
+             "- Lưu ý: quy đồng mẫu số trước khi cộng. |")
     p.append("")
 
     return "\n".join(p)
@@ -3884,13 +4162,15 @@ with tab_match:
 
 # ============ KẾT THÚC PHẦN 4/6 ============
 # ============================================================
-# PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI + CHÈN ẢNH
+# PHẦN 5/6: WORD HELPERS + SOẠN 1 BÀI + CHÈN ẢNH THEO [ẢNH]
 # ============================================================
 # Chức năng:
 #   - fix_math: chuyển LaTeX → Unicode tiếng Việt
 #   - _set_run_font, _set_table_borders
+#   - _chen_anh_vao_cell: chèn ảnh vào ô
+#   - _thay_the_anh_trong_bang: quét [ẢNH] và chèn ảnh vào đúng vị trí
 #   - add_para, add_table, _add_heading
-#   - write_content_to_doc (có chèn ảnh SGK)
+#   - write_content_to_doc (chèn ảnh theo [ẢNH])
 #   - make_doc
 #   - Nút "Soạn 1 bài" + tùy chọn Tích hợp + chèn ảnh
 # ============================================================
@@ -4087,7 +4367,6 @@ def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
 
     for idx, img_bytes in enumerate(ds_anh):
         try:
-            # Tạo paragraph mới cho ảnh
             p = cell.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before = Pt(2)
@@ -4096,14 +4375,11 @@ def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
             p.paragraph_format.left_indent = Inches(0)
             p.paragraph_format.right_indent = Inches(0)
 
-            # Xác định kích thước ảnh
             width_cm = max_width_cm
             if HAS_PIL:
                 try:
                     img = Image.open(io.BytesIO(img_bytes))
                     w_px, h_px = img.size
-                    # Giới hạn chiều rộng tối đa
-                    # Nếu ảnh dọc (h > w) → thu nhỏ hơn
                     if h_px > w_px * 1.5:
                         width_cm = max_width_cm * 0.7
                 except Exception:
@@ -4114,6 +4390,154 @@ def _chen_anh_vao_cell(cell, ds_anh, max_width_cm=6.5):
                             width=Cm(width_cm))
         except Exception:
             continue
+
+
+def _ghi_text_va_anh_vao_cell(cell, val, cur_align, is_header,
+                               ds_anh_o_nay):
+    """Ghi text + ảnh vào cell theo thứ tự.
+
+    - Nếu val có [ẢNH]: chèn ảnh vào vị trí đó
+    - Nếu không: chỉ ghi text
+
+    Args:
+        cell: ô Word
+        val: nội dung text (có thể có [ẢNH])
+        cur_align: canh lề
+        is_header: có phải header không
+        ds_anh_o_nay: list ảnh cần chèn vào ô này
+    """
+    from docx.shared import Cm
+
+    align_map = {
+        "center": WD_ALIGN_PARAGRAPH.CENTER,
+        "left": WD_ALIGN_PARAGRAPH.LEFT,
+        "right": WD_ALIGN_PARAGRAPH.RIGHT,
+        "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+    }
+
+    # Nếu header → ghi text bold
+    if is_header:
+        p = cell.paragraphs[0]
+        val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
+        val = re.sub(r"^\d+[\.\)]\s+", "", val)
+        val = val.replace("**", "").replace("[ẢNH]", "").strip()
+        run = p.add_run(val)
+        _set_run_font(run, 13, bold=True)
+        return
+
+    # Kiểm tra có [ẢNH] không
+    co_anh = "[ẢNH]" in val
+
+    if not co_anh:
+        # Ghi text bình thường
+        val = _tach_dong_trong_o(val)
+        lines_clean = []
+        for ln in val.split("\n"):
+            ln = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
+            ln = re.sub(r"^\d+[\.\)]\s+", "", ln)
+            ln = re.sub(r"\s{2,}", " ", ln).strip()
+            if ln:
+                lines_clean.append(ln)
+
+        first = True
+        for line_content in lines_clean:
+            if first:
+                target_p = cell.paragraphs[0]
+                first = False
+            else:
+                target_p = cell.add_paragraph()
+                target_p.paragraph_format.line_spacing_rule = \
+                    WD_LINE_SPACING.SINGLE
+                target_p.paragraph_format.space_before = Pt(2)
+                target_p.paragraph_format.space_after = Pt(2)
+                target_p.paragraph_format.first_line_indent = Inches(0)
+                target_p.paragraph_format.left_indent = Inches(0)
+                target_p.paragraph_format.right_indent = Inches(0)
+
+            target_p.alignment = align_map.get(
+                cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
+
+            for part in re.split(r"(\*\*[^\*]+\*\*)", line_content):
+                if part.startswith("**") and part.endswith("**") \
+                        and len(part) > 4:
+                    run = target_p.add_run(part[2:-2])
+                    _set_run_font(run, 13, bold=True)
+                else:
+                    run = target_p.add_run(part.replace("**", ""))
+                    _set_run_font(run, 13, bold=False)
+        return
+
+    # ===== CÓ [ẢNH]: chèn ảnh vào vị trí [ẢNH] =====
+    # Tách val thành các phần: trước [ẢNH], [ẢNH], sau [ẢNH]
+    _parts = re.split(r"(\[ẢNH\])", val)
+
+    first_para = True
+    for part in _parts:
+        if part == "[ẢNH]":
+            # Chèn ảnh vào đây (nếu còn ảnh)
+            if ds_anh_o_nay:
+                img_bytes = ds_anh_o_nay.pop(0)
+                try:
+                    p_anh = cell.add_paragraph()
+                    p_anh.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p_anh.paragraph_format.space_before = Pt(2)
+                    p_anh.paragraph_format.space_after = Pt(2)
+                    p_anh.paragraph_format.first_line_indent = Inches(0)
+                    p_anh.paragraph_format.left_indent = Inches(0)
+                    p_anh.paragraph_format.right_indent = Inches(0)
+
+                    # Tính kích thước ảnh
+                    width_cm = 6.5
+                    if HAS_PIL:
+                        try:
+                            img = Image.open(io.BytesIO(img_bytes))
+                            w_px, h_px = img.size
+                            if h_px > w_px * 1.5:
+                                width_cm = 6.5 * 0.7
+                        except Exception:
+                            width_cm = 6.5
+
+                    run = p_anh.add_run()
+                    run.add_picture(io.BytesIO(img_bytes),
+                                     width=Cm(width_cm))
+                except Exception:
+                    pass
+        else:
+            # Ghi text bình thường
+            val_clean = _tach_dong_trong_o(part)
+            lines_clean = []
+            for ln in val_clean.split("\n"):
+                ln = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
+                ln = re.sub(r"^\d+[\.\)]\s+", "", ln)
+                ln = re.sub(r"\s{2,}", " ", ln).strip()
+                if ln:
+                    lines_clean.append(ln)
+
+            for line_content in lines_clean:
+                if first_para:
+                    target_p = cell.paragraphs[0]
+                    first_para = False
+                else:
+                    target_p = cell.add_paragraph()
+                    target_p.paragraph_format.line_spacing_rule = \
+                        WD_LINE_SPACING.SINGLE
+                    target_p.paragraph_format.space_before = Pt(2)
+                    target_p.paragraph_format.space_after = Pt(2)
+                    target_p.paragraph_format.first_line_indent = Inches(0)
+                    target_p.paragraph_format.left_indent = Inches(0)
+                    target_p.paragraph_format.right_indent = Inches(0)
+
+                target_p.alignment = align_map.get(
+                    cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
+
+                for p2 in re.split(r"(\*\*[^\*]+\*\*)", line_content):
+                    if p2.startswith("**") and p2.endswith("**") \
+                            and len(p2) > 4:
+                        run = target_p.add_run(p2[2:-2])
+                        _set_run_font(run, 13, bold=True)
+                    else:
+                        run = target_p.add_run(p2.replace("**", ""))
+                        _set_run_font(run, 13, bold=False)
 
 
 def add_para(doc, text, align="justify", size=14,
@@ -4169,6 +4593,7 @@ def _tach_dong_trong_o(val):
     val = fix_math(val)
     val = val.replace("<br>", "\n").replace("<br/>", "\n")
     val = val.replace("<br />", "\n")
+    val = val.replace("[ẢNH]", "")   # Xóa [ẢNH] nếu còn sót
     val = re.sub(r"(?<!^)(?<!\n)(?=Bước\s*\d+\s*:)", "\n", val)
 
     chu_hoa = (r"[A-ZĐÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆ"
@@ -4196,14 +4621,14 @@ def _tach_dong_trong_o(val):
 
 def add_table(doc, rows, style="grid", col_aligns=None,
               header_aligns=None, anh_cot_2=None):
-    """Thêm bảng 2 cột có viền — có thể chèn ảnh vào cột 2.
+    """Thêm bảng 2 cột có viền — chèn ảnh vào đúng vị trí [ẢNH].
 
     Args:
         doc: Document
-        rows: list các dòng (mỗi dòng là list các ô)
-        style: "grid" — luôn có viền
-        col_aligns: list canh lề cho từng cột nội dung
-        header_aligns: list canh lề cho header
+        rows: list các dòng
+        style: "grid"
+        col_aligns: canh lề từng cột
+        header_aligns: canh lề header
         anh_cot_2: list bytes ảnh chèn vào cột 2 (Sản phẩm)
     """
     if not rows:
@@ -4248,8 +4673,9 @@ def add_table(doc, rows, style="grid", col_aligns=None,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
     }
 
-    # Xác định dòng cuối để chèn ảnh (tránh header)
-    dong_cuoi = len(rows) - 1
+    # ===== PHÂN BỔ ẢNH VÀO TỪNG Ô CÓ [ẢNH] =====
+    # Tạo bản sao ảnh để dùng pop() không làm mất
+    _ds_anh_con_lai = list(anh_cot_2) if anh_cot_2 else []
 
     for i, row in enumerate(rows):
         for j in range(n):
@@ -4271,55 +4697,21 @@ def add_table(doc, rows, style="grid", col_aligns=None,
 
             val = row[j] if j < len(row) else ""
 
-            if is_header:
-                val = re.sub(r"^[\-\+\*\•\#]+\s*", "", val)
-                val = re.sub(r"^\d+[\.\)]\s+", "", val)
-                val = val.replace("**", "").strip()
-                run = p.add_run(val)
-                _set_run_font(run, 13, bold=True)
+            # ===== Ô CÓ [ẢNH] → chèn ảnh theo thứ tự =====
+            if (not is_header and j == 1 and "[ẢNH]" in val):
+                # Đếm số [ẢNH] trong ô
+                _so_anh_can = val.count("[ẢNH]")
+                # Lấy số ảnh tương ứng từ danh sách còn lại
+                _anh_o_nay = []
+                for _k in range(_so_anh_can):
+                    if _ds_anh_con_lai:
+                        _anh_o_nay.append(_ds_anh_con_lai.pop(0))
+
+                _ghi_text_va_anh_vao_cell(
+                    c, val, cur_align, is_header, _anh_o_nay)
             else:
-                val = _tach_dong_trong_o(val)
-                lines_clean = []
-                for ln in val.split("\n"):
-                    ln = re.sub(r"^[\-\+\*\•\#]+\s*", "", ln)
-                    ln = re.sub(r"^\d+[\.\)]\s+", "", ln)
-                    ln = re.sub(r"\s{2,}", " ", ln).strip()
-                    if ln:
-                        lines_clean.append(ln)
-
-                first = True
-                for line_content in lines_clean:
-                    if first:
-                        target_p = p
-                        first = False
-                    else:
-                        target_p = c.add_paragraph()
-                        target_p.alignment = align_map.get(
-                            cur_align, WD_ALIGN_PARAGRAPH.JUSTIFY)
-                        target_p.paragraph_format.line_spacing_rule = \
-                            WD_LINE_SPACING.SINGLE
-                        target_p.paragraph_format.space_before = Pt(2)
-                        target_p.paragraph_format.space_after = Pt(2)
-                        target_p.paragraph_format.first_line_indent = \
-                            Inches(0)
-                        target_p.paragraph_format.left_indent = Inches(0)
-                        target_p.paragraph_format.right_indent = Inches(0)
-
-                    for part in re.split(r"(\*\*[^\*]+\*\*)",
-                                          line_content):
-                        if part.startswith("**") and \
-                                part.endswith("**") and len(part) > 4:
-                            run = target_p.add_run(part[2:-2])
-                            _set_run_font(run, 13, bold=True)
-                        else:
-                            run = target_p.add_run(
-                                part.replace("**", ""))
-                            _set_run_font(run, 13, bold=False)
-
-            # ===== CHÈN ẢNH VÀO CỘT 2 (Sản phẩm) =====
-            # Chỉ chèn vào cột 2, dòng cuối (nếu có ảnh)
-            if (j == 1 and i == dong_cuoi and anh_cot_2):
-                _chen_anh_vao_cell(c, anh_cot_2)
+                _ghi_text_va_anh_vao_cell(
+                    c, val, cur_align, is_header, [])
 
 
 def _add_heading(doc, text, size=14):
@@ -4489,7 +4881,6 @@ def write_content_to_doc(d, content, ds_anh_phan_loai=None):
 
     lines = content.splitlines()
     i = 0
-    # Đếm số bảng đã ghi — để biết đang ở HĐ nào
     so_bang = 0
 
     while i < len(lines):
@@ -4897,7 +5288,7 @@ def _gop_lich_bao_giang(ds_rows):
                 "ds_ghi_chu": [],
                 "so_dong_goc": 1,
                 "row_goc": dict(r),
-                "ds_dong_goc": [dict(r)],   # ⬅️ LƯU TẤT CẢ DÒNG GỐC
+                "ds_dong_goc": [dict(r)],
             }
             thu_tu.append(key)
         else:
@@ -4928,17 +5319,11 @@ def _gop_lich_bao_giang(ds_rows):
 
 
 # ============================================================
-# HÀM TẠO PHIẾU BÁO GIẢNG WORD — DÙNG ds_dong_goc
+# HÀM TẠO PHIẾU BÁO GIẢNG WORD
 # ============================================================
 def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
                                ngay_bd, buoi, mem):
-    """Tạo phiếu báo giảng Word theo mẫu chuẩn.
-
-    - Header 2 cột: UBND + CHXHCNVN
-    - Tiêu đề: PHIẾU BÁO GIẢNG BUỔI ...
-    - Bảng 7 cột có viền, gộp ô cột "Thứ ngày, tháng"
-    - DÙNG ds_dong_goc để không bị lặp bài
-    """
+    """Tạo phiếu báo giảng Word theo mẫu chuẩn."""
     from docx.oxml import OxmlElement
     from docx.shared import Cm
 
@@ -5076,7 +5461,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     _thu_order = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6",
                   "Thứ 7", "Chủ nhật"]
 
-    # ===== TẠO DÒNG TỪ ds_dong_goc =====
     _ds_dong = []
     for _b in lich_bao_giang:
         _ds_goc = _b.get("ds_dong_goc",
@@ -5092,7 +5476,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
                 "ghi_chu": _row.get("ghi_chu", ""),
             })
 
-    # Sort theo thứ tự Thứ 2 → Chủ nhật
     def _thu_idx(row):
         t = row.get("thu", "")
         if t in _thu_order:
@@ -5111,7 +5494,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
     _t = d.add_table(rows=_n_dong, cols=7)
     _t.style = "Table Grid"
 
-    # Độ rộng cột
     _col_widths_cm = [2.5, 1.2, 1.6, 2.0, 1.4, 7.5, 1.8]
     _t.autofit = False
 
@@ -5140,7 +5522,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
 
     _set_table_borders(_t, sz=6, color="000000")
 
-    # Header
     for _j, _h in enumerate(_HEADERS):
         c = _t.cell(0, _j)
         c.text = ""
@@ -5155,7 +5536,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
             run = p.add_run(_part)
             _set_run_font(run, 13, bold=True)
 
-    # Dữ liệu
     for _i, _row in enumerate(_ds_dong, start=1):
         c = _t.cell(_i, 0)
         c.text = ""
@@ -5191,9 +5571,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
             run = p.add_run(str(_val))
             _set_run_font(run, 13, bold=False)
 
-    # ============================================================
-    # GỘP Ô CỘT "Thứ ngày, tháng"
-    # ============================================================
     for _thu in _thu_order:
         _cac_dong = [
             _i for _i, _r in enumerate(_ds_dong, start=1)
@@ -5230,9 +5607,6 @@ def _tao_phieu_bao_giang_word(lich_bao_giang, tuan_so, nam_hoc,
             _cell_cuoi = _t.cell(_dong_cuoi, 0)
             _cell_goc.merge(_cell_cuoi)
 
-    # ============================================================
-    # XUẤT FILE
-    # ============================================================
     _b = io.BytesIO()
     d.save(_b)
     return _b.getvalue()
@@ -5385,7 +5759,6 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
         idx_ghichu = _find_col(headers, _col_ghichu)
 
         out = []
-        # Fill cột Thứ nếu bị merge (rỗng)
         _thu_truoc = ""
         for r in rows:
             def _get(idx, default=""):
@@ -5399,7 +5772,6 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
 
             ten_bai = re.sub(r"\s+", " ", ten_bai).strip()
 
-            # Xử lý "Thứ" bị merge
             _thu_raw = _get(idx_thu, "")
             if not _thu_raw and _thu_truoc:
                 _thu_raw = _thu_truoc
@@ -5453,7 +5825,6 @@ with st.expander("📂 Nạp từ file Excel / CSV / Word / TXT",
         return _parse_lbg_rows(rows[0], rows[1:])
 
     def _read_lbg_docx(data):
-        """Đọc file DOCX — xử lý merge cell."""
         d = Document(io.BytesIO(data))
         if d.tables:
             t = d.tables[0]
@@ -5784,7 +6155,6 @@ if st.session_state["lich_bao_giang"]:
                             f"{_text_row}"
                         )
 
-                    # ===== CHỤP ẢNH =====
                     try:
                         _ds_anh_row = chup_anh_tu_pdf(
                             _sgk_name_row, _bai_row["file"],
@@ -5892,6 +6262,11 @@ if st.session_state.get("weekly_results"):
             _s_tuan.left_margin = Inches(0.8)
             _s_tuan.right_margin = Inches(0.8)
 
+            # =====================================================
+            # CHỈ PAGE BREAK CHO BÀI ĐẦU TIÊN
+            # =====================================================
+            _so_bai_da_ghi = 0
+
             for _r in _weekly:
                 if _r["ok"]:
                     _bai_gop = _r.get("bai_gop",
@@ -5902,7 +6277,15 @@ if st.session_state.get("weekly_results"):
                                 if _ds_lop_w else
                                 _r["row"].get("lop", ""))
 
-                    _d_tuan.add_page_break()
+                    # CHỈ page break cho bài ĐẦU TIÊN
+                    if _so_bai_da_ghi == 0:
+                        _d_tuan.add_page_break()
+                    else:
+                        # Các bài sau: cách nhau 2 dòng trống
+                        _d_tuan.add_paragraph("")
+                        _d_tuan.add_paragraph("")
+
+                    _so_bai_da_ghi += 1
 
                     _tieude_ga = _d_tuan.add_paragraph()
                     _tieude_ga.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -5921,7 +6304,6 @@ if st.session_state.get("weekly_results"):
                         f"Lớp: {_lop_str}")
                     _set_run_font(_run_lop, 13, bold=False)
 
-                    # Chèn ảnh SGK
                     _anh_row_w = _r.get("anh",
                                         {"hd1": [], "hd2": [], "hd3": []})
                     write_content_to_doc(_d_tuan, _r["content"],
@@ -6071,6 +6453,8 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         - **AI local:** Ollama (chỉ dùng khi không có cloud)
         - **Lưu trữ:** GitHub
         - **Môn hỗ trợ:** 12 môn THCS
+        - **Đặc trưng 4 bước:** riêng cho từng môn
+        - **Ảnh minh họa:** từ SGK, chèn theo [ẢNH]
 
         **📚 Quy trình soạn tuần:**
 
@@ -6080,8 +6464,8 @@ with st.expander("ℹ️ Thông tin ứng dụng", expanded=False):
         4. **Bấm "Soạn cả tuần"** → AI soạn từng bài
         5. **Tải Word** → File gồm:
            - Phiếu báo giảng (trang 1 → hết)
-           - Các giáo án (mỗi bài 1 trang mới)
-           - **Ảnh từ SGK** (nếu có)
+           - Các giáo án **nối tiếp nhau** (không trống trang)
+           - **Ảnh từ SGK** chèn vào bước cần
         """
     )
 
